@@ -1,33 +1,33 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.46.0
+// @version      1.46.1
 // @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento (normal e por prioridade), atalhos de teclado, alerta de grupo econômico, contexto adicional (promessas/contatos), promessa rápida (Alt+N), painel da carteira e console de diagnóstico.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table.user.js
-// @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table.user.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo0-utilitarios-compartilhados.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo9-painel-configuracoes.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo10-recebido-na-semana.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo14-carteira.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo8-diario.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo16-negociacoes.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo1-aviso-cobranca.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo2-registrar-enviar.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo3-fila-atendimento.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo12-alerta-cliente.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo15-alertas-gerais.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo7-fila-prioridade.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo11-progresso-fila.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo13-console-diagnostico.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo5-alerta-grupo.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo17-promessa-rapida.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo18-log-atualizacoes.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo4-atalhos-teclado.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo6-contexto-adicional.js
+// @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js
+// @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo0-utilitarios-compartilhados.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo9-painel-configuracoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo10-recebido-na-semana.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo14-carteira.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo8-diario.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo16-negociacoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo1-aviso-cobranca.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo2-registrar-enviar.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo3-fila-atendimento.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo12-alerta-cliente.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo15-alertas-gerais.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo7-fila-prioridade.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo11-progresso-fila.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo13-console-diagnostico.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo5-alerta-grupo.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo17-promessa-rapida.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo18-log-atualizacoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo4-atalhos-teclado.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo6-contexto-adicional.js
 // ==/UserScript==
 
 // Este arquivo é só o "invólucro" do Tampermonkey (metadados + @require dos

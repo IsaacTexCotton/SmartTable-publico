@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.46.1', data: '25/09/2026',
+      mudancas: [
+        'O SmartTable passa a ser baixado de um endereço novo (repositório SmartTable-publico, só com os módulos). A troca é automática nesta atualização: nada muda no uso.',
+      ],
+    },
+    {
       versao: '1.46.0', data: '25/09/2026',
       mudancas: [
         'Alt+U, modo sombra: a comparação com a página baixada roda uma vez por dia (a primeira classificação do dia). Os Alt+U seguintes não baixam as páginas de novo, e o histórico guarda um resultado por dia.',

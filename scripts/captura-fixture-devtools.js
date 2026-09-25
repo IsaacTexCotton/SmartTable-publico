@@ -54,7 +54,7 @@
 
   // Sobe junto com o @version de captura-fixture.user.js (tests/wrappers.test.js
   // confere): é o @version que faz o Tampermonkey baixar este arquivo de novo.
-  const VERSAO_CAPTURA = '2.1.1';
+  const VERSAO_CAPTURA = '2.1.2';
 
   const ID_PAINEL = '__fx_painel';
   const ID_REALCE = '__fx_realce';
