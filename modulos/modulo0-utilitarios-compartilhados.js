@@ -457,8 +457,13 @@
    * @returns {string}
    */
   function apelidoParaLog(valor) {
+    // CNPJ com ou sem pontuação é o MESMO cliente: normaliza pros dígitos
+    // antes, senão "12.345.678/0001-99" e "12345678000199" virariam dois
+    // apelidos e os logs não cruzariam (achado do revisor, rodada 2).
+    const texto = String(valor ?? '');
+    const chave = /^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$/.test(texto.trim()) ? texto.replace(/\D/g, '') : texto;
     try {
-      const a = window.__diario?.apelido?.(String(valor ?? ''));
+      const a = window.__diario?.apelido?.(chave);
       if (typeof a === 'string' && a) return a;
     } catch (erro) {
       /* cai no marcador */

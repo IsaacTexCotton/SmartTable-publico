@@ -77,12 +77,29 @@
    * --------------------------------------------------------------------- */
   const logRecente = [];
 
+  // Campos que carregam dado de cliente quando um OBJETO vai pro console
+  // (ex.: o aviso de divergência do Módulo 1, protegido, loga {titulo, ...}).
+  // O regex do Módulo 8 só reconhece o FORMATO de CNPJ/CPF/telefone; número
+  // de título, nome e valor só dá pra reconhecer pelo nome do campo.
+  const CAMPOS_SENSIVEIS = /^(titulo|tituloCompleto|titulos|cnpj|cpf|razaoSocial|nomeFantasia|label|cliente|nome|telefone|email|saldo|saldoTexto|valor|valorEmAberto|vencido)$/i;
+
+  /** Serializa pro painel trocando o valor dos campos sensíveis por apelido. */
+  function serializarCensurado(valor) {
+    const apelido = (v) => window.__smartTableUtil?.apelidoParaLog?.(v) ?? 'cli.????';
+    return JSON.stringify(valor, (chave, v) => {
+      if (!chave || !CAMPOS_SENSIVEIS.test(chave) || v == null) return v;
+      if (Array.isArray(v)) return v.map((x) => (x != null && typeof x !== 'object' ? apelido(x) : x));
+      if (typeof v === 'object') return v; // objeto: os campos de dentro passam por aqui também
+      return apelido(v);
+    });
+  }
+
   function registrarLog(nivel, args) {
     const mensagem = args
       .map((a) => {
         if (typeof a === 'string') return a;
         try {
-          return JSON.stringify(a);
+          return serializarCensurado(a) ?? String(a);
         } catch (erro) {
           return String(a);
         }

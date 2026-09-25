@@ -24,9 +24,16 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.46.3', data: '25/09/2026',
+      mudancas: [
+        'Painel Alt+K: nome, CNPJ e número de título também ficam escondidos quando aparecem dentro de um aviso detalhado (antes só o CNPJ e o telefone escritos por extenso eram escondidos).',
+        'O apelido de um cliente (cli.xxxx) passa a ser o mesmo com ou sem a pontuação do CNPJ, então dá pra acompanhar o mesmo cliente de um aviso para outro.',
+      ],
+    },
+    {
       versao: '1.46.2', data: '25/09/2026',
       mudancas: [
-        'Privacidade: o que o SmartTable escreve no console e mostra no painel Alt+K não traz mais nome de cliente, CNPJ, número de título nem saldo -- no lugar aparece um apelido (cli.xxxx). Vale também para o relatório do modo sombra do Alt+U.',
+        'Privacidade: os avisos que o SmartTable escreve no console não trazem mais nome de cliente, CNPJ, número de título nem saldo -- no lugar aparece um apelido (cli.xxxx). Vale também para o relatório do modo sombra do Alt+U. (Dois avisos do cálculo de títulos ainda mostram o número do título no console do navegador; o painel Alt+K já esconde, ver 1.46.3.)',
       ],
     },
     {
