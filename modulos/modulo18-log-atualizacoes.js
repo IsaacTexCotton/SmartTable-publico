@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.46.2', data: '25/09/2026',
+      mudancas: [
+        'Privacidade: o que o SmartTable escreve no console e mostra no painel Alt+K não traz mais nome de cliente, CNPJ, número de título nem saldo -- no lugar aparece um apelido (cli.xxxx). Vale também para o relatório do modo sombra do Alt+U.',
+      ],
+    },
+    {
       versao: '1.46.1', data: '25/09/2026',
       mudancas: [
         'O SmartTable passa a ser baixado de um endereço novo (repositório SmartTable-publico, só com os módulos). A troca é automática nesta atualização: nada muda no uso.',

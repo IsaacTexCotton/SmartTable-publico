@@ -434,7 +434,7 @@
     }
     grupo.empresasComVencido.forEach((empresa) => {
       if (!empresa.url) {
-        console.warn(`[Atalhos] Não consegui montar a URL de "${empresa.razaoSocial}" -- pulando.`);
+        console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
         return;
       }
       // Navegador pode bloquear popups além do primeiro fora de um clique
@@ -465,7 +465,7 @@
     const tentativas = grupo.empresasComVencido
       .filter((empresa) => {
         if (!empresa.url) {
-          console.warn(`[Atalhos] Não consegui montar a URL de "${empresa.razaoSocial}" -- pulando.`);
+          console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
           return false;
         }
         return true;
@@ -474,7 +474,7 @@
 
     for (const { empresa, aba } of tentativas) {
       if (!aba) {
-        console.warn(`[Atalhos] Não consegui abrir aba para "${empresa.razaoSocial}" -- popup bloqueado?`);
+        console.warn(`[Atalhos] Não consegui abrir aba para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- popup bloqueado?`);
         continue;
       }
       try {
@@ -494,19 +494,19 @@
             CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
           );
           if (terminou) {
-            console.log(`[Atalhos] Relatório gerado em aba de fundo para "${empresa.razaoSocial}".`);
+            console.log(`[Atalhos] Relatório gerado em aba de fundo para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}.`);
           } else {
             console.warn(
-              `[Atalhos] Não confirmei que o relatório de "${empresa.razaoSocial}" terminou de gerar a tempo -- fechando mesmo assim.`
+              `[Atalhos] Não confirmei que o relatório de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} terminou de gerar a tempo -- fechando mesmo assim.`
             );
           }
         } else {
           console.warn(
-            `[Atalhos] Não encontrei o botão de relatório em "${empresa.razaoSocial}" a tempo (aba fechada ou demorou demais) -- fechando mesmo assim.`
+            `[Atalhos] Não encontrei o botão de relatório em ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} a tempo (aba fechada ou demorou demais) -- fechando mesmo assim.`
           );
         }
       } catch (erro) {
-        console.warn(`[Atalhos] Erro gerando relatório em aba de fundo para "${empresa.razaoSocial}":`, erro);
+        console.warn(`[Atalhos] Erro gerando relatório em aba de fundo para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}:`, erro);
       } finally {
         try {
           if (!aba.closed) aba.close();
@@ -2371,8 +2371,9 @@
       for (const r of dados.registros) {
         const valor = converterMoedaBrParaNumero(r.saldoTexto);
         if (valor === null) {
+          // Censurado: só o FORMATO do saldo (dígitos viram #), sem o título.
           console.warn(
-            `[Atalhos] Não consegui interpretar o saldo "${r.saldoTexto}" do título ${r.tituloCompleto} -- ` +
+            `[Atalhos] Não consegui interpretar um saldo (formato "${window.__diario?.valorMascarado?.(r.saldoTexto) ?? 'oculto'}") -- ` +
             'total não será preenchido automaticamente pra não enviar valor errado.'
           );
           return null;

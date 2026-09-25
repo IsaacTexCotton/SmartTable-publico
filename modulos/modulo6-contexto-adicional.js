@@ -56,7 +56,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.46.1';
+  const VERSAO_SMARTTABLE = '1.46.2';
 
   // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
   // mesma linha em que já seta sua própria flag de "já carreguei") -- este
@@ -778,7 +778,9 @@
   function montarEExpor() {
     try {
       window.__contextoAdicional = calcularContexto();
-      console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
+      // Censurado: os títulos pagos desde a última visita saem só como contagem.
+      const ctx = window.__contextoAdicional;
+      console.log('[Contexto Adicional] Calculado:', { ...ctx, titulosPagosDesdeUltimaVisita: ctx?.titulosPagosDesdeUltimaVisita?.length ?? 0 });
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
       window.__contextoAdicional = contextoVazio();

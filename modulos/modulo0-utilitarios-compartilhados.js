@@ -446,6 +446,27 @@
   }
 
   /**
+   * Identificador CENSURADO pra log/console/diagnóstico (regra permanente do
+   * usuário: "Para todos os codigos no devstool, codifique de uma maneira
+   * que as informações sensíveis sejam censuradas"). Devolve o apelido
+   * estável do Módulo 8 ("cli.xxxx": o mesmo valor vira sempre o mesmo
+   * apelido, então dá pra cruzar logs), nunca o CNPJ, a razão social ou o
+   * número do título. Sem o Módulo 8, um marcador fixo -- nunca o valor.
+   *
+   * @param {unknown} valor CNPJ, número de título, id de acordo...
+   * @returns {string}
+   */
+  function apelidoParaLog(valor) {
+    try {
+      const a = window.__diario?.apelido?.(String(valor ?? ''));
+      if (typeof a === 'string' && a) return a;
+    } catch (erro) {
+      /* cai no marcador */
+    }
+    return 'cli.????';
+  }
+
+  /**
    * 'AAAA-MM-DD' (com ou sem hora depois) -> 'DD/MM'; '' se não for data.
    * Única versão do projeto (v1.46.0, revisão de código): os Módulos 16 e 17
    * tinham cada um a sua, e a do 17 devolvia lixo pra texto vazio.
@@ -767,6 +788,7 @@
     escolherVariante,
     dataIso,
     dataCurtaDeIso,
+    apelidoParaLog,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,
     filtrosAtivosNaListaDeClientes,

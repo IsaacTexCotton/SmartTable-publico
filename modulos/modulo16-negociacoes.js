@@ -186,11 +186,11 @@
         lido.acordos.push(r.value);
         r.value.statusDesconhecidos.forEach((status) => {
           lido.statusDesconhecidos.push({ id: r.value.id, status });
-          console.warn(`[Negociações] Acordo #${r.value.id}: parcela com status "${status}" não confirmado -- tratada como pendente.`);
+          console.warn(`[Negociações] Acordo ${window.__smartTableUtil?.apelidoParaLog?.(r.value.id) ?? '?'}: parcela com status "${status}" não confirmado -- tratada como pendente.`);
         });
       } else {
         lido.erros.push(lista[i].id);
-        console.warn(`[Negociações] Não consegui ler o acordo #${lista[i].id}.`, r.reason?.message);
+        console.warn(`[Negociações] Não consegui ler o acordo ${window.__smartTableUtil?.apelidoParaLog?.(lista[i].id) ?? '?'}.`, r.reason?.message);
       }
     });
     return lido;

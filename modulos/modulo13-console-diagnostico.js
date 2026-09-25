@@ -88,7 +88,17 @@
         }
       })
       .join(' ');
-    logRecente.push({ nivel, mensagem, quando: Date.now() });
+    // Defesa em profundidade (privacidade): este painel mostra na TELA o que
+    // qualquer script escreveu no console. CNPJ/CPF/telefone viram apelido
+    // (Módulo 8) antes de guardar -- a origem continua sendo o lugar certo de
+    // não logar dado de cliente (tests/privacidade-logs.test.js).
+    let censurada = mensagem;
+    try {
+      censurada = window.__diario?.censurarTexto?.(mensagem) ?? mensagem;
+    } catch (erro) {
+      censurada = mensagem;
+    }
+    logRecente.push({ nivel, mensagem: censurada, quando: Date.now() });
     if (logRecente.length > CONFIG_CONSOLE.LIMITE_LOG) logRecente.shift();
   }
 

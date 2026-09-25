@@ -693,6 +693,10 @@
       const recente = aba.__contextoAdicionalDebug?.lerContatoMaisRecente?.();
       return recente?.data ? window.__smartTableUtil.dataIso(recente.data) : null;
     } catch (erro) {
+      // Não engole em silêncio: sem o contato, o cliente é ordenado como
+      // "nunca contatado" -- um contrato quebrado entre módulos apareceria
+      // só como ordem errada na fila.
+      console.warn('[Fila Prioridade] Falha ao ler o contato mais recente -- cliente ordenado como sem contato:', erro?.message);
       return null;
     }
   }
@@ -704,14 +708,14 @@
   async function classificarCliente(cliente) {
     const aba = window.open(cliente.url, '_blank');
     if (!aba) {
-      console.warn(`[Fila Prioridade] Não consegui abrir aba para "${cliente.label}" -- pop-up bloqueado? Permita pop-ups pra este site e tente de novo.`);
+      console.warn(`[Fila Prioridade] Não consegui abrir aba para ${window.__smartTableUtil.apelidoParaLog(cliente.cnpj)} -- pop-up bloqueado? Permita pop-ups pra este site e tente de novo.`);
       return { cliente, erro: 'popup-bloqueado' };
     }
 
     try {
       const pronto = await esperarAbaPronta(aba, CONFIG.TIMEOUT_CLASSIFICACAO_MS, CONFIG.INTERVALO_POLL_MS);
       if (!pronto) {
-        console.warn(`[Fila Prioridade] "${cliente.label}" não carregou a tempo -- deixando de fora da lista.`);
+        console.warn(`[Fila Prioridade] ${window.__smartTableUtil.apelidoParaLog(cliente.cnpj)} não carregou a tempo -- deixando de fora da lista.`);
         return { cliente, erro: 'timeout' };
       }
       return classificarAPartirDaAba(cliente, aba);
@@ -736,7 +740,7 @@
     try {
       dadosTitulos = aba.__avisoCobranca.simular();
     } catch (erro) {
-      console.warn(`[Fila Prioridade] Falha ao ler títulos de "${cliente.label}":`, erro.message);
+      console.warn(`[Fila Prioridade] Falha ao ler títulos de ${window.__smartTableUtil.apelidoParaLog(cliente.cnpj)}:`, erro.message);
       return { cliente, erro: 'falha-titulos' };
     }
 
@@ -774,7 +778,7 @@
       try {
         promessas = aba.__contextoAdicionalDebug.lerPromessas();
       } catch (erro) {
-        console.warn(`[Fila Prioridade] Falha ao ler promessas de "${cliente.label}" -- seguindo sem checar promessa futura:`, erro.message);
+        console.warn(`[Fila Prioridade] Falha ao ler promessas de ${window.__smartTableUtil.apelidoParaLog(cliente.cnpj)} -- seguindo sem checar promessa futura:`, erro.message);
       }
     }
 
@@ -1497,6 +1501,20 @@
   }
 
   /**
+   * Valor de um campo do resumo como ele SAI no relatório (console e
+   * localStorage): título e grupo viram apelido estável (privacidade). A
+   * COMPARAÇÃO usa o valor real -- censurar antes de comparar deixaria dois
+   * grupos diferentes iguais quando o apelido não está disponível.
+   */
+  function valorCensurado(campo, valor) {
+    const apelido = window.__smartTableUtil.apelidoParaLog;
+    if (valor == null || valor === '') return valor;
+    if (campo === 'titulo') return apelido(valor);
+    if (campo === 'grupo') return String(valor).split(',').map((c) => apelido(c)).join(',');
+    return valor;
+  }
+
+  /**
    * Compara aba x página baixada, cliente a cliente. Resultado de aba com
    * erro (pop-up, timeout) não tem com o que comparar -- conta à parte.
    */
@@ -1512,9 +1530,9 @@
       const campos = Object.keys(ra).filter((k) => ra[k] !== rb[k]);
       if (campos.length === 0) { relatorio.iguais += 1; return; }
       relatorio.diferencas.push({
-        cnpj: a.cliente?.cnpj ?? null,
-        cliente: a.cliente?.label ?? null,
-        campos: Object.fromEntries(campos.map((k) => [k, { aba: ra[k], pagina: rb[k] }])),
+        // Só o apelido: nada de CNPJ nem razão social no relatório.
+        id: window.__smartTableUtil.apelidoParaLog(String(a.cliente?.cnpj ?? '').replace(/\D/g, '')),
+        campos: Object.fromEntries(campos.map((k) => [k, { aba: valorCensurado(k, ra[k]), pagina: valorCensurado(k, rb[k]) }])),
         erroDaPagina: b.erro ?? null,
       });
     });
@@ -1982,7 +2000,7 @@
 
     console.log(
       '[Fila Prioridade] Fila montada:',
-      JSON.stringify(clientesDaFila.map((c) => ({ label: c.label, diasAtraso: c.diasAtraso, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome })))
+      JSON.stringify(clientesDaFila.map((c) => ({ id: window.__smartTableUtil.apelidoParaLog(c.cnpj), diasAtraso: c.diasAtraso, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome })))
     );
 
     // CORRIGIDO (bug real: o resumo acima mal dava tempo de aparecer antes
