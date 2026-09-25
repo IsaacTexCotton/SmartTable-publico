@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         SmartTable — Captura para o Claude (desenvolvimento)
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      2.1.1
+// @version      2.1.2
 // @description  Gera fixtures anonimizadas das telas do CRM para os testes do SmartTable: uma área, a página inteira ou tudo de uma tela num .zip, sem gravar nada no CRM. Shift+Alt+C abre o painel. Ferramenta de desenvolvimento, não é para operadores.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/captura-fixture.user.js
-// @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/captura-fixture.user.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/scripts/captura-fixture-devtools.js
+// @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/captura-fixture.user.js
+// @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/captura-fixture.user.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/scripts/captura-fixture-devtools.js
 // ==/UserScript==
 
 // Invólucro do Tampermonkey para scripts/captura-fixture-devtools.js, que
