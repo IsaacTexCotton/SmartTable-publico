@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.47.1', data: '28/09/2026',
+      mudancas: [
+        'Alt+U, prioridade "Segundo dia": só entra quem tem o título mais atrasado no 2º dia. Antes, um cliente com título de 2 dias e outro já em cartório entrava nessa faixa. A fila do dia já montada só muda depois de um Shift+Alt+U.',
+      ],
+    },
+    {
       versao: '1.47.0', data: '28/09/2026',
       mudancas: [
         'Painel "⚠ Alerta" do cliente: nova seção "Títulos em cartório fora do relatório", com uma caixinha por título em cartório. Marcado e confirmado, o título sai do relatório, da mensagem do Alt+A, da nota do Alt+S e da fila do Alt+U. Se todos os títulos que sobraram estiverem marcados, o Alt+S também não envia para os números das outras razões do grupo.',

@@ -638,7 +638,7 @@
   // extras (régua v2, também opcional):
   //   - semContato: a aba Contatos está vazia (faixa 4). Ausente = false.
   //   - maiorAtrasoDoCliente: maior diasAtrasoReal entre TODOS os títulos
-  //     do cliente, cartório incluído (faixa 11). Ausente = o do próprio
+  //     do cliente, cartório incluído (faixas 3 e 11). Ausente = o do próprio
   //     título escolhido, ou seja, não bloqueia a faixa.
   //   - ultimoContatoIso: data (AAAA-MM-DD) do contato mais recente, de
   //     qualquer pessoa (faixa 9). Ausente = só a movimentação decide.
@@ -649,7 +649,18 @@
 
     if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
     if (ehClusterNovo(cluster)) return 2;
-    if (situacaoKey === 'EM_ATRASO' && diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA) return 3;
+    // CORRIGIDO (v1.47.1, relatado pelo usuário: "nesta prioridade é apenas
+    // títulos em segundo dia de atraso"): o título escolhido deixa o cartório
+    // de fora (regra da mensagem), então um cliente com título de 2 dias +
+    // outro em cartório há semanas entrava aqui. Agora exige, como a faixa
+    // 11, que NENHUM título do cliente tenha mais dias (cartório conta).
+    if (
+      situacaoKey === 'EM_ATRASO' &&
+      diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA &&
+      maiorAtrasoDoCliente <= diasAtrasoReal
+    ) {
+      return 3;
+    }
     if (extras.semContato === true) return 4;
     if (tipoPromessa === 'DIA_DA_PROMESSA') return 5;
     if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 6;
