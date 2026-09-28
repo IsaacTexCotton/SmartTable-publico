@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.48.1', data: '28/09/2026',
+      mudancas: [
+        'Progresso da fila: as faixas voltam a aparecer coloridas no dia da troca da régua. Na 1.48.0, a fila montada antes da atualização aparecia toda em cinza.',
+        'Cores das faixas refeitas por critério: nenhuma cor repetida (Cartório e SCPC no último dia agora se diferenciam), contraste mínimo de acessibilidade em todas e distinção mantida para quem tem daltonismo vermelho-verde.',
+      ],
+    },
+    {
       versao: '1.48.0', data: '28/09/2026',
       mudancas: [
         'Alt+U, régua de prioridade com 15 faixas: o antigo "Demais dias" foi separado em 12 Título em cartório e outro vencido, 13 5º dia de atraso, 14 SCPC antes do aviso de suspensão (quem está mais perto do 16º dia primeiro) e 15 Demais dias.',

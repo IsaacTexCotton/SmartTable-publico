@@ -277,40 +277,41 @@
   // do 16º dia, quando começa o aviso de suspensão) -- ver compararPelaRegua.
   const FAIXA_SCPC_ANTES_DO_AVISO = 14;
 
-  // Cor de destaque do aviso de troca de prioridade (ver toastTrocaPrioridade
-  // abaixo) -- reaproveita tons já usados em outros pontos do sistema pra
-  // não introduzir uma paleta nova: vermelho do rail ULTIMO_DIA (Módulo 1)
-  // pras duas faixas de "último dia" (cartório e SCPC -- mesmo significado,
-  // mesma cor, mesmo em posições diferentes da régua), verde/vermelho-tijolo
-  // dos toasts de sucesso/erro (Módulo 2) pras duas faixas de promessa,
-  // âmbar do botão "Continuar fila anterior" (Módulo 3) pro atraso inicial,
-  // índigo do rail NEGATIVADO_SCPC (Módulo 1) pro aviso de suspensão, e o
-  // cinza neutro do rail EM_ATRASO pra "demais dias". Duas cores novas pras
-  // duas faixas que não existiam antes: "segundo dia" (contato bem cedo) e
-  // "última movimentação há mais de um mês" (conta parada/esquecida).
-  // Régua v2: "sem nenhum contato" num petróleo mais escuro que o do
-  // "segundo dia" (vizinhas na régua, contato cedo), e "antes do aviso
-  // final" num índigo mais claro que o do aviso final (mesma janela SCPC).
+  // Cor de cada faixa: borda do aviso de troca de prioridade (ver
+  // toastTrocaPrioridade abaixo) e barra/ponto do painel de progresso
+  // (Módulo 11). Paleta v1.48.1, aprovada pelo usuário em 28/09, escolhida
+  // por critério e não por gosto:
+  //  - contraste de pelo menos 3:1 sobre o branco do painel (WCAG 2.1,
+  //    critério 1.4.11, contraste de elementos gráficos);
+  //  - todos os tons da escala publicada do Untitled UI (derivada do
+  //    Tailwind), nenhum inventado;
+  //  - escolhidos por otimização para maximizar a menor diferença
+  //    perceptível (CIEDE2000) entre duas faixas quaisquer: 14,2 com visão
+  //    normal e 4,8 simulando deuteranopia (antes: 0, faixas 1 e 10 iguais);
+  //  - uma família por significado: vermelho = último dia (1 e 10), roxo =
+  //    Cluster Novo, ciano/verde-azulado = contato (3 e 4), verde = promessa
+  //    no dia, rosa = promessa quebrada, índigo = janela SCPC (7, 8, 14),
+  //    musgo = conta esquecida, laranja/âmbar/ocre = atraso e cartório
+  //    (11, 12, 13), cinza = demais dias.
+  // A cor nunca é o único sinal: a faixa sempre aparece com número e nome
+  // (WCAG 1.4.1). tests/fila-prioridade.test.js confere contraste e que
+  // nenhuma cor se repete.
   const CORES_PRIORIDADE = {
-    1: '#A3251A',
-    2: '#54407C',
-    3: '#0E7490',
-    4: '#0F5F73',
-    5: '#1B6B4A',
-    6: '#8A2A16',
-    7: '#313A8C',
-    8: '#5B63B0',
-    9: '#6B4226',
-    10: '#A3251A',
-    11: '#B45309',
-    // Régua v3: cartório no mesmo âmbar-escuro do rail EM_CARTORIO do
-    // relatório; 5º dia num âmbar mais claro que o do atraso inicial
-    // (vizinhas, mesma natureza); SCPC antes do aviso num índigo ainda mais
-    // claro que as faixas 7/8 (mesma janela SCPC). Demais, o cinza de sempre.
-    12: '#8A5A00',
-    13: '#C2771D',
-    14: '#7C84C4',
-    15: '#4E5D6C',
+    1: '#D92D20',
+    2: '#9F1AB1',
+    3: '#088AB2',
+    4: '#125D56',
+    5: '#067647',
+    6: '#DD2590',
+    7: '#3538CD',
+    8: '#6172F3',
+    9: '#335015',
+    10: '#E31B54',
+    11: '#93370D',
+    12: '#A15C07',
+    13: '#CA8504',
+    14: '#363F72',
+    15: '#667085',
   };
 
   /* ---------------------------------------------------------------------

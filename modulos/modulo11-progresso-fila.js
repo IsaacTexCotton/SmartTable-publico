@@ -111,17 +111,22 @@
     });
 
     // Snapshot de OUTRA régua (ex.: o da manhã do dia em que a régua v3
-    // entrou, sem versão gravada): os números das faixas querem dizer outra
-    // coisa -- vale o nome gravado com ele, e a cor fica neutra.
+    // entrou, sem versão gravada): os NÚMEROS das faixas querem dizer outra
+    // coisa, então nome e cor saem pelo NOME gravado com ele. CORRIGIDO
+    // (relatado pelo usuário, "por que está cinza todas as cores?"): a 1ª
+    // versão deixava tudo cinza nesse caso, até as faixas que não mudaram.
+    const nomesAtuais = prioridadeDebug.NOMES_PRIORIDADE || {};
+    const coresAtuais = prioridadeDebug.CORES_PRIORIDADE || {};
     const mesmaRegua = snapshot.versaoRegua != null && snapshot.versaoRegua === prioridadeDebug.CONFIG?.VERSAO_REGUA;
-    const nomes = mesmaRegua ? (prioridadeDebug.NOMES_PRIORIDADE || {}) : {};
-    const cores = mesmaRegua ? (prioridadeDebug.CORES_PRIORIDADE || {}) : {};
+    const nomes = mesmaRegua ? nomesAtuais : {};
+    const cores = mesmaRegua ? coresAtuais : {};
+    const corPorNome = new Map(Object.entries(nomesAtuais).map(([faixa, nome]) => [nome, coresAtuais[faixa]]));
 
     const faixas = Array.from(porTier.entries())
       .map(([tier, { total, cobrados, nomeGravado }]) => ({
         tier,
         nome: nomes[tier] || nomeGravado || `Faixa ${tier}`,
-        cor: cores[tier] || CORES.apagado,
+        cor: cores[tier] || corPorNome.get(nomeGravado) || CORES.apagado,
         total,
         cobrados,
       }))
@@ -138,7 +143,7 @@
       estagioAtual = {
         tier: clienteAtual.prioridadeTier,
         nome: nomes[clienteAtual.prioridadeTier] || clienteAtual.prioridadeNome || `Faixa ${clienteAtual.prioridadeTier}`,
-        cor: cores[clienteAtual.prioridadeTier] || CORES.apagado,
+        cor: cores[clienteAtual.prioridadeTier] || corPorNome.get(clienteAtual.prioridadeNome) || CORES.apagado,
       };
     }
 
