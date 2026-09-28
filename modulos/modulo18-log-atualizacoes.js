@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.54.0', data: '28/09/2026',
+      mudancas: [
+        'Diagnósticos do ritmo de cobrança (console, só números, prontos para colar): window.__diag.qualidade() diz se o diário é confiável, window.__diag.ritmo() mostra cobertura da fila (por terço), intervalos entre contatos, pausas e horários, e window.__diag.filaDefasada() (na página da lista) conta quem saiu da lista de vencidos. Não muda nada no seu fluxo.',
+      ],
+    },
+    {
       versao: '1.53.0', data: '28/09/2026',
       mudancas: [
         'Régua do Alt+U: "SCPC antes do aviso de suspensão" passou a vir ANTES de "SCPC — último dia" (nova faixa 10; o último dia SCPC é a 11, e as faixas 12 a 14 seguem: atraso inicial, cartório e outro vencido, 5º dia).',

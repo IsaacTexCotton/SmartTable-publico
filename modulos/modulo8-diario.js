@@ -92,7 +92,8 @@
         if (k && k.startsWith(CONFIG_DIARIO.PREFIXO_CHAVE)) chaves.push(k);
       }
     } catch (erro) {
-      console.warn('[Diário] Não consegui listar o localStorage.', erro);
+      // Só o NOME do erro: a mensagem de um JSON.parse pode trazer trecho do conteúdo (CNPJ, nome).
+      console.warn('[Diário] Não consegui listar o localStorage.', erro?.name);
     }
     return chaves.sort();
   }
@@ -111,7 +112,7 @@
       const lista = JSON.parse(bruto);
       return Array.isArray(lista) ? lista : [];
     } catch (erro) {
-      console.warn(`[Diário] Dia ${diaNumerico} ilegível -- tratando como vazio.`, erro);
+      console.warn(`[Diário] Dia ${diaNumerico} ilegível -- tratando como vazio.`, erro?.name);
       return [];
     }
   }
@@ -126,7 +127,7 @@
       console.warn(
         '[Diário] Não consegui gravar (cota do localStorage?). O registro deste evento foi perdido, ' +
         'mas a cobrança segue normal. Rode window.__diario.exportar() e depois window.__diario.limpar().',
-        erro
+        erro?.name
       );
       return false;
     }
@@ -906,6 +907,404 @@
    * --------------------------------------------------------------------- */
   limparAntigos();
 
+  /* ---------------------------------------------------------------------
+   * 9. RITMO DO OPERADOR (window.__diag.qualidade / ritmo / filaDefasada)
+   * -----------------------------------------------------------------
+   * PEDIDO DO USUÁRIO (28/09/2026, depois da discussão com o advogado do
+   * diabo): antes de mexer no fluxo pra "ganhar segundos", MEDIR onde o
+   * tempo do operador vai. Só o operador deste navegador conta (o usuário
+   * pediu "apenas eu"): o negociador com mais contatos gravados; qualquer
+   * outro entra só como contagem.
+   *
+   * O QUE CADA UM RESPONDE
+   *   - qualidade():    dá pra confiar nos números? (dias, eventos sem
+   *                     negociador, intervalos de zero minuto...). É o
+   *                     PORTÃO: sem 10 dias válidos, nada abaixo conclui.
+   *   - ritmo():        cobertura da fila (clientes distintos), cobertura
+   *                     por terço da fila (o que sobra é o fim dela?),
+   *                     intervalo entre contatos consecutivos e pausas,
+   *                     horários em blocos de 30 min e a fração de contatos
+   *                     depois do fim do expediente (17:15).
+   *   - filaDefasada(): (só na página da LISTA) quantos clientes da fila
+   *                     salva já não estão na lista de vencidos e ainda não
+   *                     foram contatados hoje.
+   *
+   * LIMITES QUE ESTA MEDIÇÃO TEM (o advogado do diabo insistiu nisto):
+   *   - 'contato' marca a ABERTURA do WhatsApp, não o envio: a cobertura é
+   *     um TETO. O Alt+N (promessa) não conta como contato: vira "buraco".
+   *   - A resolução do relógio é 1 minuto; por isso p25/mediana/p75 e a
+   *     fração de intervalos de 0 ou 1 minuto, nunca só a mediana.
+   *   - O ciclo entre dois contatos mistura Alt+A, WhatsApp e tudo o mais:
+   *     este diagnóstico NÃO mede a espera do Alt+A nem o custo das
+   *     colagens (isso pede cronômetro manual).
+   *   - Dias antes e depois de mudança de fluxo (ex.: v1.52.0, Alt+S) entram
+   *     juntos; a leitura por recorte (segunda x demais) ajuda, a de versão
+   *     do script não existe no diário.
+   *
+   * PRIVACIDADE (regra do projeto + red team): tudo sai por sanitizarSaida,
+   * que só deixa passar número, booleano, null e textos de uma lista fechada
+   * -- estrutural, não depende de o autor lembrar. Contagens por célula
+   * abaixo de 5 saem como "<5"; percentil só com 20 intervalos ou mais;
+   * nunca mínimo nem máximo; horários em blocos de 30 min; nada por dia
+   * nem por cliente. SOMENTE LEITURA: não grava nada (nem no diário, nem
+   * apaga a fila de ontem) e não imprime nenhum objeto de erro.
+   *
+   * ACEITO DE PROPÓSITO (revisão do guardião de privacidade): os horários do
+   * operador (primeiro/último contato, depois das 17:15) descrevem a jornada
+   * de UMA pessoa. O usuário pediu "apenas eu" e os dados são do navegador dele;
+   * se um dia esse diagnóstico for usado em máquina compartilhada, revisar.
+   * fila_total e lista_total saem exatos (agregados, sem identidade).
+   * --------------------------------------------------------------------- */
+  const RITMO = Object.freeze({
+    DIAS_MINIMOS: 10,
+    CONTATOS_MINIMOS_POR_DIA: 30,
+    LIMITES_DE_PAUSA_MIN: Object.freeze([10, 20, 30]),
+    K_MINIMO: 5,
+    N_MINIMO_PERCENTIL: 20,
+    FIM_DO_EXPEDIENTE_MIN: 17 * 60 + 15,
+    BLOCO_MIN: 30,
+    VARIACAO_MAXIMA_ENTRE_LIMITES: 0.2,
+  });
+  const TEXTOS_PERMITIDOS_NO_DIAGNOSTICO = new Set(['<5', 'n<20', 'sem dados', '0', '1 a 4', '5 ou mais']);
+
+  /**
+   * Filtro final de tudo que sai dos diagnósticos de ritmo: número finito,
+   * booleano, null, texto da lista fechada, lista, ou objeto de chaves
+   * minúsculas do próprio código. Qualquer outra coisa lança.
+   */
+  function sanitizarSaida(valor, nivel = 0) {
+    if (nivel > 6) throw new Error('saida_invalida');
+    if (valor === null || typeof valor === 'boolean') return valor;
+    if (typeof valor === 'number') {
+      // Limite: um número enorme poderia carregar dígitos de outra coisa (CNPJ) por fora da lista de textos.
+      if (!Number.isFinite(valor) || Math.abs(valor) >= 1e6) throw new Error('saida_invalida');
+      return valor;
+    }
+    if (typeof valor === 'string') {
+      if (!TEXTOS_PERMITIDOS_NO_DIAGNOSTICO.has(valor)) throw new Error('saida_invalida');
+      return valor;
+    }
+    if (Array.isArray(valor)) return valor.map((item) => sanitizarSaida(item, nivel + 1));
+    if (typeof valor === 'object') {
+      return Object.fromEntries(Object.entries(valor).map(([chave, item]) => {
+        if (!/^[a-z][a-z0-9_]*$/.test(chave)) throw new Error('saida_invalida');
+        return [chave, sanitizarSaida(item, nivel + 1)];
+      }));
+    }
+    throw new Error('saida_invalida');
+  }
+
+  /** Monta a saída e a passa pelo filtro; se algo não passa, devolve só um código fixo. */
+  function saidaSegura(montar) {
+    try {
+      return sanitizarSaida(montar());
+    } catch (erro) {
+      return { saida_invalida: true };
+    }
+  }
+
+  const arredondar = (x, casas = 3) => Math.round(x * 10 ** casas) / 10 ** casas;
+  const celulaK = (n) => (n < RITMO.K_MINIMO ? '<5' : n);
+  const faixaDeContagem = (n) => (n === 0 ? '0' : n < RITMO.K_MINIMO ? '1 a 4' : '5 ou mais');
+  const blocoDe = (minutos) => Math.floor(minutos / RITMO.BLOCO_MIN) * RITMO.BLOCO_MIN;
+
+  function percentilDe(valores, p) {
+    if (!valores.length) return null;
+    const ordenados = [...valores].sort((a, b) => a - b);
+    return ordenados[Math.min(ordenados.length - 1, Math.max(0, Math.ceil(p * ordenados.length) - 1))];
+  }
+
+  /** p25/mediana/p75 só com n suficiente; nunca mínimo nem máximo. */
+  function estatisticaDeMinutos(intervalos) {
+    const n = intervalos.length;
+    const pequenos = n === 0 ? 0 : intervalos.filter((m) => m <= 1).length / n;
+    if (n < RITMO.N_MINIMO_PERCENTIL) {
+      return { n, p25: 'n<20', mediana: 'n<20', p75: 'n<20', fracao_0_ou_1_min: arredondar(pequenos) };
+    }
+    return {
+      n,
+      p25: percentilDe(intervalos, 0.25),
+      mediana: percentilDe(intervalos, 0.5),
+      p75: percentilDe(intervalos, 0.75),
+      fracao_0_ou_1_min: arredondar(pequenos),
+    };
+  }
+
+  function diaDaSemanaDe(dia) {
+    return new Date(Math.floor(dia / 10000), (Math.floor(dia / 100) % 100) - 1, dia % 100).getDay();
+  }
+
+  /**
+   * Lê o diário (só leitura) e devolve, por dia anterior a hoje, o que o
+   * ritmo precisa -- do operador (negociador com mais contatos) apenas.
+   */
+  function lerDiasParaRitmo() {
+    const hoje = chaveDia();
+    const dias = chavesExistentes().map(diaDaChave).filter((d) => d < hoje);
+    const eventosPorDia = new Map(dias.map((d) => [d, lerDia(d)]));
+
+    const contagemPorNegociador = new Map();
+    let contatosSemNegociador = 0;
+    let totalContatos = 0;
+    eventosPorDia.forEach((eventosDoDia) => eventosDoDia.filter((e) => e.t === 'contato').forEach((e) => {
+      totalContatos += 1;
+      const n = String(e.n ?? '');
+      if (!n) contatosSemNegociador += 1;
+      else contagemPorNegociador.set(n, (contagemPorNegociador.get(n) ?? 0) + 1);
+    }));
+    const ordenados = [...contagemPorNegociador.entries()].sort((a, b) => b[1] - a[1]);
+    const operador = ordenados[0]?.[0] ?? null;
+
+    let contatosDeOutros = 0;
+    contagemPorNegociador.forEach((quantidade, nome) => { if (nome !== operador) contatosDeOutros += quantidade; });
+
+    const lista = dias.map((dia) => {
+      const eventosDoDia = eventosPorDia.get(dia);
+      const fila = new Map();
+      let filaRepetida = false;
+      let regua = null;
+      eventosDoDia.filter((e) => e.t === 'fila').forEach((e) => {
+        if (fila.has(e.c)) { filaRepetida = true; return; }
+        fila.set(e.c, Number(e.p) || 0);
+        if (regua === null) regua = e.r ?? 1;
+      });
+      // Primeiro contato de cada cliente no dia, só do operador.
+      const contatos = new Map();
+      eventosDoDia.filter((e) => e.t === 'contato' && String(e.n ?? '') === operador).forEach((e) => {
+        const h = Number(e.h);
+        // Hora em minutos desde a meia-noite: inteiro de 0 a 1439; outra coisa é dado corrompido e não entra.
+        if (!Number.isInteger(h) || h < 0 || h > 1439) return;
+        if (!contatos.has(e.c) || h < contatos.get(e.c)) contatos.set(e.c, h);
+      });
+      const valido = fila.size > 0 && contatos.size >= RITMO.CONTATOS_MINIMOS_POR_DIA;
+      return { dia, fila, filaRepetida, regua, contatos, valido };
+    });
+
+    return { hoje, lista, operador, totalContatos, contatosSemNegociador, contatosDeOutros, outros: Math.max(0, contagemPorNegociador.size - (operador ? 1 : 0)) };
+  }
+
+  /** Portão: dá pra confiar nos números? Só contagens. */
+  function qualidadeDiario() {
+    return saidaSegura(() => {
+      const dados = lerDiasParaRitmo();
+      let intervalosZero = 0;
+      let diasComFilaRepetida = 0;
+      let diasSemFila = 0;
+      const diasPorRegua = {};
+      dados.lista.forEach((d) => {
+        if (d.filaRepetida) diasComFilaRepetida += 1;
+        if (d.fila.size === 0) diasSemFila += 1;
+        else {
+          // A chave vem do campo `r` do diário: só um inteiro pequeno vira parte do nome.
+          const chave = Number.isInteger(d.regua) && d.regua >= 0 && d.regua < 100 ? `regua_${d.regua}` : 'regua_outra';
+          diasPorRegua[chave] = (diasPorRegua[chave] ?? 0) + 1;
+        }
+        const horas = [...d.contatos.entries()].filter(([c]) => d.fila.has(c)).map(([, h]) => h).sort((a, b) => a - b);
+        for (let i = 1; i < horas.length; i += 1) if (horas[i] === horas[i - 1]) intervalosZero += 1;
+      });
+      const diasValidos = dados.lista.filter((d) => d.valido).length;
+      return {
+        versao_diagnostico: 1,
+        hoje_excluido: true,
+        dias_no_diario: dados.lista.length,
+        dias_validos: diasValidos,
+        // Contagens pequenas de pessoas/eventos raros saem em FAIXA ("0", "1 a 4", "5 ou mais"):
+        // "o outro negociador fez 2 contatos" descreve alguém, e por subtração daria o número exato do operador.
+        dias_sem_fila: faixaDeContagem(diasSemFila),
+        dias_com_fila_repetida: faixaDeContagem(diasComFilaRepetida),
+        dias_por_regua: diasPorRegua,
+        contatos_no_total: dados.totalContatos,
+        contatos_sem_negociador: faixaDeContagem(dados.contatosSemNegociador),
+        contatos_de_outros_negociadores: faixaDeContagem(dados.contatosDeOutros),
+        outros_negociadores: faixaDeContagem(dados.outros),
+        intervalos_de_zero_minuto: faixaDeContagem(intervalosZero),
+        dias_minimos_para_concluir: RITMO.DIAS_MINIMOS,
+        pode_concluir: diasValidos >= RITMO.DIAS_MINIMOS,
+      };
+    });
+  }
+
+  function resumoDoRecorte(diasValidos) {
+    if (diasValidos.length < RITMO.DIAS_MINIMOS) return { dias: diasValidos.length, resultado: 'sem dados' };
+
+    // Cobertura: clientes DISTINTOS da fila do dia que receberam contato.
+    const coberturas = [];
+    const tercos = [[0, 0], [0, 0], [0, 0]]; // [clientes na fila, contatados]
+    let contatosNoTotal = 0;
+    let contatosDepoisDoExpediente = 0;
+    let diasComContatoDepoisDoExpediente = 0;
+    const filas = [];
+    const contatosPorDia = [];
+    const primeirosBlocos = [];
+    const ultimosBlocos = [];
+    diasValidos.forEach((d) => {
+      const maiorPosicao = Math.max(...d.fila.values(), 1);
+      let cobertos = 0;
+      d.fila.forEach((posicao, cliente) => {
+        const terco = Math.min(2, Math.floor(((posicao || 1) - 1) * 3 / maiorPosicao));
+        tercos[terco][0] += 1;
+        if (d.contatos.has(cliente)) { cobertos += 1; tercos[terco][1] += 1; }
+      });
+      coberturas.push(cobertos / d.fila.size);
+      filas.push(d.fila.size);
+      contatosPorDia.push(d.contatos.size);
+      const horas = [...d.contatos.values()].sort((a, b) => a - b);
+      primeirosBlocos.push(blocoDe(horas[0]));
+      ultimosBlocos.push(blocoDe(horas[horas.length - 1]));
+      const depois = horas.filter((h) => h > RITMO.FIM_DO_EXPEDIENTE_MIN).length;
+      contatosNoTotal += horas.length;
+      contatosDepoisDoExpediente += depois;
+      if (depois > 0) diasComContatoDepoisDoExpediente += 1;
+    });
+
+    const porLimite = {};
+    const medianasAtivas = [];
+    RITMO.LIMITES_DE_PAUSA_MIN.forEach((limite) => {
+      const ativos = [];
+      const ativoPorDia = [];
+      const pausaPorDia = [];
+      const spanPorDia = [];
+      const fracaoPausaPorDia = [];
+      let pausas = 0;
+      diasValidos.forEach((d) => {
+        // Só pares em que os DOIS contatos são de clientes da fila do dia.
+        const horas = [...d.contatos.entries()].filter(([c]) => d.fila.has(c)).map(([, h]) => h).sort((a, b) => a - b);
+        let ativo = 0;
+        let pausa = 0;
+        for (let i = 1; i < horas.length; i += 1) {
+          const intervalo = horas[i] - horas[i - 1];
+          if (intervalo <= limite) { ativos.push(intervalo); ativo += intervalo; } else { pausas += 1; pausa += intervalo; }
+        }
+        const span = horas.length > 1 ? horas[horas.length - 1] - horas[0] : 0;
+        ativoPorDia.push(ativo);
+        pausaPorDia.push(pausa);
+        spanPorDia.push(span);
+        fracaoPausaPorDia.push(span > 0 ? pausa / span : 0);
+      });
+      const estatistica = estatisticaDeMinutos(ativos);
+      if (typeof estatistica.mediana === 'number') medianasAtivas.push(estatistica.mediana);
+      porLimite[`limite_${limite}_min`] = {
+        intervalos_ativos: estatistica,
+        pausas_no_total: pausas,
+        tempo_ativo_min_mediano_por_dia: percentilDe(ativoPorDia, 0.5),
+        tempo_pausa_min_mediano_por_dia: percentilDe(pausaPorDia, 0.5),
+        span_min_mediano_por_dia: percentilDe(spanPorDia, 0.5),
+        fracao_de_pausa_mediana: arredondar(percentilDe(fracaoPausaPorDia, 0.5)),
+      };
+    });
+    const menor = Math.min(...medianasAtivas);
+    const maior = Math.max(...medianasAtivas);
+    const dominadoPorPausas = medianasAtivas.length < RITMO.LIMITES_DE_PAUSA_MIN.length
+      || menor === 0
+      || (maior - menor) / menor > RITMO.VARIACAO_MAXIMA_ENTRE_LIMITES;
+
+    return {
+      dias: diasValidos.length,
+      fila_mediana: percentilDe(filas, 0.5),
+      contatos_distintos_mediano: percentilDe(contatosPorDia, 0.5),
+      cobertura_mediana: arredondar(percentilDe(coberturas, 0.5)),
+      fracao_de_dias_com_cobertura_90: arredondar(coberturas.filter((c) => c >= 0.9).length / coberturas.length),
+      fracao_de_dias_com_cobertura_95: arredondar(coberturas.filter((c) => c >= 0.95).length / coberturas.length),
+      cobertura_por_terco_da_fila: tercos.map(([naFila, contatados]) => (naFila < RITMO.K_MINIMO
+        ? { clientes: '<5', cobertura: '<5' }
+        : { clientes: celulaK(naFila), cobertura: arredondar(contatados / naFila) })),
+      primeiro_contato_bloco_mediano_min: percentilDe(primeirosBlocos, 0.5),
+      ultimo_contato_bloco_mediano_min: percentilDe(ultimosBlocos, 0.5),
+      fim_do_expediente_min: RITMO.FIM_DO_EXPEDIENTE_MIN,
+      fracao_de_contatos_depois_do_expediente: arredondar(contatosDepoisDoExpediente / contatosNoTotal),
+      fracao_de_dias_com_contato_depois_do_expediente: arredondar(diasComContatoDepoisDoExpediente / diasValidos.length),
+      ritmo_por_limite_de_pausa: porLimite,
+      conclusao_indeterminada_por_pausas: dominadoPorPausas,
+    };
+  }
+
+  /** Cobertura e ritmo do operador deste navegador, por recorte (todos / segunda / demais). */
+  function relatorioRitmo() {
+    const saida = saidaSegura(() => {
+      const dados = lerDiasParaRitmo();
+      const validos = dados.lista.filter((d) => d.valido);
+      const segundas = validos.filter((d) => diaDaSemanaDe(d.dia) === 1);
+      const demais = validos.filter((d) => diaDaSemanaDe(d.dia) !== 1);
+      return {
+        versao_diagnostico: 1,
+        hoje_excluido: true,
+        dias_validos: validos.length,
+        operador_unico: dados.outros === 0,
+        outros_negociadores: faixaDeContagem(dados.outros),
+        cobertura_e_teto: true,
+        recortes: {
+          todos: resumoDoRecorte(validos),
+          segunda_feira: resumoDoRecorte(segundas),
+          demais_dias: resumoDoRecorte(demais),
+        },
+      };
+    });
+    console.log(JSON.stringify(saida));
+    console.log('%c^ Pode colar: só números. Contato = abertura do WhatsApp (cobertura é um TETO).', 'color:#1B6B4A;font-weight:bold;');
+    return saida;
+  }
+
+  /** Portão de qualidade do diário, pronto pra colar. */
+  function relatorioQualidade() {
+    const saida = qualidadeDiario();
+    console.log(JSON.stringify(saida));
+    console.log('%c^ Pode colar: só contagens.', 'color:#1B6B4A;font-weight:bold;');
+    return saida;
+  }
+
+  /**
+   * A fila salva, lida SEM efeitos: obterFila() do Módulo 3 apaga a fila de
+   * ontem (removeItem) e imprime o erro do JSON.parse (com CNPJs) -- o que
+   * quebraria "somente leitura" e a censura. Aqui o parse é próprio, silencioso,
+   * e usa o mesmo critério de dia (uma fila de outro dia não conta).
+   */
+  function lerFilaSemEfeitos() {
+    try {
+      const chave = window.filaDebug?.CONFIG?.CHAVE_STORAGE;
+      if (!chave) return null;
+      const bruto = localStorage.getItem(chave);
+      const fila = bruto ? JSON.parse(bruto) : null;
+      if (!fila || !Array.isArray(fila.clientes)) return null;
+      if (chaveDia(new Date(fila.iniciadoEm)) !== chaveDia()) return null;
+      return fila;
+    } catch (erro) {
+      return null;
+    }
+  }
+
+  /**
+   * Só na página da LISTA (window.CLIENTES só existe lá): quantos clientes da
+   * fila salva já não estão na lista de vencidos e ainda NÃO foram contatados
+   * hoje. Quem pagou depois de receber a mensagem de hoje é sucesso da
+   * cobrança e não conta. Saída em faixas ("0", "1 a 4", "5 ou mais").
+   */
+  function relatorioFilaDefasada() {
+    const saida = saidaSegura(() => {
+      const lista = Array.isArray(window.CLIENTES) ? window.CLIENTES : null;
+      const fila = lerFilaSemEfeitos();
+      const clientes = Array.isArray(fila?.clientes) ? fila.clientes : null;
+      if (!lista || !clientes) return { versao_diagnostico: 1, lista_disponivel: lista !== null, fila_disponivel: clientes !== null };
+      const naLista = new Set(lista.map((c) => c?.cnpj).filter(Boolean));
+      const atendidos = window.filaDebug?.obterAtendidosHoje?.() ?? new Set();
+      const foraDaLista = clientes.filter((c) => !naLista.has(c.cnpj));
+      const pendentes = foraDaLista.filter((c) => !atendidos.has(c.cnpj));
+      const filtros = window.__smartTableUtil?.filtrosAtivosNaListaDeClientes?.(lista) ?? null;
+      return {
+        versao_diagnostico: 1,
+        lista_disponivel: true,
+        fila_disponivel: true,
+        fila_total: clientes.length,
+        lista_total: lista.length,
+        filtro_ativo_na_lista: filtros !== null,
+        fora_da_lista: faixaDeContagem(foraDaLista.length),
+        fora_da_lista_e_ainda_nao_contatados_hoje: faixaDeContagem(pendentes.length),
+      };
+    });
+    console.log(JSON.stringify(saida));
+    console.log('%c^ Pode colar: só números e faixas.', 'color:#1B6B4A;font-weight:bold;');
+    return saida;
+  }
+
   const bytes = tamanho();
   if (bytes > CONFIG_DIARIO.LIMITE_AVISO_BYTES) {
     console.warn(
@@ -919,7 +1318,15 @@
 
   // Namespace curto pros diagnósticos que saem da tela. Tudo aqui já sai
   // censurado -- a ideia é poder colar sem ter que pensar nisso.
-  window.__diag = { fila: relatorioFila, grupo: relatorioGrupo, apelido, censurar: censurarTexto };
+  window.__diag = {
+    fila: relatorioFila,
+    grupo: relatorioGrupo,
+    apelido,
+    censurar: censurarTexto,
+    qualidade: relatorioQualidade,
+    ritmo: relatorioRitmo,
+    filaDefasada: relatorioFilaDefasada,
+  };
 
   window.__diario = {
     registrar,
@@ -943,6 +1350,12 @@
     limpar,
     chaveDia,
     hashEstavel,
+    qualidadeDiario,
+    relatorioRitmo,
+    relatorioFilaDefasada,
+    sanitizarSaida,
+    saidaSegura,
+    ritmoInterno: { RITMO, estatisticaDeMinutos, celulaK, faixaDeContagem, blocoDe },
     CONFIG_DIARIO,
   };
 })();
