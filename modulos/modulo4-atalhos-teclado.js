@@ -129,6 +129,14 @@
     // margem. A causa principal, porém, era outra (foco da aba -- ver
     // aguardarFoco), este valor é só reforço.
     INTERVALO_COPIA_PARTES_MS: 400,
+    // v1.49.0 (pedido do usuário, 28/09: "o relatório não vai para a área
+    // de transferência"): cada parte da mensagem, e a imagem, tem até
+    // TENTATIVAS_COPIA tentativas. Conta como copiado só quando o navegador
+    // CONFIRMA a escrita (a promessa do clipboard resolve). Entre uma
+    // tentativa e outra espera INTERVALO_NOVA_TENTATIVA_COPIA_MS x número
+    // da tentativa (500 ms, depois 1 s).
+    TENTATIVAS_COPIA: 3,
+    INTERVALO_NOVA_TENTATIVA_COPIA_MS: 500,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -1595,30 +1603,277 @@
     return filaEscritasClipboard;
   }
 
+  /*
+   * v1.49.0 -- CONFIRMAÇÃO DA CÓPIA DO Alt+A (pedido do usuário, 28/09)
+   * -----------------------------------------------------------------
+   * RELATO: "o relatório não vai para a área de transferência". O que o
+   * código fazia: cada parte (e a imagem) tinha UMA tentativa, a falha só
+   * aparecia no console, e um Alt+S no meio do laço CANCELAVA o que faltava
+   * -- inclusive a imagem. Se a primeira cópia do Módulo 1 tinha falhado,
+   * o relatório nunca chegava na área de transferência.
+   *
+   * AGORA (decidido com o usuário):
+   *  - cada parte tem até TENTATIVAS_COPIA tentativas, e só conta como
+   *    copiada quando o navegador confirma a escrita;
+   *  - o Alt+S apertado durante a cópia ESPERA (aviso "Aguardando o
+   *    relatório ir para a área de transferência (k de N)") e segue sozinho
+   *    quando tudo foi confirmado;
+   *  - se uma parte falha em todas as tentativas, o Alt+S NÃO envia e fica
+   *    um aviso vermelho "Relatório não foi para a área de transferência",
+   *    com "Copiar de novo" (ou um novo Alt+A).
+   * O estado vale só pro cliente em que o Alt+A foi apertado (a página não
+   * recarrega ao trocar de cliente).
+   *
+   * PRIVACIDADE: o console mostra só posição, tipo (texto/imagem), número
+   * da tentativa e o NOME do erro -- nunca o texto copiado.
+   */
+  let copiaDoAltA = null;
+  const ouvintesDaCopia = new Set();
+
+  function avisarMudancaDaCopia(estado) {
+    ouvintesDaCopia.forEach((ouvinte) => {
+      try {
+        ouvinte(estado);
+      } catch (erro) {
+        console.warn('[Atalhos] Falha ao atualizar o aviso da cópia:', erro?.name || 'erro');
+      }
+    });
+  }
+
+  /** A cópia do Alt+A deste cliente, ou null (outro cliente / nenhuma). */
+  function copiaDoAltADestaPagina() {
+    if (!copiaDoAltA) return null;
+    if (copiaDoAltA.cnpj !== cnpjDaPagina()) {
+      removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
+      return null;
+    }
+    return copiaDoAltA;
+  }
+
+  async function copiarUmaParteComTentativas(parte, copiarImagem, geracao, posicao, total) {
+    const ehImagem = parte === MARCADOR_IMAGEM_RELATORIO;
+    const tipo = ehImagem ? 'imagem' : 'texto';
+    const maximo = CONFIG_ATALHOS.TENTATIVAS_COPIA;
+    for (let tentativa = 1; tentativa <= maximo; tentativa++) {
+      if (geracao !== geracaoAtualClipboard) return 'cancelada';
+      await aguardarFoco();
+      if (geracao !== geracaoAtualClipboard) return 'cancelada';
+      let motivo = null;
+      try {
+        if (ehImagem) {
+          if ((await copiarImagem()) !== true) motivo = 'imagem não confirmada';
+        } else {
+          await navigator.clipboard.writeText(parte);
+        }
+      } catch (erro) {
+        motivo = erro?.name || 'erro';
+      }
+      if (!motivo) {
+        if (tentativa > 1) console.log(`[Atalhos] Parte ${posicao} de ${total} (${tipo}) copiada na tentativa ${tentativa}.`);
+        return 'ok';
+      }
+      const semFoco = document.hasFocus() ? '' : ', aba sem foco';
+      console.warn(`[Atalhos] Parte ${posicao} de ${total} (${tipo}): tentativa ${tentativa} de ${maximo} falhou (${motivo}${semFoco}).`);
+      if (tentativa < maximo) await esperar(CONFIG_ATALHOS.INTERVALO_NOVA_TENTATIVA_COPIA_MS * tentativa);
+    }
+    return 'falhou';
+  }
+
+  /**
+   * Copia as partes pra área de transferência, uma a uma, com confirmação.
+   *
+   * @param {string[]} partes
+   * @param {(() => Promise<boolean>)|null} copiarImagem
+   * @returns {Promise<'ok'|'falhou'|'cancelada'|'sem-api'>}
+   */
   async function copiarPartesParaAreaDeTransferencia(partes, copiarImagem = null) {
-    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') return;
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') return 'sem-api';
 
     const minhaGeracao = ++geracaoAtualClipboard;
     // Ordem de envio invertida: a última cópia fica no topo do Win+V.
     const sequencia = [...partes]
       .reverse()
       .filter((parte) => parte !== MARCADOR_IMAGEM_RELATORIO || typeof copiarImagem === 'function');
+    let resolverConclusao = () => {};
+    const estado = {
+      geracao: minhaGeracao,
+      cnpj: cnpjDaPagina(),
+      total: sequencia.length,
+      confirmadas: 0,
+      situacao: 'copiando',
+      comImagem: sequencia.includes(MARCADOR_IMAGEM_RELATORIO),
+      partes,
+      copiarImagem,
+      concluida: null,
+    };
+    estado.concluida = new Promise((resolve) => { resolverConclusao = resolve; });
+    copiaDoAltA = estado;
+    removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
+
+    const encerrar = (situacao) => {
+      estado.situacao = situacao;
+      if (situacao === 'falhou') mostrarAvisoFalhaDaCopia(estado);
+      avisarMudancaDaCopia(estado);
+      resolverConclusao(situacao);
+      return situacao;
+    };
+
     for (let i = 0; i < sequencia.length; i++) {
-      if (minhaGeracao !== geracaoAtualClipboard) return; // uma geração mais nova já assumiu (Alt+S ou novo Alt+A)
+      if (minhaGeracao !== geracaoAtualClipboard) return encerrar('cancelada'); // uma geração mais nova já assumiu (novo Alt+A)
       const parte = sequencia[i];
-      await enfileirarEscritaClipboard(async () => {
-        if (minhaGeracao !== geracaoAtualClipboard) return;
-        await aguardarFoco();
-        if (minhaGeracao !== geracaoAtualClipboard) return;
-        try {
-          if (parte === MARCADOR_IMAGEM_RELATORIO) await copiarImagem();
-          else await navigator.clipboard.writeText(parte);
-        } catch (erro) {
-          console.warn('[Atalhos] Não consegui copiar uma parte da mensagem pra área de transferência:', erro);
-        }
-      });
+      const resultado = await enfileirarEscritaClipboard(
+        () => copiarUmaParteComTentativas(parte, copiarImagem, minhaGeracao, i + 1, sequencia.length)
+      );
+      if (resultado !== 'ok') return encerrar(resultado);
+      estado.confirmadas++;
+      avisarMudancaDaCopia(estado);
       if (i < sequencia.length - 1) await esperar(CONFIG_ATALHOS.INTERVALO_COPIA_PARTES_MS);
     }
+    return encerrar('ok');
+  }
+
+  /* Avisos da cópia (textos aprovados pelo usuário em 28/09). */
+  const ID_AVISO_COPIA_AGUARDANDO = 'smarttable-aviso-copia-aguardando';
+  const ID_AVISO_COPIA_FALHOU = 'smarttable-aviso-copia-falhou';
+
+  function removerAvisoDaCopia(id) {
+    document.getElementById(id)?.remove();
+  }
+
+  function colocarAvisoFixo(el) {
+    const naPilha = window.__smartTableUtil?.colocarNaPilha;
+    if (typeof naPilha === 'function') {
+      naPilha(el, { fixo: true });
+      return;
+    }
+    Object.assign(el.style, { position: 'fixed', bottom: '150px', right: '24px', zIndex: 999999 });
+    document.body.appendChild(el);
+  }
+
+  function textoAguardandoCopia(estado) {
+    const oQue = estado.comImagem ? 'o relatório' : 'a mensagem';
+    return `Aguardando ${oQue} ir para a área de transferência (${estado.confirmadas} de ${estado.total})`;
+  }
+
+  function mostrarAvisoAguardandoCopia(estado) {
+    let el = document.getElementById(ID_AVISO_COPIA_AGUARDANDO);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = ID_AVISO_COPIA_AGUARDANDO;
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      Object.assign(el.style, {
+        background: '#16232F',
+        color: '#fff',
+        padding: '12px 18px',
+        borderRadius: '8px',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+        fontSize: '14px',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        maxWidth: '360px',
+        pointerEvents: 'none',
+      });
+      colocarAvisoFixo(el);
+    }
+    el.textContent = textoAguardandoCopia(estado);
+  }
+
+  function mostrarAvisoFalhaDaCopia(estado) {
+    removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
+    const el = document.createElement('div');
+    el.id = ID_AVISO_COPIA_FALHOU;
+    el.setAttribute('role', 'alert');
+    Object.assign(el.style, {
+      background: '#FDF3F1',
+      color: '#8A2A16',
+      border: '1px solid #E8C7BE',
+      borderLeft: '5px solid #8A2A16',
+      padding: '12px 16px',
+      borderRadius: '8px',
+      boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+      fontSize: '14px',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      maxWidth: '360px',
+      pointerEvents: 'auto',
+    });
+    const titulo = document.createElement('div');
+    titulo.dataset.papel = 'titulo';
+    titulo.style.fontWeight = '700';
+    titulo.textContent = estado.comImagem
+      ? 'Relatório não foi para a área de transferência'
+      : 'Mensagem não foi para a área de transferência';
+    const detalhe = document.createElement('div');
+    detalhe.style.marginTop = '4px';
+    detalhe.textContent = 'O Alt+S não envia até a cópia dar certo.';
+    const botoes = document.createElement('div');
+    Object.assign(botoes.style, { display: 'flex', gap: '8px', marginTop: '10px' });
+    const estiloBotao = (botao, principal) => Object.assign(botao.style, {
+      padding: '6px 12px',
+      borderRadius: '6px',
+      border: '1px solid #8A2A16',
+      background: principal ? '#8A2A16' : 'transparent',
+      color: principal ? '#fff' : '#8A2A16',
+      fontSize: '13px',
+      fontWeight: '600',
+      cursor: 'pointer',
+    });
+    const copiarDeNovo = document.createElement('button');
+    copiarDeNovo.type = 'button';
+    copiarDeNovo.dataset.papel = 'copiar-de-novo';
+    copiarDeNovo.textContent = 'Copiar de novo';
+    estiloBotao(copiarDeNovo, true);
+    // O clique é um gesto do operador, com a aba em foco: a condição mais
+    // favorável pra escrita na área de transferência.
+    copiarDeNovo.addEventListener('click', () => {
+      el.remove();
+      if (estado.cnpj !== cnpjDaPagina()) return;
+      copiarPartesParaAreaDeTransferencia(estado.partes, estado.copiarImagem);
+    });
+    const fechar = document.createElement('button');
+    fechar.type = 'button';
+    fechar.dataset.papel = 'fechar';
+    fechar.textContent = 'Fechar';
+    estiloBotao(fechar, false);
+    fechar.addEventListener('click', () => el.remove());
+    botoes.append(copiarDeNovo, fechar);
+    el.append(titulo, detalhe, botoes);
+    colocarAvisoFixo(el);
+  }
+
+  // Um Alt+S esperando por vez: apertar de novo durante a espera não
+  // agenda um segundo envio.
+  let envioAguardandoCopia = null;
+
+  async function aguardarCopiaEEnviar(copia) {
+    if (envioAguardandoCopia === copia) {
+      mostrarAvisoAguardandoCopia(copia);
+      return;
+    }
+    envioAguardandoCopia = copia;
+    const inicio = Date.now();
+    const ouvinte = (estado) => {
+      if (estado === copia && estado.situacao === 'copiando') mostrarAvisoAguardandoCopia(copia);
+    };
+    ouvintesDaCopia.add(ouvinte);
+    mostrarAvisoAguardandoCopia(copia);
+    let situacao;
+    try {
+      situacao = await copia.concluida;
+    } finally {
+      ouvintesDaCopia.delete(ouvinte);
+      removerAvisoDaCopia(ID_AVISO_COPIA_AGUARDANDO);
+      envioAguardandoCopia = null;
+    }
+    console.log(`[Atalhos] Alt+S esperou ${Date.now() - inicio} ms pela cópia do Alt+A (${situacao}).`);
+    if (situacao === 'ok') {
+      if (copia.cnpj !== cnpjDaPagina()) return; // trocou de cliente durante a espera
+      acionarRegistrarEEnviar();
+      return;
+    }
+    if (situacao === 'cancelada') {
+      window.__smartTableUtil?.toast?.('Alt+S cancelado: o Alt+A foi apertado de novo. Aperte o Alt+S quando a nova cópia terminar.', 8000);
+    }
+    // 'falhou': o aviso vermelho já está na tela (encerrar).
   }
 
   function escreverMensagemPersonalizada() {
@@ -2160,6 +2415,19 @@
     if (botaoRegistrar && botaoRegistrar.disabled) {
       console.log('[Atalhos] Registro já em andamento -- Alt+S ignorado pra não registrar em dobro.');
       window.__smartTableUtil?.toast?.('Registro em andamento -- aguarde.');
+      return;
+    }
+
+    // v1.49.0: o Alt+S só envia depois que a cópia do Alt+A deste cliente
+    // foi confirmada -- espera se ainda está copiando, recusa se falhou.
+    const copia = copiaDoAltADestaPagina();
+    if (copia?.situacao === 'copiando') {
+      aguardarCopiaEEnviar(copia);
+      return;
+    }
+    if (copia?.situacao === 'falhou') {
+      console.warn('[Atalhos] Alt+S não enviou: a cópia do Alt+A falhou em todas as tentativas.');
+      mostrarAvisoFalhaDaCopia(copia);
       return;
     }
 
@@ -3118,6 +3386,7 @@
     textoAvisoDasPartes,
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
+    copiaDoAltADestaPagina,
     aoClicarNoDocumento,
     TEXTO_AVISO_CLIQUE_MANUAL,
     aguardarFoco,

@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.49.0', data: '28/09/2026',
+      mudancas: [
+        'Alt+A: cada parte da mensagem e a imagem do relatório têm até 3 tentativas de ir para a área de transferência, e só contam como copiadas quando o navegador confirma.',
+        'Alt+S apertado enquanto a cópia ainda está em andamento: espera, mostra "Aguardando o relatório ir para a área de transferência (k de N)" e envia sozinho quando tudo foi confirmado. Antes, ele cancelava o que faltava copiar, inclusive a imagem.',
+        'Se a cópia falhar nas 3 tentativas, o Alt+S não envia e aparece o aviso "Relatório não foi para a área de transferência", com o botão "Copiar de novo".',
+      ],
+    },
+    {
       versao: '1.48.1', data: '28/09/2026',
       mudancas: [
         'Progresso da fila: as faixas voltam a aparecer coloridas no dia da troca da régua. Na 1.48.0, a fila montada antes da atualização aparecia toda em cinza.',
