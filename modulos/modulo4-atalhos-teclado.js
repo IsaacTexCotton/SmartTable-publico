@@ -140,6 +140,11 @@
     // da tentativa (500 ms, depois 1 s).
     TENTATIVAS_COPIA: 3,
     INTERVALO_NOVA_TENTATIVA_COPIA_MS: 500,
+    // v1.52.0: teto da espera do Alt+S pela imagem ficar no Ctrl+V antes de
+    // clicar em "Registrar e Enviar" (o Módulo 2 recarrega a página logo
+    // depois de registrar). Folga dentro da ativação do navegador (~5 s).
+    TIMEOUT_IMAGEM_CTRL_V_MS: 1500,
+    INTERVALO_TENTATIVA_IMAGEM_CTRL_V_MS: 150,
     // Trechos de texto (minúsculo). Relatório e Registrar já têm ID
     // confirmado (ID_BOTAO_RELATORIO, ID_BOTAO_REGISTRAR): o texto é só
     // plano B. Só TEXTO_BOTAO_CONTATO ainda não tem ID confirmado --
@@ -2007,7 +2012,7 @@
    */
   function textoAvisoDasPartes(partes) {
     return partes.includes(MARCADOR_IMAGEM_RELATORIO)
-      ? `Mensagem em ${partes.length} partes -- no WhatsApp, cole a imagem pelo Win+V e, na legenda dela, o texto que começa com "Segue o relatório".`
+      ? `Mensagem em ${partes.length} partes -- no WhatsApp, cole a imagem com Ctrl+V e, na legenda dela, o texto que começa com "Segue o relatório" (Win+V).`
       : `Mensagem em ${partes.length} partes -- use o Win+V no WhatsApp pra colar cada uma.`;
   }
 
@@ -2183,11 +2188,99 @@
    * ocasionalmente perde), um Ctrl+V resolve sem precisar achar/cortar
    * da caixa de observações.
    * --------------------------------------------------------------------- */
+  /*
+   * v1.52.0 -- IMAGEM DESTE CLIENTE NO Ctrl+V (pedido do usuário, 28/09)
+   * -----------------------------------------------------------------
+   * RELATO: o relatório foi pro cliente errado, colado do Win+V -- as
+   * imagens dos clientes anteriores continuam no histórico (nenhuma página
+   * consegue apagá-las) e as miniaturas se parecem.
+   *
+   * SOLUÇÃO (aprovada): quando a cópia do Alt+A deste cliente foi
+   * confirmada e tem imagem, o Alt+S deixa como ÚLTIMO item copiado a
+   * imagem DESTE cliente -- no WhatsApp ela é colada com Ctrl+V, sem
+   * escolher nada no Win+V. A parte 1 continua logo abaixo no histórico (o
+   * laço do Alt+A já a copiou por último); se o operador editou a caixa,
+   * o texto editado é copiado antes da imagem.
+   *
+   * A imagem só é escrita com a aba EM FOCO, na hora do Alt+S. Se o foco
+   * se perdeu, desiste: copiar depois poderia deixar no Ctrl+V a imagem de
+   * um cliente já enviado.
+   *
+   * @returns {Promise<boolean>|null} null quando não há imagem a deixar no
+   *   Ctrl+V (segue o fluxo antigo, só texto); senão, se a imagem ficou.
+   */
   function instalarCorrecaoTextoWhatsApp() {
     const caixa = encontrarCaixaDeObservacoes();
     const mensagem = caixa ? caixa.value.trim() : '';
-    if (!mensagem) return; // nada pra copiar -- deixa o fluxo normal (e o aviso de erro dele) seguir
+    if (!mensagem) return null; // nada pra copiar -- deixa o fluxo normal (e o aviso de erro dele) seguir
+    const copia = copiaDoAltADestaPagina();
+    const interno = copia ? internoDaCopia.get(copia) : null;
+    if (copia?.situacao === 'ok' && copia.comImagem && typeof interno?.copiarImagem === 'function') {
+      return copiarMensagemEImagem(mensagem, interno);
+    }
     copiarMensagemAgora(mensagem);
+    return null;
+  }
+
+  function copiarMensagemEImagem(mensagem, interno) {
+    const geracao = ++geracaoAtualClipboard;
+    const parte1 = String(interno.partes?.[0] ?? '').trim();
+    return enfileirarEscritaClipboard(async () => {
+      if (mensagem !== parte1 && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(mensagem);
+        } catch (erro) {
+          console.warn('[Atalhos] Não consegui copiar a mensagem editada:', erro?.name || 'erro');
+        }
+      }
+      return copiarImagemParaOCtrlV(interno.copiarImagem, geracao);
+    });
+  }
+
+  async function copiarImagemParaOCtrlV(copiarImagem, geracao) {
+    const maximo = CONFIG_ATALHOS.TENTATIVAS_COPIA;
+    for (let tentativa = 1; tentativa <= maximo; tentativa++) {
+      if (geracao !== geracaoAtualClipboard) return false;
+      if (!document.hasFocus()) {
+        console.warn(`[Atalhos] Imagem para o Ctrl+V: aba sem foco na tentativa ${tentativa} -- não copio depois (evita imagem de outro cliente no Ctrl+V).`);
+        return false;
+      }
+      let motivo = null;
+      try {
+        if ((await copiarImagem()) !== true) motivo = 'imagem não confirmada';
+      } catch (erro) {
+        motivo = erro?.name || 'erro';
+      }
+      if (!motivo) return true;
+      console.warn(`[Atalhos] Imagem para o Ctrl+V: tentativa ${tentativa} de ${maximo} falhou (${motivo}).`);
+      if (tentativa < maximo) await esperar(CONFIG_ATALHOS.INTERVALO_TENTATIVA_IMAGEM_CTRL_V_MS);
+    }
+    return false;
+  }
+
+  const TEXTO_IMAGEM_FORA_DO_CTRL_V = 'A imagem não ficou no Ctrl+V -- no WhatsApp, cole a imagem pelo Win+V.';
+
+  // Um envio por vez enquanto o Alt+S espera a imagem: um segundo Alt+S
+  // nesse intervalo registraria o MESMO contato duas vezes.
+  let envioEsperandoImagem = false;
+
+  async function concluirEnvioDepoisDaImagem(imagemNoCtrlV) {
+    envioEsperandoImagem = true;
+    try {
+      const teto = new Promise((resolve) => setTimeout(() => resolve('tempo'), CONFIG_ATALHOS.TIMEOUT_IMAGEM_CTRL_V_MS));
+      const resultado = await Promise.race([imagemNoCtrlV, teto]);
+      if (resultado !== true) {
+        console.warn(`[Atalhos] A imagem do relatório não ficou no Ctrl+V (${resultado === 'tempo' ? 'passou do tempo' : 'falhou'}).`);
+        window.__smartTableUtil?.toast?.(TEXTO_IMAGEM_FORA_DO_CTRL_V, 8000);
+      }
+      if (!aindaPodeAbrirOWhatsApp()) {
+        window.__smartTableUtil?.toast?.(TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S, 8000);
+        return;
+      }
+      clicarRegistrarEEnviar();
+    } finally {
+      envioEsperandoImagem = false;
+    }
   }
 
   function copiarMensagemAgora(mensagem) {
@@ -2486,6 +2579,12 @@
       return;
     }
 
+    if (envioEsperandoImagem) {
+      console.log('[Atalhos] Alt+S já está deixando a imagem no Ctrl+V -- ignorado pra não registrar em dobro.');
+      window.__smartTableUtil?.toast?.('Registro em andamento -- aguarde.');
+      return;
+    }
+
     // O Módulo 2 desabilita o botão enquanto o POST do contato está no ar.
     // simularCliqueCompleto pode chamar o handler direto (props do React,
     // elemento.onclick), passando por cima do `disabled` -- um segundo Alt+S
@@ -2525,8 +2624,15 @@
       if (mensagem) armarEnvioMultiplo(cnpj, plano.numeros, mensagem);
     }
 
-    instalarCorrecaoTextoWhatsApp();
+    const imagemNoCtrlV = instalarCorrecaoTextoWhatsApp();
+    if (imagemNoCtrlV) {
+      concluirEnvioDepoisDaImagem(imagemNoCtrlV);
+      return;
+    }
+    clicarRegistrarEEnviar();
+  }
 
+  function clicarRegistrarEEnviar() {
     // CORREÇÃO (revisão de arquitetura, item C1): antes, o avanço da fila
     // só acontecia se o clique simulado abaixo disparasse um evento real de
     // DOM que borbulhasse até o listener do Módulo 3. Isso falha em
@@ -3468,6 +3574,7 @@
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
     copiaDoAltADestaPagina,
+    TEXTO_IMAGEM_FORA_DO_CTRL_V,
     obterRessalvaPagamentoEmDiaNaoUtil,
     LISTA_ATALHOS,
     alternarPainelAjuda,

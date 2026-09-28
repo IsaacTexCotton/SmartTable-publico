@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.52.0', data: '28/09/2026',
+      mudancas: [
+        'Relatório no cliente certo: ao apertar Alt+S, a imagem do relatório DESTE cliente fica como último item copiado. No WhatsApp, cole a imagem com Ctrl+V, sem procurar no Win+V (onde ficam as imagens dos clientes anteriores). A legenda e a pergunta continuam pelo Win+V.',
+        'Se a imagem não ficar no Ctrl+V (aba sem foco ou falha na cópia), aparece o aviso "A imagem não ficou no Ctrl+V -- no WhatsApp, cole a imagem pelo Win+V." e o envio segue.',
+      ],
+    },
+    {
       versao: '1.51.0', data: '28/09/2026',
       mudancas: [
         'Alt+A no primeiro dia útil depois de fim de semana ou feriado: se o título mais atrasado do cliente está no 2º, 3º ou 4º dia, a frase final ganha "Caso já tenha pago no fim de semana, por gentileza nos encaminhar o comprovante para sinalizar em nosso sistema." (ou "no feriado", ou "no fim de semana ou no feriado", conforme o caso).',
