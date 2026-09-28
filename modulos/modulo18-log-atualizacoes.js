@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.46.4', data: '28/09/2026',
+      mudancas: [
+        'Alt+A: no primeiro contato seu com um cliente que outro negociador já contatou, sem título novo desde então, a mensagem passa a levar o relatório. Antes saía só "Sou Isaac, do financeiro..." e a pergunta, sem dizer de qual débito se tratava. O recontato de um cliente que você mesmo já contatou continua sem relatório, como antes.',
+      ],
+    },
+    {
       versao: '1.46.3', data: '25/09/2026',
       mudancas: [
         'Painel Alt+K: nome, CNPJ e número de título também ficam escondidos quando aparecem dentro de um aviso detalhado (antes só o CNPJ e o telefone escritos por extenso eram escondidos).',

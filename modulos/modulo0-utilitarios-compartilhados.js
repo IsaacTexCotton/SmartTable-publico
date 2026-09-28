@@ -287,6 +287,10 @@
     // literalmente não sobrar nenhum outro -- caso raro na prática, já que
     // um cliente com TODOS os títulos em cartório nem chega até aqui (ver
     // avisarSeNaoCobrar no Módulo 1).
+    // DECISÃO DO USUÁRIO (28/09): VERIFICAR_POSICAO continua podendo ser o
+    // escolhido aqui -- se ele for o mais atrasado, o Alt+A não gera
+    // mensagem (situação incerta), mesmo havendo outro título normal. "Esse
+    // cliente não é da minha ossada." Travado em tests/mensagens.test.js.
     const naoCartorio = dados.registros.filter((r) => r.situacaoKey !== 'EM_CARTORIO');
     if (naoCartorio.length > 0) return maiorAtrasoEntre(naoCartorio);
 

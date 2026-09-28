@@ -1330,9 +1330,26 @@
    * cliente não tinha como saber do que se tratava. Nesse caso o relatório
    * volta, mesmo com omitirRelatorio=true: é a única âncora que resta.
    */
-  function precisaDoRelatorio(omitirRelatorio, linhaSituacao, blocoContexto) {
-    const semNenhumaAncora = !blocoContexto && !linhaSituacao;
+  //
+  // CORRIGIDO (v1.46.4, revisor-de-mensagens, APROVADO pelo usuário: "Pode
+  // ajustar"): a âncora é o que fala da DÍVIDA -- a apresentação ("Sou
+  // Isaac, do financeiro...") diz quem fala, não do que se trata. Com ela
+  // contando, o cliente que eu nunca contatei, recontatado sem título novo,
+  // recebia só apresentação + "Podemos agendar...?", sem título, valor nem
+  // relatório. A linha de recontato ("Dando sequência ao contato de
+  // ontem.") CONTINUA contando: ela é o que permite omitir o relatório no
+  // recontato, como o usuário pediu -- tirá-la faria o relatório voltar em
+  // todo recontato (testado).
+  function precisaDoRelatorio(omitirRelatorio, linhaSituacao, blocoSobreADivida) {
+    const semNenhumaAncora = !blocoSobreADivida && !linhaSituacao;
     return !omitirRelatorio || semNenhumaAncora;
+  }
+
+  /** O bloco de contexto sem a apresentação (só o que fala da dívida/do contato). */
+  function montarBlocoSobreADivida(dados) {
+    return [obterLinhaAgradecimentoPagamento(dados), obterLinhaContatoRecente(), obterLinhaPromessa()]
+      .filter(Boolean)
+      .join('\n');
   }
 
   const MARCADOR_IMAGEM_RELATORIO = '__IMAGEM_RELATORIO__';
@@ -1483,7 +1500,7 @@
     // A legenda vem DEPOIS do marcador: no WhatsApp, cola-se a imagem e, na
     // tela de prévia, a legenda -- as duas pelo Win+V (ver
     // textoAvisoDasPartes: depois do Alt+S, o Ctrl+V cola a parte 1).
-    if (precisaDoRelatorio(omitirRelatorio, linhaSituacao, blocoContexto)) {
+    if (precisaDoRelatorio(omitirRelatorio, linhaSituacao, montarBlocoSobreADivida(dados))) {
       partes.push(MARCADOR_IMAGEM_RELATORIO);
       partes.push(montarLegendaRelatorio(escolhido, dados));
     } else if (linhaSituacao) {
