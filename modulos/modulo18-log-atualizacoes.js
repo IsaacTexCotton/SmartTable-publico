@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.53.0', data: '28/09/2026',
+      mudancas: [
+        'Régua do Alt+U: "SCPC antes do aviso de suspensão" passou a vir ANTES de "SCPC — último dia" (nova faixa 10; o último dia SCPC é a 11, e as faixas 12 a 14 seguem: atraso inicial, cartório e outro vencido, 5º dia).',
+        'Por isso, um cliente SCPC com menos de 16 dias que também tem título em cartório agora entra na faixa 10 (antes ia para "Título em cartório e outro vencido").',
+        'A numeração das faixas mudou: a fila e a classificação de hoje são refeitas no próximo Alt+U (leva alguns minutos). As cores das faixas seguiram o nome de cada uma.',
+      ],
+    },
+    {
       versao: '1.52.0', data: '28/09/2026',
       mudancas: [
         'Relatório no cliente certo: ao apertar Alt+S, a imagem do relatório DESTE cliente fica como último item copiado. No WhatsApp, cole a imagem com Ctrl+V, sem procurar no Win+V (onde ficam as imagens dos clientes anteriores). A legenda e a pergunta continuam pelo Win+V.',

@@ -749,20 +749,21 @@
   /**
    * Dois clientes vizinhos da MESMA faixa estão na ordem da régua v3?
    * Espelha compararPelaRegua do Módulo 7 (tests/diario.test.js confere que
-   * os dois concordam em milhares de pares): na faixa 14 (SCPC antes do
-   * aviso) mais dias primeiro; nas demais, contato mais antigo (sem contato
+   * os dois concordam em milhares de pares): na faixa SCPC antes do
+   * aviso de suspensão, mais dias primeiro; nas demais, contato mais antigo (sem contato
    * = antes de todos), depois maior valor vencido, depois mais dias.
    *
    * BUG REAL (v1.49.2, achado na revisão de comentários): até a v1.49.1 esta
    * checagem ainda era a da régua v2 (contato, depois dias) e acusava como
-   * "invariante quebrado" uma fila v3 correta -- faixa 14 e empates
+   * "invariante quebrado" uma fila v3 correta -- SCPC antes do aviso (então
+   * a faixa 14) e empates
    * decididos pelo valor vencido.
    *
    * @returns {boolean|null} true = em ordem; false = quebra; null = falta o
    *   valor vencido (fila montada antes da v1.49.2) pra decidir o empate.
    */
   function vizinhosNaOrdemDaRegua(anterior, atual) {
-    const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 14;
+    const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 10;
     const dias = (atual.diasAtraso ?? 0) - (anterior.diasAtraso ?? 0);
     if (atual.prioridadeTier === faixaDiasPrimeiro && dias !== 0) return dias < 0;
     const contatoAnt = anterior.ultimoContatoIso ?? '';
@@ -841,7 +842,7 @@
       exigir(quebrasFaixa === 0, `A ordem de faixa quebra ${quebrasFaixa} vez(es).`);
       exigir(
         quebrasDias === 0,
-        `O desempate dentro da faixa (faixa 14: mais dias; demais: contato mais antigo, maior valor vencido, mais dias) quebra ${quebrasDias} vez(es).`
+        `O desempate dentro da faixa (SCPC antes do aviso: mais dias; demais: contato mais antigo, maior valor vencido, mais dias) quebra ${quebrasDias} vez(es).`
       );
       observar(
         semValorPraDesempate === 0,
