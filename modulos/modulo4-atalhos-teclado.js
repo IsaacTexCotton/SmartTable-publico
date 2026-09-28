@@ -562,6 +562,18 @@
    * @returns {HTMLElement|null} O botão acionado, pra quem precisar esperar
    *   a geração terminar (ver acionarAtendimentoRapido).
    */
+  /*
+   * v1.54.1 (revisão, a confirmar se a página chega a ficar aberta entre
+   * clientes): o Módulo 1 guarda UMA imagem (a do último relatório gerado,
+   * de qualquer cliente). Se, depois do Alt+A do cliente A, um Alt+R (ou
+   * clique) gerou o relatório de B e o operador voltou a A, o Alt+S copiaria
+   * a imagem de B para o Ctrl+V -- o defeito que a v1.52.0 quis eliminar.
+   * Por isso este módulo lembra DE QUEM foi o último relatório gerado (pelo
+   * Alt+A, pelo Alt+R ou por clique no botão) e só deixa a imagem no Ctrl+V
+   * quando ele é do cliente da tela.
+   */
+  let cnpjDoUltimoRelatorio = null;
+
   function acionarGerarRelatorio() {
     const botao = encontrarBotaoRelatorio();
     if (!botao) {
@@ -581,8 +593,14 @@
       return botao;
     }
 
+    cnpjDoUltimoRelatorio = cnpjDaPagina();
     simularCliqueCompleto(botao);
     return botao;
+  }
+
+  /** Clique de MOUSE no botão de relatório: também é um relatório novo (de quem está na tela). */
+  function aoClicarNoBotaoDeRelatorio(evento) {
+    if (evento?.target?.closest?.(`#${CONFIG_ATALHOS.ID_BOTAO_RELATORIO}`)) cnpjDoUltimoRelatorio = cnpjDaPagina();
   }
 
   function acionarAbrirContato() {
@@ -1771,8 +1789,13 @@
 
     const encerrar = (situacao) => {
       estado.situacao = situacao;
-      if (situacao === 'falhou') mostrarAvisoFalhaDaCopia(estado);
-      avisarMudancaDaCopia(estado);
+      // O aviso na tela nunca pode impedir a espera do Alt+S de terminar.
+      try {
+        if (situacao === 'falhou') mostrarAvisoFalhaDaCopia(estado);
+        avisarMudancaDaCopia(estado);
+      } catch (erro) {
+        console.warn('[Atalhos] Falha ao atualizar o aviso da cópia:', erro?.name || 'erro');
+      }
       resolverConclusao(situacao);
       return situacao;
     };
@@ -1887,7 +1910,7 @@
       el.remove();
       const interno = internoDaCopia.get(estado);
       if (!interno || interno.cnpj !== cnpjDaPagina()) return;
-      copiarPartesParaAreaDeTransferencia(interno.partes, interno.copiarImagem);
+      copiarPartesParaAreaDeTransferencia(interno.partes, interno.copiarImagem).catch(falhaInesperadaEmSegundoPlano);
     });
     const fechar = document.createElement('button');
     fechar.type = 'button';
@@ -1917,6 +1940,11 @@
    */
   const TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S = 'Cópia confirmada. Aperte Alt+S para enviar.';
 
+  /** Chamadas em segundo plano (sem await): um erro inesperado vira aviso, nunca rejeição sem tratamento. */
+  const falhaInesperadaEmSegundoPlano = (erro) => {
+    console.warn('[Atalhos] Falha inesperada no envio/cópia:', erro?.name || 'erro');
+  };
+
   function aindaPodeAbrirOWhatsApp() {
     const ativacao = navigator.userActivation;
     return !ativacao || ativacao.isActive === true;
@@ -1935,13 +1963,22 @@
     ouvintesDaCopia.add(ouvinte);
     mostrarAvisoAguardandoCopia(copia);
     let situacao;
+    let euSouAEspera = false;
     try {
       situacao = await copia.concluida;
     } finally {
       ouvintesDaCopia.delete(ouvinte);
-      removerAvisoDaCopia(ID_AVISO_COPIA_AGUARDANDO);
-      envioAguardandoCopia = null;
+      // v1.54.1 (revisão): se um Alt+A novo + Alt+S criaram uma espera mais nova, a
+      // trava e o aviso "Aguardando" são DELA -- o fim desta não pode derrubá-los
+      // (senão um terceiro Alt+S criaria uma terceira espera e o contato seria
+      // registrado em dobro).
+      euSouAEspera = envioAguardandoCopia === copia;
+      if (euSouAEspera) {
+        removerAvisoDaCopia(ID_AVISO_COPIA_AGUARDANDO);
+        envioAguardandoCopia = null;
+      }
     }
+    if (!euSouAEspera) return; // uma espera mais nova assumiu: ela decide o envio e os avisos
     const podeAbrir = aindaPodeAbrirOWhatsApp();
     console.log(`[Atalhos] Alt+S esperou ${Date.now() - inicio} ms pela cópia do Alt+A (${situacao}; ativação ${podeAbrir ? 'ainda válida' : 'expirada'}).`);
     if (situacao === 'ok') {
@@ -2216,7 +2253,9 @@
     const copia = copiaDoAltADestaPagina();
     const interno = copia ? internoDaCopia.get(copia) : null;
     if (copia?.situacao === 'ok' && copia.comImagem && typeof interno?.copiarImagem === 'function') {
-      return copiarMensagemEImagem(mensagem, interno);
+      if (cnpjDoUltimoRelatorio === cnpjDaPagina()) return copiarMensagemEImagem(mensagem, interno);
+      console.warn('[Atalhos] O último relatório gerado nesta página não é deste cliente -- a imagem não vai para o Ctrl+V.');
+      window.__smartTableUtil?.toast?.(TEXTO_IMAGEM_FORA_DO_CTRL_V, 8000);
     }
     copiarMensagemAgora(mensagem);
     return null;
@@ -2267,8 +2306,14 @@
   async function concluirEnvioDepoisDaImagem(imagemNoCtrlV) {
     envioEsperandoImagem = true;
     try {
-      const teto = new Promise((resolve) => setTimeout(() => resolve('tempo'), CONFIG_ATALHOS.TIMEOUT_IMAGEM_CTRL_V_MS));
-      const resultado = await Promise.race([imagemNoCtrlV, teto]);
+      let temporizador = null;
+      const teto = new Promise((resolve) => { temporizador = setTimeout(() => resolve('tempo'), CONFIG_ATALHOS.TIMEOUT_IMAGEM_CTRL_V_MS); });
+      let resultado;
+      try {
+        resultado = await Promise.race([imagemNoCtrlV, teto]);
+      } finally {
+        clearTimeout(temporizador);
+      }
       if (resultado !== true) {
         console.warn(`[Atalhos] A imagem do relatório não ficou no Ctrl+V (${resultado === 'tempo' ? 'passou do tempo' : 'falhou'}).`);
         window.__smartTableUtil?.toast?.(TEXTO_IMAGEM_FORA_DO_CTRL_V, 8000);
@@ -2601,7 +2646,7 @@
     limparAvisoDeOutroCliente();
     const copia = copiaDoAltADestaPagina();
     if (copia?.situacao === 'copiando') {
-      aguardarCopiaEEnviar(copia);
+      aguardarCopiaEEnviar(copia).catch(falhaInesperadaEmSegundoPlano);
       return;
     }
     if (copia?.situacao === 'falhou') {
@@ -2626,7 +2671,7 @@
 
     const imagemNoCtrlV = instalarCorrecaoTextoWhatsApp();
     if (imagemNoCtrlV) {
-      concluirEnvioDepoisDaImagem(imagemNoCtrlV);
+      concluirEnvioDepoisDaImagem(imagemNoCtrlV).catch(falhaInesperadaEmSegundoPlano);
       return;
     }
     clicarRegistrarEEnviar();
@@ -3558,6 +3603,7 @@
     console.warn('[Atalhos] Não consegui retomar o envio pros números diferentes.', erro);
   }
   document.addEventListener('click', aoClicarNoDocumento, true);
+  document.addEventListener('click', aoClicarNoBotaoDeRelatorio, true);
   try {
     mostrarAvisoDeCliqueManualPendente();
   } catch (erro) {

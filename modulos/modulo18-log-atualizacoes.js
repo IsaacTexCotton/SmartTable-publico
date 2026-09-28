@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.54.1', data: '28/09/2026',
+      mudancas: [
+        'Alt+S e Alt+A: se você apertar Alt+A de novo e Alt+S em seguida enquanto a cópia anterior ainda termina, o fim da espera antiga não derruba mais a espera nova (antes, um terceiro Alt+S podia registrar o contato em dobro).',
+        'A imagem do Ctrl+V só é deixada se o último relatório gerado na página for o do cliente da tela. Se não for (por exemplo, você gerou o relatório de outro cliente e voltou), aparece o aviso para colar pelo Win+V.',
+        'Alt+D/Alt+K (autoconferência): uma fila montada com a régua anterior deixa de acusar erro de desempate falso e mostra um aviso pedindo o Shift+Alt+U.',
+        'Diagnósticos de ritmo: um dia só conta como válido com 30 contatos de clientes da fila; o filtro de privacidade rejeita números enormes; avisos de leitura do diário mostram só o nome do erro; contagens de outros negociadores saem em faixas; filaDefasada avisa quando o formato do CNPJ na fila e na lista parece diferente.',
+      ],
+    },
+    {
       versao: '1.54.0', data: '28/09/2026',
       mudancas: [
         'Diagnósticos do ritmo de cobrança (console, só números, prontos para colar): window.__diag.qualidade() diz se o diário é confiável, window.__diag.ritmo() mostra cobertura da fila (por terço), intervalos entre contatos, pausas e horários, e window.__diag.filaDefasada() (na página da lista) conta quem saiu da lista de vencidos. Não muda nada no seu fluxo.',

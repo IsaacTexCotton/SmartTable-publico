@@ -831,10 +831,17 @@
       let quebrasFaixa = 0;
       let quebrasDias = 0;
       let semValorPraDesempate = 0;
+      let deReguaAnterior = 0;
+      const versaoAtual = window.filaPrioridadeDebug?.CONFIG?.VERSAO_REGUA ?? null;
+      // Fila montada com OUTRA régua (o script atualizou depois do Alt+U): a ordem de faixa
+      // continua valendo (só cresce), mas o desempate dentro da faixa mudou de regra -- a
+      // faixa 10, por exemplo, era "SCPC último dia" na v3 e hoje é "SCPC antes do aviso".
+      const daOutraRegua = (x) => typeof x.versaoRegua === 'number' && versaoAtual !== null && x.versaoRegua !== versaoAtual;
       for (let i = 1; i < c.length; i += 1) {
         if (c[i].prioridadeTier < c[i - 1].prioridadeTier) quebrasFaixa += 1;
-        // Dentro da faixa: a ordem da régua v3 (ver vizinhosNaOrdemDaRegua).
+        // Dentro da faixa: a ordem da régua atual (ver vizinhosNaOrdemDaRegua).
         if (c[i].prioridadeTier === c[i - 1].prioridadeTier) {
+          if (daOutraRegua(c[i]) || daOutraRegua(c[i - 1])) { deReguaAnterior += 1; continue; }
           const emOrdem = vizinhosNaOrdemDaRegua(c[i - 1], c[i]);
           if (emOrdem === false) quebrasDias += 1;
           else if (emOrdem === null) semValorPraDesempate += 1;
@@ -844,6 +851,10 @@
       exigir(
         quebrasDias === 0,
         `O desempate dentro da faixa (SCPC antes do aviso: mais dias; demais: contato mais antigo, maior valor vencido, mais dias) quebra ${quebrasDias} vez(es).`
+      );
+      observar(
+        deReguaAnterior === 0,
+        `${deReguaAnterior} desempate(s) não conferido(s): a fila foi montada com a régua anterior (v${versaoAtual === null ? '?' : versaoAtual - 1} ou antes). Um Alt+U novo (Shift+Alt+U) resolve.`
       );
       observar(
         semValorPraDesempate === 0,
@@ -1076,7 +1087,9 @@
         if (!Number.isInteger(h) || h < 0 || h > 1439) return;
         if (!contatos.has(e.c) || h < contatos.get(e.c)) contatos.set(e.c, h);
       });
-      const valido = fila.size > 0 && contatos.size >= RITMO.CONTATOS_MINIMOS_POR_DIA;
+      // Contatos de clientes da fila (os que entram na cobertura e nos intervalos), não os avulsos (Alt+B).
+      const contatosDaFila = [...contatos.keys()].filter((c) => fila.has(c)).length;
+      const valido = fila.size > 0 && contatosDaFila >= RITMO.CONTATOS_MINIMOS_POR_DIA;
       return { dia, fila, filaRepetida, regua, contatos, valido };
     });
 
@@ -1297,6 +1310,9 @@
         lista_total: lista.length,
         filtro_ativo_na_lista: filtros !== null,
         fora_da_lista: faixaDeContagem(foraDaLista.length),
+        // Se a fila INTEIRA parece fora da lista, quase certamente o formato do CNPJ difere entre
+        // a fila e window.CLIENTES (ex.: com e sem pontuação): não confie nos números acima.
+        fila_inteira_fora_da_lista: clientes.length > 0 && foraDaLista.length === clientes.length,
         fora_da_lista_e_ainda_nao_contatados_hoje: faixaDeContagem(pendentes.length),
       };
     });
