@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.51.0', data: '28/09/2026',
+      mudancas: [
+        'Alt+A no primeiro dia útil depois de fim de semana ou feriado: se o título mais atrasado do cliente está no 2º, 3º ou 4º dia, a frase final ganha "Caso já tenha pago no fim de semana, por gentileza nos encaminhar o comprovante para sinalizar em nosso sistema." (ou "no feriado", ou "no fim de semana ou no feriado", conforme o caso).',
+        'Não entra quando a promessa de pagamento é para hoje: a frase final dela já pede o comprovante.',
+      ],
+    },
+    {
       versao: '1.50.1', data: '28/09/2026',
       mudancas: [
         'Ajuda (Alt+H): a linha do Alt+S explica que, logo depois do Alt+A, ele espera a cópia para a área de transferência e envia sozinho, e que não envia se a cópia falhar.',

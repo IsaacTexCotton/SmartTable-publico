@@ -941,6 +941,31 @@
     return frase(FRASES.ctaGenerico);
   }
 
+  /*
+   * PEDIDO DO USUÁRIO (28/09/2026, texto dele): no primeiro dia útil depois
+   * de fim de semana e/ou feriado, quem tem o título MAIS atrasado no 2º, 3º
+   * ou 4º dia pode ter pago nesses dias sem o pagamento aparecer ainda no
+   * CRM. A frase final ganha, logo depois da pergunta, a ressalva pedindo o
+   * comprovante. O período ("no fim de semana", "no feriado" ou os dois)
+   * vem do Módulo 6 (periodoNaoUtilAntesDeHoje).
+   *
+   * Fica de fora com promessa para hoje (DIA_DA_PROMESSA): a pergunta final
+   * dela já pede o comprovante do pagamento de hoje.
+   */
+  const DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL = Object.freeze({ MIN: 2, MAX: 4 });
+
+  function obterRessalvaPagamentoEmDiaNaoUtil(dados) {
+    const ctx = window.__contextoAdicional;
+    const periodo = ctx?.periodoNaoUtilAntesDeHoje;
+    if (!periodo) return '';
+    if (ctx?.promessa?.tipo === 'DIA_DA_PROMESSA') return '';
+    const dias = (dados?.registros ?? []).map((r) => r.diasAtrasoReal).filter(Number.isFinite);
+    if (dias.length === 0) return '';
+    const maior = Math.max(...dias);
+    if (maior < DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL.MIN || maior > DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL.MAX) return '';
+    return `Caso já tenha pago ${periodo}, por gentileza nos encaminhar o comprovante para sinalizar em nosso sistema.`;
+  }
+
   /* ---------------------------------------------------------------------
    * 3.0c LINHAS DE CONTEXTO ADICIONAL (Módulo 6) -- promessa e contato
    * -----------------------------------------------------------------
@@ -1520,7 +1545,11 @@
     } else if (linhaSituacao) {
       partes.push(linhaSituacao);
     }
-    if (precisaDePerguntaFinal(linhaSituacao, blocoContexto)) partes.push(obterPerguntaFinal(escolhido));
+    if (precisaDePerguntaFinal(linhaSituacao, blocoContexto)) {
+      const pergunta = obterPerguntaFinal(escolhido);
+      const ressalva = obterRessalvaPagamentoEmDiaNaoUtil(dados);
+      partes.push(ressalva ? `${pergunta} ${ressalva}` : pergunta);
+    }
 
     return partes.map((parte) => (parte === MARCADOR_IMAGEM_RELATORIO ? parte : substituirVariaveisDaFrase(parte, dados)));
   }
@@ -3439,6 +3468,7 @@
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
     copiaDoAltADestaPagina,
+    obterRessalvaPagamentoEmDiaNaoUtil,
     LISTA_ATALHOS,
     alternarPainelAjuda,
     TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S,

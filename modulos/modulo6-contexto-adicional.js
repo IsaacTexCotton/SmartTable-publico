@@ -56,7 +56,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada módulo carregado.
-  const VERSAO_SMARTTABLE = '1.50.1';
+  const VERSAO_SMARTTABLE = '1.51.0';
 
   // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
   // mesma linha em que já seta sua própria flag de "já carreguei") -- este
@@ -211,6 +211,38 @@
       if (++guarda > 30) throw new Error('Não encontrei o dia útil anterior a ' + chaveData(data));
     }
     return d;
+  }
+
+  /**
+   * PEDIDO DO USUÁRIO (28/09/2026): no primeiro dia útil depois de fim de
+   * semana e/ou feriado, o cliente pode ter pago nesses dias sem o
+   * pagamento aparecer ainda no CRM. O Alt+A acrescenta uma ressalva à
+   * frase final (ver obterRessalvaPagamentoEmDiaNaoUtil no Módulo 4).
+   *
+   * Feriado que cai no sábado/domingo conta como fim de semana. Sem o
+   * Módulo 1 (lista de feriados), só o fim de semana é reconhecido.
+   *
+   * @param {Date} hoje
+   * @returns {'no fim de semana'|'no feriado'|'no fim de semana ou no feriado'|null}
+   *   null quando hoje não é dia útil ou quando ontem foi dia útil.
+   */
+  function periodoNaoUtilAntesDe(hoje) {
+    if (!ehDiaUtil(hoje)) return null;
+    let d = adicionarDias(hoje, -1);
+    let fimDeSemana = false;
+    let feriado = false;
+    let guarda = 0;
+    while (!ehDiaUtil(d)) {
+      const diaSemana = d.getDay();
+      if (diaSemana === 0 || diaSemana === 6) fimDeSemana = true;
+      else feriado = true;
+      d = adicionarDias(d, -1);
+      if (++guarda > 30) return null;
+    }
+    if (fimDeSemana && feriado) return 'no fim de semana ou no feriado';
+    if (fimDeSemana) return 'no fim de semana';
+    if (feriado) return 'no feriado';
+    return null;
   }
 
   function formatarDataBr(data) {
@@ -746,6 +778,7 @@
       semContatoAnterior: false,
       contatoAntigo: false,
       nuncaContatadoPorMim: false,
+      periodoNaoUtilAntesDeHoje: null,
       nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR),
       calcularTitulosPendentes,
     };
@@ -765,6 +798,7 @@
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
       nuncaContatadoPorMim: calcularNuncaContatadoPorMim(totalContatos),
+      periodoNaoUtilAntesDeHoje: periodoNaoUtilAntesDe(hoje),
       // Primeiro nome de quem está logado, pra mensagem do Alt+A se
       // apresentar com o nome certo em vez de um nome fixo no código.
       nomeNegociador: nomeDoNegociador(obterUsuarioNegociador()),
@@ -866,6 +900,7 @@
     calcularContextoContato,
     calcularContatoAntigo,
     calcularNuncaContatadoPorMim,
+    periodoNaoUtilAntesDe,
     lerUsuarioLogado,
     obterUsuarioNegociador,
     nomeDoNegociador,
