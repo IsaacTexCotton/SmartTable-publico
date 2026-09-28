@@ -1181,11 +1181,13 @@
     // todo operador usa por hábito. Alt+R sozinho nunca aciona esse laço de
     // texto, por isso nunca sofre disso.
     //
-    // Chamado pelo Módulo 4 depois que o laço de texto termina, pra
-    // recolocar a imagem como conteúdo ATUAL da área de transferência --
-    // ela continua disponível no histórico do Win+V também, então nada se
-    // perde, só a ORDEM final muda: imagem por cima, não uma parte de
-    // texto qualquer.
+    // ATÉ A v1.41.2: chamado pelo Módulo 4 DEPOIS que o laço de texto
+    // terminava, pra recolocar a imagem por cima. DESDE A v1.41.3: o Módulo 4
+    // chama esta função DE DENTRO do laço, na posição da imagem na mensagem
+    // (Win+V na ordem de envio). DESDE A v1.49.0: com até 3 tentativas e
+    // confirmação, como qualquer outra parte -- o retorno (true/false) é a
+    // confirmação; se falhar em todas, o Alt+S não envia. Ver "CONFIRMAÇÃO
+    // DA CÓPIA DO Alt+A" no Módulo 4.
     async function recopiarUltimaImagem() {
         if (!_ultimaImagemBlob) return false;
         if (!navigator.clipboard || !window.ClipboardItem) return false;
@@ -1528,7 +1530,7 @@
         feriados: (ano) => Array.from(feriadosDoAno(ano)).sort(),
         tokens: TOKENS,
         situacoes: SITUACOES,
-        instalarBotao: instalarBotao,   // <-- linha nova
+        instalarBotao: instalarBotao,
         aguardarFoco,
         recopiarUltimaImagem,
         // Diagnóstico no console: qual html2canvas gerou o último relatório.
