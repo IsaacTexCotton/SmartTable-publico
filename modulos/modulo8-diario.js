@@ -847,6 +847,34 @@
    *
    * @returns {{problemas: string[], avisos: string[], checagens: number}}
    */
+  /**
+   * Dois clientes vizinhos da MESMA faixa estão na ordem da régua v3?
+   * Espelha compararPelaRegua do Módulo 7 (tests/diario.test.js confere que
+   * os dois concordam em milhares de pares): na faixa 14 (SCPC antes do
+   * aviso) mais dias primeiro; nas demais, contato mais antigo (sem contato
+   * = antes de todos), depois maior valor vencido, depois mais dias.
+   *
+   * BUG REAL (v1.49.2, achado na revisão de comentários): até a v1.49.1 esta
+   * checagem ainda era a da régua v2 (contato, depois dias) e acusava como
+   * "invariante quebrado" uma fila v3 correta -- faixa 14 e empates
+   * decididos pelo valor vencido.
+   *
+   * @returns {boolean|null} true = em ordem; false = quebra; null = falta o
+   *   valor vencido (fila montada antes da v1.49.2) pra decidir o empate.
+   */
+  function vizinhosNaOrdemDaRegua(anterior, atual) {
+    const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 14;
+    const dias = (atual.diasAtraso ?? 0) - (anterior.diasAtraso ?? 0);
+    if (atual.prioridadeTier === faixaDiasPrimeiro && dias !== 0) return dias < 0;
+    const contatoAnt = anterior.ultimoContatoIso ?? '';
+    const contato = atual.ultimoContatoIso ?? '';
+    if (contatoAnt !== contato) return contatoAnt < contato;
+    if (anterior.valorVencido === undefined || atual.valorVencido === undefined) return null;
+    const valor = (atual.valorVencido ?? 0) - (anterior.valorVencido ?? 0);
+    if (valor !== 0) return valor < 0;
+    return dias <= 0;
+  }
+
   function conferir() {
     const problemas = [];
     const avisos = [];
@@ -902,19 +930,25 @@
       const regua = c.filter((x) => !x.grupoControle);
       let quebrasFaixa = 0;
       let quebrasDias = 0;
+      let semValorPraDesempate = 0;
       for (let i = 1; i < regua.length; i += 1) {
         if (regua[i].prioridadeTier < regua[i - 1].prioridadeTier) quebrasFaixa += 1;
-        // Régua v2: dentro da faixa, contato mais antigo primeiro (sem
-        // contato = antes de todos); empate de contato, mais dias primeiro.
+        // Dentro da faixa: a ordem da régua v3 (ver vizinhosNaOrdemDaRegua).
         if (regua[i].prioridadeTier === regua[i - 1].prioridadeTier) {
-          const contatoAnt = regua[i - 1].ultimoContatoIso ?? '';
-          const contato = regua[i].ultimoContatoIso ?? '';
-          if (contato < contatoAnt) quebrasDias += 1;
-          else if (contato === contatoAnt && regua[i].diasAtraso > regua[i - 1].diasAtraso) quebrasDias += 1;
+          const emOrdem = vizinhosNaOrdemDaRegua(regua[i - 1], regua[i]);
+          if (emOrdem === false) quebrasDias += 1;
+          else if (emOrdem === null) semValorPraDesempate += 1;
         }
       }
       exigir(quebrasFaixa === 0, `A ordem de faixa quebra ${quebrasFaixa} vez(es) entre os clientes fora do grupo de controle.`);
-      exigir(quebrasDias === 0, `O desempate (contato mais antigo, depois dias de atraso) quebra ${quebrasDias} vez(es) dentro de uma mesma faixa.`);
+      exigir(
+        quebrasDias === 0,
+        `O desempate dentro da faixa (faixa 14: mais dias; demais: contato mais antigo, maior valor vencido, mais dias) quebra ${quebrasDias} vez(es).`
+      );
+      observar(
+        semValorPraDesempate === 0,
+        `${semValorPraDesempate} empate(s) de contato não conferido(s): a fila foi montada antes da v1.49.2, sem o valor vencido. Um Alt+U novo resolve.`
+      );
 
       const noControle = c.filter((x) => x.grupoControle).length;
       if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) {
@@ -1010,6 +1044,7 @@
     registrar,
     registrarLote,
     conferir,
+    vizinhosNaOrdemDaRegua,
     faixaMaxima,
     apelido,
     valorMascarado,

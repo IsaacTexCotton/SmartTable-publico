@@ -1981,6 +1981,9 @@
       prioridadeNome: NOMES_PRIORIDADE[r.prioridade],
       versaoRegua: CONFIG.VERSAO_REGUA,
       ultimoContatoIso: r.ultimoContatoIso ?? null,
+      // v1.49.2: gravado pra autoconferência do Diário (Módulo 8) conseguir
+      // conferir o desempate por valor da régua v3. Fica só no localStorage.
+      valorVencido: r.valorVencido ?? 0,
       grupoControle: r.controle,
     }));
 
@@ -2139,6 +2142,7 @@
     finalizarFila,
     CONFIG,
     NOMES_PRIORIDADE,
+    FAIXA_SCPC_ANTES_DO_AVISO,
     CORES_PRIORIDADE,
     ordenarComGrupoControle,
     compararPelaRegua,

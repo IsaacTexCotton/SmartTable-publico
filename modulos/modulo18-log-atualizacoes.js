@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.49.2', data: '28/09/2026',
+      mudancas: [
+        'Diário (Alt+D): a autoconferência da fila usa a ordem da régua nova. Antes, ela acusava como erro uma fila correta (faixa 14 por dias de atraso, empate decidido pelo valor vencido).',
+      ],
+    },
+    {
       versao: '1.49.1', data: '28/09/2026',
       mudancas: [
         'Alt+S que esperou a cópia: só envia sozinho enquanto o navegador ainda permite abrir o WhatsApp. Se a espera passou disso (por exemplo, você foi para outra janela), aparece "Cópia confirmada. Aperte Alt+S para enviar." em vez de registrar o contato sem abrir a conversa.',
