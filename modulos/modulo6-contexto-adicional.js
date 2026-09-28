@@ -56,7 +56,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.49.0';
+  const VERSAO_SMARTTABLE = '1.49.1';
 
   // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
   // mesma linha em que já seta sua própria flag de "já carreguei") -- este

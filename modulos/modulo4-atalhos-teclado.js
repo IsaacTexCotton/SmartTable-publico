@@ -1625,10 +1625,16 @@
    * recarrega ao trocar de cliente).
    *
    * PRIVACIDADE: o console mostra só posição, tipo (texto/imagem), número
-   * da tentativa e o NOME do erro -- nunca o texto copiado.
+   * da tentativa e o NOME do erro -- nunca o texto copiado. O CNPJ e as
+   * partes da mensagem ficam num WeakMap (internoDaCopia), fora do objeto
+   * de estado: quem inspecionar __atalhosDebug.copiaDoAltADestaPagina() no
+   * DevTools vê só números e a situação (v1.49.1, revisão).
    */
   let copiaDoAltA = null;
   const ouvintesDaCopia = new Set();
+  const internoDaCopia = new WeakMap(); // estado -> { cnpj, partes, copiarImagem }
+
+  const cnpjDaCopia = (estado) => internoDaCopia.get(estado)?.cnpj;
 
   function avisarMudancaDaCopia(estado) {
     ouvintesDaCopia.forEach((ouvinte) => {
@@ -1640,14 +1646,15 @@
     });
   }
 
-  /** A cópia do Alt+A deste cliente, ou null (outro cliente / nenhuma). */
+  /** A cópia do Alt+A deste cliente, ou null (outro cliente / nenhuma). Só consulta. */
   function copiaDoAltADestaPagina() {
-    if (!copiaDoAltA) return null;
-    if (copiaDoAltA.cnpj !== cnpjDaPagina()) {
-      removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
-      return null;
-    }
+    if (!copiaDoAltA || cnpjDaCopia(copiaDoAltA) !== cnpjDaPagina()) return null;
     return copiaDoAltA;
+  }
+
+  /** O aviso vermelho é de outro cliente (a página não recarrega ao trocar): sai da tela. */
+  function limparAvisoDeOutroCliente() {
+    if (copiaDoAltA && cnpjDaCopia(copiaDoAltA) !== cnpjDaPagina()) removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
   }
 
   async function copiarUmaParteComTentativas(parte, copiarImagem, geracao, posicao, total) {
@@ -1697,15 +1704,13 @@
     let resolverConclusao = () => {};
     const estado = {
       geracao: minhaGeracao,
-      cnpj: cnpjDaPagina(),
       total: sequencia.length,
       confirmadas: 0,
       situacao: 'copiando',
       comImagem: sequencia.includes(MARCADOR_IMAGEM_RELATORIO),
-      partes,
-      copiarImagem,
       concluida: null,
     };
+    internoDaCopia.set(estado, { cnpj: cnpjDaPagina(), partes, copiarImagem });
     estado.concluida = new Promise((resolve) => { resolverConclusao = resolve; });
     copiaDoAltA = estado;
     removerAvisoDaCopia(ID_AVISO_COPIA_FALHOU);
@@ -1826,8 +1831,9 @@
     // favorável pra escrita na área de transferência.
     copiarDeNovo.addEventListener('click', () => {
       el.remove();
-      if (estado.cnpj !== cnpjDaPagina()) return;
-      copiarPartesParaAreaDeTransferencia(estado.partes, estado.copiarImagem);
+      const interno = internoDaCopia.get(estado);
+      if (!interno || interno.cnpj !== cnpjDaPagina()) return;
+      copiarPartesParaAreaDeTransferencia(interno.partes, interno.copiarImagem);
     });
     const fechar = document.createElement('button');
     fechar.type = 'button';
@@ -1843,6 +1849,24 @@
   // Um Alt+S esperando por vez: apertar de novo durante a espera não
   // agenda um segundo envio.
   let envioAguardandoCopia = null;
+
+  /*
+   * v1.49.1 (revisão, aprovado pelo usuário em 28/09): o navegador só deixa
+   * abrir o WhatsApp (window.open do WhatsApp Web; provavelmente também o
+   * whatsapp:// do app) por alguns segundos depois da tecla -- a "ativação
+   * do usuário" (no Chrome, ~5 s). O Módulo 2 registra o contato ANTES de
+   * abrir o WhatsApp: um envio automático depois desse prazo (ex.: o
+   * operador foi pro WhatsApp e a cópia pausou esperando o foco) registraria
+   * o contato, avançaria a fila e não abriria nada. Então o Alt+S só segue
+   * sozinho enquanto a ativação ainda vale; depois dela, pede um Alt+S novo.
+   * Sem a API (navegador antigo, jsdom), segue como antes.
+   */
+  const TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S = 'Cópia confirmada. Aperte Alt+S para enviar.';
+
+  function aindaPodeAbrirOWhatsApp() {
+    const ativacao = navigator.userActivation;
+    return !ativacao || ativacao.isActive === true;
+  }
 
   async function aguardarCopiaEEnviar(copia) {
     if (envioAguardandoCopia === copia) {
@@ -1864,9 +1888,14 @@
       removerAvisoDaCopia(ID_AVISO_COPIA_AGUARDANDO);
       envioAguardandoCopia = null;
     }
-    console.log(`[Atalhos] Alt+S esperou ${Date.now() - inicio} ms pela cópia do Alt+A (${situacao}).`);
+    const podeAbrir = aindaPodeAbrirOWhatsApp();
+    console.log(`[Atalhos] Alt+S esperou ${Date.now() - inicio} ms pela cópia do Alt+A (${situacao}; ativação ${podeAbrir ? 'ainda válida' : 'expirada'}).`);
     if (situacao === 'ok') {
-      if (copia.cnpj !== cnpjDaPagina()) return; // trocou de cliente durante a espera
+      if (cnpjDaCopia(copia) !== cnpjDaPagina()) return; // trocou de cliente durante a espera
+      if (!podeAbrir) {
+        window.__smartTableUtil?.toast?.(TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S, 8000);
+        return;
+      }
       acionarRegistrarEEnviar();
       return;
     }
@@ -2420,6 +2449,7 @@
 
     // v1.49.0: o Alt+S só envia depois que a cópia do Alt+A deste cliente
     // foi confirmada -- espera se ainda está copiando, recusa se falhou.
+    limparAvisoDeOutroCliente();
     const copia = copiaDoAltADestaPagina();
     if (copia?.situacao === 'copiando') {
       aguardarCopiaEEnviar(copia);
@@ -3387,6 +3417,7 @@
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
     copiaDoAltADestaPagina,
+    TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S,
     aoClicarNoDocumento,
     TEXTO_AVISO_CLIQUE_MANUAL,
     aguardarFoco,

@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.49.1', data: '28/09/2026',
+      mudancas: [
+        'Alt+S que esperou a cópia: só envia sozinho enquanto o navegador ainda permite abrir o WhatsApp. Se a espera passou disso (por exemplo, você foi para outra janela), aparece "Cópia confirmada. Aperte Alt+S para enviar." em vez de registrar o contato sem abrir a conversa.',
+        'Privacidade: a informação da cópia exposta para diagnóstico não guarda mais CNPJ nem o texto da mensagem.',
+      ],
+    },
+    {
       versao: '1.49.0', data: '28/09/2026',
       mudancas: [
         'Alt+A: cada parte da mensagem e a imagem do relatório têm até 3 tentativas de ir para a área de transferência, e só contam como copiadas quando o navegador confirma.',
