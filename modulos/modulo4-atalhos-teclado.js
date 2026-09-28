@@ -188,7 +188,8 @@
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
     { tecla: 'Alt+F', descricao: 'Selecionar a 1ª frase padrão' },
     { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório(s) de outra(s) razão(ões) do grupo, se houver, + relatório + contato + mensagem personalizada)' },
-    { tecla: 'Alt+S', descricao: 'Registrar e Enviar (com "Números diferentes" marcado: cada Alt+S abre o próximo número)' },
+    // Texto aprovado pelo usuário em 28/09 (opção A), depois da v1.49.0.
+    { tecla: 'Alt+S', descricao: 'Registrar e Enviar. Logo depois do Alt+A, espera a mensagem e o relatório irem para a área de transferência e envia sozinho; se a cópia falhar, não envia até "Copiar de novo" dar certo. Com "Números diferentes" marcado: cada Alt+S abre o próximo número' },
     { tecla: 'Alt+N', descricao: 'Registrar promessa: marque o(s) título(s) (1 a 9), escolha a data (H hoje, A amanhã) e Enter -- o SmartTable preenche o contato do CRM, salva e confere' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
@@ -3438,6 +3439,8 @@
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
     copiaDoAltADestaPagina,
+    LISTA_ATALHOS,
+    alternarPainelAjuda,
     TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S,
     aoClicarNoDocumento,
     TEXTO_AVISO_CLIQUE_MANUAL,

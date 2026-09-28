@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.50.1', data: '28/09/2026',
+      mudancas: [
+        'Ajuda (Alt+H): a linha do Alt+S explica que, logo depois do Alt+A, ele espera a cópia para a área de transferência e envia sozinho, e que não envia se a cópia falhar.',
+      ],
+    },
+    {
       versao: '1.50.0', data: '28/09/2026',
       mudancas: [
         'Grupo de controle removido: a fila do Alt+U sai sempre na ordem da régua. O mecanismo (1 em cada 5 clientes com posição sorteada) estava desligado e saiu do código.',
