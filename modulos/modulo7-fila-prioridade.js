@@ -986,64 +986,6 @@
   }
 
   /**
-   * Monta a ordem final da fila. O mecanismo do grupo de controle (1 em cada
-   * 5 clientes com posição SORTEADA, para o Módulo 8 medir o efeito da
-   * régua) está DESLIGADO por decisão do usuário
-   * (CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE: false): ehGrupoControle devolve
-   * false para todos e a fila sai na ordem pura da régua. O texto abaixo
-   * documenta como o sorteio funciona SE for religado.
-   *
-   * BUG REAL (achado conferindo uma fila de verdade, 92 clientes): a versão
-   * anterior sorteava a chave no espaço das FAIXAS -- `1 + sorteio * 9`,
-   * gerando um número em [1, 10). Como a faixa 10 vale exatamente 10, nenhum
-   * cliente do controle conseguia ser ordenado DEPOIS de um faixa 10. Na
-   * fila real, isso tornava 25 dos 92 lugares (27%) inalcançáveis pro
-   * controle, e ele caía no terço final da fila só 12% das vezes em vez de
-   * 33%. O grupo de controle existe pra medir o efeito de ser chamado CEDO
-   * ou TARDE -- se ele quase nunca é chamado tarde, a comparação mede menos
-   * do que deveria, e no sentido que favorece a régua.
-   *
-   * A causa é que as faixas têm tamanhos MUITO diferentes: a faixa 10
-   * sozinha era 27% da fila e ocupava 1/10 do espaço de chaves. Sortear
-   * uniformemente no espaço das faixas não é sortear uniformemente no
-   * espaço das POSIÇÕES, que é o que importa.
-   *
-   * Correção: cada não-controle recebe um rank igual à sua posição relativa
-   * na régua (0 = primeiro, 1 = último), e cada controle recebe um rank
-   * sorteado em [0,1). Ordenar por rank espalha o controle uniformemente
-   * pelas posições, independente do tamanho de cada faixa. Verificado em
-   * simulação com a distribuição real: 33% / 34% / 33% pelos terços.
-   *
-   * @param {object[]} resultados Candidatos já classificados.
-   * @param {object|null} diario window.__diario, ou null se não carregou.
-   * @param {number|null} dia Dia do experimento (AAAAMMDD).
-   * @returns {object[]} Nova lista, ordenada.
-   */
-  function ordenarComGrupoControle(resultados, diario, dia) {
-    if (!diario) {
-      // Sem o Módulo 8 não há experimento: régua pura, como antes dele existir.
-      resultados.forEach((r) => { r.controle = false; });
-      return resultados.slice().sort(compararPelaRegua);
-    }
-
-    resultados.forEach((r) => {
-      r.controle = diario.ehGrupoControle(r.cliente.cnpj, dia);
-    });
-
-    const regua = resultados.filter((r) => !r.controle).sort(compararPelaRegua);
-    regua.forEach((r, i) => {
-      r.rank = regua.length > 1 ? i / (regua.length - 1) : 0.5;
-    });
-
-    const controle = resultados.filter((r) => r.controle);
-    controle.forEach((r) => {
-      r.rank = diario.sorteioEstavel(r.cliente.cnpj, dia);
-    });
-
-    return [...regua, ...controle].sort((a, b) => a.rank - b.rank);
-  }
-
-  /**
    * A fila salva foi montada por ESTE módulo?
    *
    * Módulo 3 (Alt+I) e Módulo 7 (Alt+U) gravam na MESMA chave do
@@ -1221,7 +1163,7 @@
    * `resultados[i]` corresponde a `clientes[i]`. Isso não é detalhe: a fila
    * final é ordenada pela régua logo depois, e uma ordem de entrada instável
    * faria duas execuções do mesmo dia produzirem filas diferentes entre
-   * empates, contaminando o diário e o grupo de controle.
+   * empates, contaminando o diário.
    *
    * @param {object[]} clientes
    * @param {(feitos: number, total: number) => void} aoProgredir
@@ -1936,7 +1878,7 @@
     } = contadores || {};
 
     // Uma chamada só -- a união-find do grupo econômico não é barata.
-    // `let` porque a ordenação com grupo de controle devolve uma lista nova.
+    // `let` porque a ordenação pela régua (mais abaixo) devolve uma lista nova.
     const filtradoPorGrupo = filtrarPorGrupoEconomico(resultados);
     const { excluidosPorGrupo } = filtradoPorGrupo;
     let resultadosSemDuplicataDeGrupo = filtradoPorGrupo.sobreviventes;
@@ -1956,24 +1898,16 @@
       return;
     }
 
-    // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade, do
-    // contato mais antigo pro mais recente (empate: mais dias de atraso) --
-    // ver compararPelaRegua.
+    // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade, pelo
+    // desempate da régua v3 (faixa 14: mais dias; demais: contato mais
+    // antigo, maior valor vencido, mais dias) -- ver compararPelaRegua.
     //
-    // GRUPO DE CONTROLE (Módulo 8) -- DESLIGADO por decisão do usuário
-    // (CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE: false), então hoje a fila sai
-    // 100% na ordem da régua. Quando ligado: 1 em cada 5 recebe uma posição
-    // SORTEADA, independente da faixa dele. Sem isso, comparar faixa 3 com
-    // faixa 11 não diz nada sobre a régua -- as faixas contêm clientes
-    // diferentes por construção (dias de atraso, SCPC, promessa), então quem
-    // está 2 dias atrasado pagaria mais que quem está 30 em QUALQUER ordem.
-    // Com o controle, dá pra comparar o mesmo tipo de cliente chamado cedo
-    // (pela régua) e chamado em posição aleatória, que é o que isola o efeito
-    // da ORDEM. O sorteio é determinístico por (cnpj, dia): rodar o Alt+U
-    // duas vezes no mesmo dia não remexe o experimento.
+    // A fila sai 100% na ordem da régua. O grupo de controle (1 em cada 5
+    // com posição sorteada, para o Diário medir o efeito da ordem) foi
+    // REMOVIDO a pedido do usuário em 28/09/2026 -- estava desligado desde a
+    // decisão anterior e ele não quer o mecanismo no código.
+    resultadosSemDuplicataDeGrupo = resultadosSemDuplicataDeGrupo.slice().sort(compararPelaRegua);
     const diario = window.__diario;
-    const diaDoExperimento = diario ? diario.chaveDia() : null;
-    resultadosSemDuplicataDeGrupo = ordenarComGrupoControle(resultadosSemDuplicataDeGrupo, diario, diaDoExperimento);
 
     const clientesDaFila = resultadosSemDuplicataDeGrupo.map((r) => Object.assign({}, r.cliente, {
       diasAtraso: r.escolhido.diasAtrasoReal,
@@ -1984,7 +1918,6 @@
       // v1.49.2: gravado pra autoconferência do Diário (Módulo 8) conseguir
       // conferir o desempate por valor da régua v3. Fica só no localStorage.
       valorVencido: r.valorVencido ?? 0,
-      grupoControle: r.controle,
     }));
 
     // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
@@ -2011,7 +1944,6 @@
           f: r.prioridade,
           r: CONFIG.VERSAO_REGUA,
           p: indice + 1,
-          k: r.controle ? 1 : 0,
           s: r.escolhido.situacaoKey,
           a: r.escolhido.diasAtrasoReal,
         }))
@@ -2144,7 +2076,6 @@
     NOMES_PRIORIDADE,
     FAIXA_SCPC_ANTES_DO_AVISO,
     CORES_PRIORIDADE,
-    ordenarComGrupoControle,
     compararPelaRegua,
     iniciar,
     candidatosEnriquecidos,

@@ -789,11 +789,11 @@
   //                                     de uma conversa em andamento)
   //   - clientes diferentes, mesmo dia -> frases diferentes entre si
   //
-  // POR QUE UM HASH PRÓPRIO, e não o hashEstavel do Módulo 8: aquele decide
-  // o GRUPO DE CONTROLE do experimento da régua. Se um dia alguém ajustar o
-  // hash por causa das frases, remexe a atribuição do experimento sem
-  // perceber. São dois usos com requisitos diferentes; ficam separados de
-  // propósito.
+  // POR QUE UM HASH PRÓPRIO, e não o hashEstavel do Módulo 8: aquele gera
+  // os apelidos censurados (cli.xxxx), que precisam continuar os mesmos pra
+  // cruzar diagnósticos de dias diferentes. Se um dia alguém ajustar o hash
+  // por causa das frases, trocaria todos os apelidos sem perceber. São dois
+  // usos com requisitos diferentes; ficam separados de propósito.
 
   /**
    * Hash estável de uma string (FNV-1a). Mesmo texto, mesmo número, sempre

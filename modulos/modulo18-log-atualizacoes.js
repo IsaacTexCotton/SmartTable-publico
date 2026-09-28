@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.50.0', data: '28/09/2026',
+      mudancas: [
+        'Grupo de controle removido: a fila do Alt+U sai sempre na ordem da régua. O mecanismo (1 em cada 5 clientes com posição sorteada) estava desligado e saiu do código.',
+        'Diário (Alt+D): o relatório deixa de mostrar a comparação régua x controle. Os registros antigos continuam contando na tabela por faixa.',
+      ],
+    },
+    {
       versao: '1.49.2', data: '28/09/2026',
       mudancas: [
         'Diário (Alt+D): a autoconferência da fila usa a ordem da régua nova. Antes, ela acusava como erro uma fila correta (faixa 14 por dias de atraso, empate decidido pelo valor vencido).',

@@ -6,8 +6,7 @@
  *
  * O QUE ELE GRAVA (três tipos de evento):
  *   - 'fila'    : um por candidato, a cada rodada do Alt+U. Guarda a faixa
- *                 calculada, a POSIÇÃO final na fila e se o cliente caiu no
- *                 grupo de controle daquele dia.
+ *                 calculada e a POSIÇÃO final na fila.
  *   - 'contato' : quando a cobrança REALMENTE saiu (Módulo 3 confirma que o
  *                 WhatsApp abriu), com a hora -- é ela que diz se ser chamado
  *                 cedo muda alguma coisa.
@@ -37,8 +36,9 @@
  *   2. Comparar faixa 3 com faixa 9 NÃO diz se a régua é boa. As faixas
  *      contêm clientes diferentes por construção (dias de atraso, SCPC,
  *      promessa). Quem está 2 dias atrasado paga mais que quem está 30 em
- *      qualquer ordem. Por isso existe o GRUPO DE CONTROLE: só a comparação
- *      controle vs. régua isola o efeito da ORDEM.
+ *      qualquer ordem. O diário mede COBERTURA (quem é chamado, quem nunca
+ *      é), não o efeito da ORDEM. O grupo de controle, que mediria isso
+ *      sorteando posições, foi REMOVIDO a pedido do usuário (28/09/2026).
  *   3. Cada negociador tem seu próprio localStorage. Os dados não se juntam
  *      sozinhos -- use exportar() nos dois e junte fora.
  * ========================================================================= */
@@ -57,29 +57,6 @@
     DIAS_RETENCAO: 120,
     // A partir daqui, avisa no console pra exportar e limpar.
     LIMITE_AVISO_BYTES: 3_500_000,
-    // LIGA/DESLIGA o grupo de controle (a parte que reordena 20% da fila).
-    //
-    // DESLIGADO por decisão do usuário. O raciocínio: gravar é de graça e não
-    // tem risco, mas reordenar tem um custo que se paga TODO DIA -- ~18 dos
-    // ~92 clientes da fila são chamados fora da ordem da régua -- enquanto o
-    // benefício só chega em semanas, e só se alguma decisão for tomada a
-    // partir do resultado. Somando a isso que o desenho do sorteio já saiu
-    // errado uma vez (a chave era sorteada no espaço das faixas, e o controle
-    // nunca alcançava o fim da fila -- achado só quando o usuário mandou uma
-    // fila real), a conta não fechava ainda.
-    //
-    // Com isso desligado, o diário continua gravando tudo e responde as
-    // perguntas DESCRITIVAS (quanto da fila é atendido, quais faixas nunca
-    // são chamadas, o que cai em "Demais dias"). O que se perde é a pergunta
-    // CAUSAL -- "a ordem da régua ajuda?" -- que só o grupo de controle
-    // responde.
-    //
-    // Pra religar: true aqui, e window.__diario.limpar() antes, pra não
-    // misturar período com e sem experimento na mesma análise.
-    ATIVAR_GRUPO_CONTROLE: false,
-    // 1 em cada 5 clientes entra no grupo de controle (posição sorteada em
-    // vez de posição pela régua). Confirmado com o usuário.
-    PROPORCAO_CONTROLE: 5,
     // Maior número de faixa SE o Módulo 7 não estiver carregado. Com ele, o
     // limite vem da própria régua (faixaMaxima) -- na régua v3 (28/09) as
     // faixas foram de 12 pra 15 e um número fixo aqui acusaria as novas
@@ -234,7 +211,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 4. GRUPO DE CONTROLE (o que torna a medição interpretável)
+   * 4. HASH ESTÁVEL (base dos apelidos censurados, ver apelido())
    * --------------------------------------------------------------------- */
   /**
    * Hash determinístico e estável de string (variante de cyrb53, sem
@@ -255,40 +232,6 @@
     h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
     h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
     return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-  }
-
-  /**
-   * Decide se um cliente entra no grupo de controle NESTE dia.
-   *
-   * Determinístico por (cnpj, dia): rodar o Alt+U duas vezes no mesmo dia dá
-   * o mesmo sorteio, então reprocessar não contamina o experimento. Muda de
-   * um dia pro outro, então nenhum cliente fica preso no controle pra sempre.
-   *
-   * @param {string} cnpj
-   * @param {number} [dia] AAAAMMDD; padrão hoje.
-   * @returns {boolean}
-   */
-  function ehGrupoControle(cnpj, dia) {
-    // Lido em tempo de chamada, não no carregamento: assim dá pra ligar e
-    // desligar pelo console (window.__diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE)
-    // sem recarregar a página.
-    if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) return false;
-    const chave = `${cnpj}|${dia ?? chaveDia()}`;
-    return hashEstavel(chave) % CONFIG_DIARIO.PROPORCAO_CONTROLE === 0;
-  }
-
-  /**
-   * Número pseudoaleatório em [0,1), estável por (cnpj, dia). Usado pra dar
-   * ao cliente de controle uma posição na fila INDEPENDENTE da faixa dele --
-   * que é justamente o que torna a comparação capaz de isolar o efeito da
-   * ordem.
-   *
-   * @param {string} cnpj
-   * @param {number} [dia]
-   * @returns {number}
-   */
-  function sorteioEstavel(cnpj, dia) {
-    return (hashEstavel(`pos|${cnpj}|${dia ?? chaveDia()}`) % 1000000) / 1000000;
   }
 
   /* ---------------------------------------------------------------------
@@ -409,7 +352,7 @@
    * @param {number} [opcoes.ultimosDias] Recorte da análise.
    * @param {number} [opcoes.janelaBaixaDias] Dias após a cobrança em que uma
    *   baixa ainda é atribuída a ela. Padrão 7.
-   * @returns {object} Linhas por faixa e o par régua/controle.
+   * @returns {object} Totais e linhas por faixa.
    */
   function analisar(opcoes = {}) {
     const janela = opcoes.janelaBaixaDias ?? 7;
@@ -418,7 +361,7 @@
     // DEDUPLICA por (cnpj, dia): o mesmo cliente pode ter VÁRIAS atribuições
     // no mesmo dia, e contar todas infla "na fila" e derruba a taxa de
     // contato pela metade -- números descritivos errados, justamente os que
-    // sobraram depois do grupo de controle ser desligado.
+    // o diário existe pra dar.
     //
     // Duas causas, uma delas legítima:
     //   1. BUG (corrigido): o Módulo 7 chamava registrarLote duas vezes por
@@ -472,7 +415,6 @@
       // Registros anteriores à régua v2 não têm o campo -- são da v1.
       versaoRegua: e.r ?? 1,
       posicao: e.p,
-      controle: e.k === 1,
       contatado: contatos.has(`${e.c}|${e.d}`),
       diasAteBaixa: diasAteBaixa(e.c, e.d),
     }));
@@ -514,9 +456,6 @@
       atribuicoesRepetidas,
       atribuicoesReguaAnterior: linhas.length - daReguaAtual.length,
       porFaixa,
-      // A comparação que de fato isola o efeito da ORDEM.
-      regua: resumir(linhas.filter((l) => !l.controle)),
-      controle: resumir(linhas.filter((l) => l.controle)),
     };
   }
 
@@ -567,53 +506,13 @@
       )
     );
 
-    if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE && a.controle.atribuicoes === 0) {
-      console.log(
-        '\n--- Régua vs. Controle: DESLIGADO ---\n' +
-        '  O grupo de controle está desativado, então a fila sai 100% na ordem da régua.\n' +
-        '  Sem ele não dá pra responder "a ordem da régua ajuda?" -- as faixas contêm\n' +
-        '  clientes diferentes por construção, e comparar uma com a outra mede o cliente,\n' +
-        '  não a régua. A tabela acima continua valendo pra COBERTURA (quem nunca é\n' +
-        '  chamado, o que cai em "Demais dias").\n' +
-        '  Pra ligar: window.__diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = true\n' +
-        '  (rode window.__diario.limpar() antes, pra não misturar os dois períodos).'
-      );
-      return a;
-    }
-
-    console.log('\n--- Régua vs. Controle (é ESTA comparação que responde a pergunta) ---');
-    console.table({
-      'Ordenado pela régua': {
-        'na fila': a.regua.atribuicoes,
-        'posição mediana': a.regua.posicaoMediana ?? '—',
-        'contatados': pct(a.regua.taxaContato),
-        'com baixa': pct(a.regua.taxaBaixa),
-        'mediana dias p/ baixa': a.regua.medianaDiasAteBaixa ?? '—',
-      },
-      'Posição sorteada (controle)': {
-        'na fila': a.controle.atribuicoes,
-        'posição mediana': a.controle.posicaoMediana ?? '—',
-        'contatados': pct(a.controle.taxaContato),
-        'com baixa': pct(a.controle.taxaBaixa),
-        'mediana dias p/ baixa': a.controle.medianaDiasAteBaixa ?? '—',
-      },
-    });
-
-    const MINIMO_PRA_COMPARAR = 300;
-    if (a.controle.atribuicoes < MINIMO_PRA_COMPARAR) {
-      console.warn(
-        `[Diário] Ainda são só ${a.controle.atribuicoes} casos no controle. Abaixo de ~${MINIMO_PRA_COMPARAR} ` +
-        'a diferença entre os dois grupos é ruído com aparência de resultado. Deixe acumular antes de concluir.'
-      );
-    }
-
     console.log(
       '\n%cComo ler isto:%c\n' +
       '  • A tabela POR FAIXA não diz se a régua é boa. As faixas contêm clientes\n' +
       '    diferentes por construção -- quem está 2 dias atrasado paga mais que quem\n' +
       '    está 30 em qualquer ordem. Ela serve pra ver cobertura (quem nunca é chamado).\n' +
-      '  • A comparação RÉGUA vs CONTROLE é a que isola o efeito da ordem, porque o\n' +
-      '    controle tem posição sorteada, independente da faixa.\n' +
+      '  • Estes dados não respondem "a ordem da régua ajuda?": isso exigiria sortear\n' +
+      '    posições (grupo de controle), que foi removido por decisão do usuário.\n' +
       '  • "com baixa" é INFERÊNCIA: título que sumiu da lista de vencidos. Renegociação\n' +
       '    e baixa manual produzem o mesmo sinal.\n' +
       '  • Os dados são deste navegador. Use exportar() em cada máquina e junte fora.',
@@ -755,7 +654,7 @@
     const linhas = lerDia(hoje)
       .filter((e) => e.t === 'fila')
       .map((e) => {
-        const linha = { p: e.p, f: e.f, k: e.k, s: e.s, a: e.a };
+        const linha = { p: e.p, f: e.f, s: e.s, a: e.a };
         if (comApelido) linha.id = apelido(e.c);
         return linha;
       });
@@ -833,7 +732,7 @@
    * POR QUE ISTO EXISTE, e por que não é "mais um teste": os bugs que
    * chegaram a atrapalhar a cobrança de verdade não foram pegos pela suíte.
    * Foram pegos quando o usuário exportou a fila e alguém olhou --
-   * a régua reordenando errado, o grupo de controle nunca alcançando o fim
+   * a régua reordenando errado, o grupo de controle (hoje removido) nunca alcançando o fim
    * da fila, o Alt+U gravando tudo duas vezes. Todos invisíveis em jsdom,
    * porque moram em código que abre aba de fundo e depende de dado real.
    *
@@ -927,20 +826,19 @@
       const cnpjs = c.map((x) => x.cnpj);
       exigir(new Set(cnpjs).size === cnpjs.length, `A fila tem CNPJ repetido (${cnpjs.length - new Set(cnpjs).size} duplicata(s)).`);
 
-      const regua = c.filter((x) => !x.grupoControle);
       let quebrasFaixa = 0;
       let quebrasDias = 0;
       let semValorPraDesempate = 0;
-      for (let i = 1; i < regua.length; i += 1) {
-        if (regua[i].prioridadeTier < regua[i - 1].prioridadeTier) quebrasFaixa += 1;
+      for (let i = 1; i < c.length; i += 1) {
+        if (c[i].prioridadeTier < c[i - 1].prioridadeTier) quebrasFaixa += 1;
         // Dentro da faixa: a ordem da régua v3 (ver vizinhosNaOrdemDaRegua).
-        if (regua[i].prioridadeTier === regua[i - 1].prioridadeTier) {
-          const emOrdem = vizinhosNaOrdemDaRegua(regua[i - 1], regua[i]);
+        if (c[i].prioridadeTier === c[i - 1].prioridadeTier) {
+          const emOrdem = vizinhosNaOrdemDaRegua(c[i - 1], c[i]);
           if (emOrdem === false) quebrasDias += 1;
           else if (emOrdem === null) semValorPraDesempate += 1;
         }
       }
-      exigir(quebrasFaixa === 0, `A ordem de faixa quebra ${quebrasFaixa} vez(es) entre os clientes fora do grupo de controle.`);
+      exigir(quebrasFaixa === 0, `A ordem de faixa quebra ${quebrasFaixa} vez(es).`);
       exigir(
         quebrasDias === 0,
         `O desempate dentro da faixa (faixa 14: mais dias; demais: contato mais antigo, maior valor vencido, mais dias) quebra ${quebrasDias} vez(es).`
@@ -949,17 +847,6 @@
         semValorPraDesempate === 0,
         `${semValorPraDesempate} empate(s) de contato não conferido(s): a fila foi montada antes da v1.49.2, sem o valor vencido. Um Alt+U novo resolve.`
       );
-
-      const noControle = c.filter((x) => x.grupoControle).length;
-      if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) {
-        exigir(noControle === 0, `O grupo de controle está DESLIGADO, mas ${noControle} cliente(s) na fila estão marcados como controle.`);
-      } else if (c.length >= 30) {
-        const esperado = c.length / CONFIG_DIARIO.PROPORCAO_CONTROLE;
-        observar(
-          noControle > esperado * 0.5 && noControle < esperado * 1.5,
-          `Grupo de controle com ${noControle} de ${c.length} (esperado perto de ${Math.round(esperado)}).`
-        );
-      }
     } else {
       avisos.push('Nenhuma fila salva pra conferir -- rode o Alt+I ou Alt+U antes.');
     }
@@ -1026,13 +913,6 @@
     );
   }
 
-  if (CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) {
-    console.log(
-      `%c[Diário] Grupo de controle LIGADO -- 1 em cada ${CONFIG_DIARIO.PROPORCAO_CONTROLE} clientes recebe posição sorteada na fila.`,
-      'color:#8A2A16;font-weight:bold;'
-    );
-  }
-
   // Atalho curto: é pra ser digitado no console sem consultar documentação.
   window.__conferir = conferir;
 
@@ -1056,8 +936,6 @@
     relatorioGrupo,
     analisar,
     relatorio,
-    ehGrupoControle,
-    sorteioEstavel,
     eventos,
     tamanho,
     exportar,
