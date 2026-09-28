@@ -1392,40 +1392,9 @@
    * é isso que a comparação daqui mede, cliente a cliente.
    * --------------------------------------------------------------------- */
 
-  /**
-   * Lê `nome = [ ... ]` / `{ ... }` de um script da página SEM executar
-   * nada: casa colchetes/chaves respeitando texto entre aspas e escape.
-   * @returns {*} o valor (JSON.parse) ou undefined se não achou
-   */
-  function lerVariavelDoScript(doc, nome) {
-    const padrao = new RegExp(`${nome.replace(/[$]/g, '\\$')}\\s*=\\s*[\\[{]`);
-    for (const script of doc.querySelectorAll('script:not([src])')) {
-      const t = script.textContent || '';
-      const i = t.search(padrao);
-      if (i < 0) continue;
-      const abre = t.indexOf('=', i) + 1 + t.slice(t.indexOf('=', i) + 1).search(/[[{]/);
-      const fecha = t[abre] === '[' ? ']' : '}';
-      let profundidade = 0;
-      let emTexto = null;
-      let escapado = false;
-      for (let j = abre; j < t.length; j++) {
-        const ch = t[j];
-        if (emTexto) {
-          if (escapado) escapado = false;
-          else if (ch === '\\') escapado = true;
-          else if (ch === emTexto) emTexto = null;
-          continue;
-        }
-        if (ch === '"' || ch === "'") { emTexto = ch; continue; }
-        if (ch === t[abre]) profundidade += 1;
-        else if (ch === fecha) {
-          profundidade -= 1;
-          if (profundidade === 0) return JSON.parse(t.slice(abre, j + 1));
-        }
-      }
-    }
-    return undefined;
-  }
+  // Leitor de variável de script: mora no Módulo 0 (v1.47.0) -- o Módulo 12
+  // também lê __TITULOS_PAGOS__ com ele.
+  const lerVariavelDoScript = (doc, nome) => window.__smartTableUtil.lerVariavelDoScript(doc, nome);
 
   /** SCPC da página baixada -- a MESMA leitura do Módulo 1 (obterValorScpc). */
   function lerScpcDaPagina(doc) {
@@ -1459,7 +1428,10 @@
     if (!Array.isArray(titulos)) throw new Error('página sem __TITULOS_ABERTOS__');
 
     const acordos = window.__negociacoes?.acordosDaPaginaBaixada ? await window.__negociacoes.acordosDaPaginaBaixada(doc) : null;
-    const dados = window.__avisoCobranca.simularTitulos({ titulos, scpc: lerScpcDaPagina(doc), tituloEmAcordo: acordos?.tituloEmAcordo }, hoje);
+    // Títulos em cartório marcados "fora do relatório" (Módulo 12, v1.47.0):
+    // a mesma marcação que a aba de verdade usa, pelo CNPJ deste cliente.
+    const tituloForaDoRelatorio = window.__alertaCliente?.predicadoForaDoRelatorio?.(cliente.cnpj);
+    const dados = window.__avisoCobranca.simularTitulos({ titulos, scpc: lerScpcDaPagina(doc), tituloEmAcordo: acordos?.tituloEmAcordo, tituloForaDoRelatorio }, hoje);
     const contexto = window.__contextoAdicionalDebug.contextoDaPaginaBaixada(doc, dados.registros, hoje);
     const grupoId = (/\/crm\/clientes\/grupo\/([^/?#]+)/.exec(cliente.url) || [])[1] ?? null;
     const empresasComVencido = await window.__grupoEconomico.buscarOutrasEmpresasComVencido(cliente.cnpj, grupoId);

@@ -476,6 +476,44 @@
   }
 
   /**
+   * Lê `nome = [ ... ]` / `{ ... }` de um script da página SEM executar
+   * nada: casa colchetes/chaves respeitando texto entre aspas e escape.
+   * Serve pro HTML baixado (Alt+U sem aba, Módulo 7) e pra página aberta
+   * (__TITULOS_PAGOS__, Módulo 12) -- não depende de como o CRM declara a
+   * variável (window.x, const, let).
+   * @returns {*} o valor (JSON.parse) ou undefined se não achou
+   */
+  function lerVariavelDoScript(doc, nome) {
+    const padrao = new RegExp(`${nome.replace(/[$]/g, '\\$')}\\s*=\\s*[\\[{]`);
+    for (const script of doc.querySelectorAll('script:not([src])')) {
+      const t = script.textContent || '';
+      const i = t.search(padrao);
+      if (i < 0) continue;
+      const abre = t.indexOf('=', i) + 1 + t.slice(t.indexOf('=', i) + 1).search(/[[{]/);
+      const fecha = t[abre] === '[' ? ']' : '}';
+      let profundidade = 0;
+      let emTexto = null;
+      let escapado = false;
+      for (let j = abre; j < t.length; j++) {
+        const ch = t[j];
+        if (emTexto) {
+          if (escapado) escapado = false;
+          else if (ch === '\\') escapado = true;
+          else if (ch === emTexto) emTexto = null;
+          continue;
+        }
+        if (ch === '"' || ch === "'") { emTexto = ch; continue; }
+        if (ch === t[abre]) profundidade += 1;
+        else if (ch === fecha) {
+          profundidade -= 1;
+          if (profundidade === 0) return JSON.parse(t.slice(abre, j + 1));
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * 'AAAA-MM-DD' (com ou sem hora depois) -> 'DD/MM'; '' se não for data.
    * Única versão do projeto (v1.46.0, revisão de código): os Módulos 16 e 17
    * tinham cada um a sua, e a do 17 devolvia lixo pra texto vazio.
@@ -798,6 +836,7 @@
     dataIso,
     dataCurtaDeIso,
     apelidoParaLog,
+    lerVariavelDoScript,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,
     filtrosAtivosNaListaDeClientes,

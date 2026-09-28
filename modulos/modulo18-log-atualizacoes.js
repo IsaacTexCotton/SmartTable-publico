@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.47.0', data: '28/09/2026',
+      mudancas: [
+        'Painel "⚠ Alerta" do cliente: nova seção "Títulos em cartório fora do relatório", com uma caixinha por título em cartório. Marcado e confirmado, o título sai do relatório, da mensagem do Alt+A, da nota do Alt+S e da fila do Alt+U. Se todos os títulos que sobraram estiverem marcados, o Alt+S também não envia para os números das outras razões do grupo.',
+        'A marcação fica salva neste computador até o título constar como pago no CRM -- aí ela some sozinha ao abrir a página do cliente. Se o título só sair da lista de abertos e voltar depois, continua marcado.',
+      ],
+    },
+    {
       versao: '1.46.4', data: '28/09/2026',
       mudancas: [
         'Alt+A: no primeiro contato seu com um cliente que outro negociador já contatou, sem título novo desde então, a mensagem passa a levar o relatório. Antes saía só "Sou Isaac, do financeiro..." e a pergunta, sem dizer de qual débito se tratava. O recontato de um cliente que você mesmo já contatou continua sem relatório, como antes.',

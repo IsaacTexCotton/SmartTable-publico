@@ -546,20 +546,23 @@
 
     /**
      * @param {Date} hoje
-     * @param {{titulos: object[], scpc: string|null, tituloEmAcordo?: Function}} [fonte]
+     * @param {{titulos: object[], scpc: string|null, tituloEmAcordo?: Function, tituloForaDoRelatorio?: Function}} [fonte]
      *   Sem fonte: a tabela desta página (o de sempre). Com fonte: a lista
      *   de títulos de outra página (__TITULOS_ABERTOS__), o SCPC dela ("s"/"n")
-     *   e quem responde "este título está em acordo?" pra ELA.
+     *   e quem responde "este título está em acordo?" / "está fora do
+     *   relatório?" pra ELA.
      */
     function coletarRegistros(hoje, fonte) {
         let linhasFonte;
         let scpc;
         let tituloEmAcordo = window.__negociacoes?.tituloEmAcordo;
+        let tituloForaDoRelatorio = window.__alertaCliente?.tituloForaDoRelatorio;
         if (fonte) {
             if (!Array.isArray(fonte.titulos)) throw new Error('Lista de títulos inválida.');
             linhasFonte = fonte.titulos.map((t) => ({ linha: null, ler: (chave) => textoDoTituloComoNaTabela(t, chave) }));
             scpc = typeof fonte.scpc === 'string' ? fonte.scpc.trim().toLowerCase() : null;
             tituloEmAcordo = fonte.tituloEmAcordo;
+            tituloForaDoRelatorio = fonte.tituloForaDoRelatorio;
         } else {
             const tabela = localizarTabela();
             if (!tabela) {
@@ -587,6 +590,12 @@
         // (Módulo 16) não é cobrado -- fica aqui, fora do relatório e da
         // mensagem. Sem o Módulo 16, nada muda.
         const emAcordo = [];
+        // FORA DO RELATÓRIO (v1.47.0, AUTORIZADO pelo usuário: "consultar a
+        // lista de títulos escondidos no mesmo ponto em que hoje consulta os
+        // títulos em acordo"): título em cartório marcado no painel "⚠
+        // Alerta" (Módulo 12) sai da cobrança inteira -- relatório, mensagem,
+        // nota e Alt+U -- até constar como pago. Sem o Módulo 12, nada muda.
+        const foraDoRelatorio = [];
 
         linhasFonte.forEach(({ linha, vazia, ler }, ordem) => {
             try {
@@ -652,6 +661,10 @@
                     emAcordo.push(registro);
                     return;
                 }
+                if (tituloForaDoRelatorio?.(registro.tituloCompleto)) {
+                    foraDoRelatorio.push(registro);
+                    return;
+                }
                 registros.push(registro);
 
             } catch (erro) {
@@ -687,7 +700,7 @@
                 })));
         }
 
-        return { registros, fluxo, scpc, ignorados, divergentes, naoCobrar, emAcordo };
+        return { registros, fluxo, scpc, ignorados, divergentes, naoCobrar, emAcordo, foraDoRelatorio };
     }
 
     // ============================================================
@@ -1260,7 +1273,9 @@
         if (dados.registros.length === 0) {
             throw new Error(dados.emAcordo.length > 0
                 ? 'Todos os títulos vencidos estão em acordo -- sem relatório (veja a aba Negociações).'
-                : 'Nenhum título vencido encontrado para este cliente.');
+                : dados.foraDoRelatorio.length > 0 && dados.naoCobrar.length === 0
+                    ? 'Os títulos vencidos restantes estão marcados como fora do relatório (painel ⚠ Alerta).'
+                    : 'Nenhum título vencido encontrado para este cliente.');
         }
 
         const tabela = localizarTabela();

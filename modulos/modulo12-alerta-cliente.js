@@ -47,6 +47,16 @@
  * (vencimento, promessa), e aqui o pedido é uma DURAÇÃO rolante ("por 1
  * dia a partir de agora"), não um dia específico do calendário.
  *
+ * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO (v1.47.0, pedido do usuário, com as
+ * decisões dele): no painel, uma caixinha por título em cartório. Marcado,
+ * o título sai da cobrança INTEIRA -- relatório, mensagem do Alt+A, nota do
+ * Alt+S e Alt+U (o Módulo 1 consulta tituloForaDoRelatorio no mesmo ponto em
+ * que consulta os títulos em acordo). Fica marcado ATÉ CONSTAR COMO PAGO:
+ * ao abrir a página do cliente, título que aparece em __TITULOS_PAGOS__ do
+ * CRM é desmarcado sozinho. Se ele só sumir dos abertos (acordo, baixa) e
+ * voltar depois, a marcação continua valendo. Guardado por CNPJ (só
+ * dígitos) em smarttable_cartorio_fora_relatorio_v1, neste navegador.
+ *
  * ONDE COLAR: depois do Módulo 0 (config/registro de painéis) e ANTES do
  * Módulo 7 (que consulta estaSuprimidoDaPrioridade ao montar a fila -- se
  * este módulo não tiver carregado, o Módulo 7 degrada silenciosamente pra
@@ -63,6 +73,7 @@
 
   const CONFIG_ALERTA = {
     CHAVE_STORAGE: 'smarttable_alerta_cliente_v1',
+    CHAVE_FORA_RELATORIO: 'smarttable_cartorio_fora_relatorio_v1',
     ID_BOTAO: 'smarttable-botao-alerta-cliente',
     ID_PAINEL: 'smarttable-painel-alerta-cliente',
     ID_AVISO: 'smarttable-aviso-observacao-cliente',
@@ -189,6 +200,131 @@
     const alerta = obterAlerta(cnpj);
     if (!alerta || alerta.naoCobrarAte == null) return false;
     return (agora ?? Date.now()) < alerta.naoCobrarAte;
+  }
+
+  /* ---------------------------------------------------------------------
+   * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO (v1.47.0)
+   * --------------------------------------------------------------------- */
+
+  const soDigitos = (cnpj) => String(cnpj ?? '').replace(/\D/g, '');
+
+  /** @returns {Object<string, Object<string, {marcadoEm: number}>>} por CNPJ (dígitos) -> título */
+  function lerForaDoRelatorio() {
+    try {
+      const raw = localStorage.getItem(CONFIG_ALERTA.CHAVE_FORA_RELATORIO);
+      const dados = raw ? JSON.parse(raw) : {};
+      return dados && typeof dados === 'object' && !Array.isArray(dados) ? dados : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function salvarForaDoRelatorio(dados) {
+    try {
+      localStorage.setItem(CONFIG_ALERTA.CHAVE_FORA_RELATORIO, JSON.stringify(dados));
+      return true;
+    } catch (erro) {
+      console.warn('[Alerta Cliente] Não consegui salvar os títulos fora do relatório.', erro?.message);
+      return false;
+    }
+  }
+
+  /** Títulos ("123456/1") deste cliente marcados fora do relatório. */
+  function titulosForaDoRelatorio(cnpj) {
+    const doCliente = lerForaDoRelatorio()[soDigitos(cnpj)];
+    return doCliente && typeof doCliente === 'object' ? Object.keys(doCliente) : [];
+  }
+
+  /**
+   * Marca (ou desmarca) um título deste cliente como fora do relatório.
+   * @returns {boolean} false se não conseguiu gravar
+   */
+  function marcarForaDoRelatorio(cnpj, tituloCompleto, fora, agora) {
+    const chave = soDigitos(cnpj);
+    const titulo = String(tituloCompleto ?? '').trim();
+    if (!chave || !titulo) return false;
+    const todos = lerForaDoRelatorio();
+    const doCliente = { ...(todos[chave] || {}) };
+    if (fora) doCliente[titulo] = doCliente[titulo] ?? { marcadoEm: agora ?? Date.now() };
+    else delete doCliente[titulo];
+    if (Object.keys(doCliente).length > 0) todos[chave] = doCliente;
+    else delete todos[chave];
+    return salvarForaDoRelatorio(todos);
+  }
+
+  /** A pergunta do Módulo 1 pra UM cliente: "este título está fora do relatório?" */
+  function predicadoForaDoRelatorio(cnpj) {
+    const marcados = new Set(titulosForaDoRelatorio(cnpj));
+    return (tituloCompleto) => marcados.has(String(tituloCompleto ?? '').trim());
+  }
+
+  /** A mesma pergunta pra página aberta (o Módulo 1 da tela usa esta). */
+  function tituloForaDoRelatorio(tituloCompleto) {
+    return predicadoForaDoRelatorio(cnpjDaPagina())(tituloCompleto);
+  }
+
+  /**
+   * Desmarca os títulos que já constam como PAGOS (decisão do usuário: "até
+   * constar como pago").
+   * @param {string} cnpj
+   * @param {string[]} titulosPagos no formato "123456/1"
+   * @returns {number} quantos foram desmarcados
+   */
+  function desmarcarPagos(cnpj, titulosPagos) {
+    const pagos = new Set((titulosPagos || []).map((t) => String(t).trim()));
+    const aDesmarcar = titulosForaDoRelatorio(cnpj).filter((t) => pagos.has(t));
+    aDesmarcar.forEach((t) => marcarForaDoRelatorio(cnpj, t, false));
+    if (aDesmarcar.length > 0) {
+      console.log(`[Alerta Cliente] ${aDesmarcar.length} título(s) fora do relatório constam como pagos -- marcação removida (${window.__smartTableUtil?.apelidoParaLog?.(cnpj) ?? 'cli.????'}).`);
+    }
+    return aDesmarcar.length;
+  }
+
+  /**
+   * Lê __TITULOS_PAGOS__ da página aberta (mesmos campos de
+   * __TITULOS_ABERTOS__: numeroTitulo, sequencia -- diagnóstico de 25/09) e
+   * desmarca os pagos. Sem a lista (página sem ela, formato inesperado):
+   * não desmarca NADA -- nunca devolve à cobrança por engano.
+   */
+  function desmarcarPagosDaPagina(cnpj) {
+    let pagos;
+    try {
+      pagos = window.__smartTableUtil?.lerVariavelDoScript?.(document, '__TITULOS_PAGOS__');
+    } catch (erro) {
+      return 0;
+    }
+    if (!Array.isArray(pagos)) return 0;
+    const titulos = pagos
+      .filter((t) => t && t.numeroTitulo != null && t.sequencia != null)
+      .map((t) => `${String(t.numeroTitulo).trim()}/${String(t.sequencia).trim()}`);
+    return desmarcarPagos(cnpj, titulos);
+  }
+
+  /**
+   * Os títulos que a seção do painel mostra: os em cartório agora (marcados
+   * ou não) e os já marcados que ainda estão em aberto.
+   * @returns {{tituloCompleto: string, vencimentoTexto: string, fora: boolean}[]}
+   */
+  function titulosDoPainelForaDoRelatorio() {
+    let dados;
+    try {
+      dados = window.__avisoCobranca?.simular?.();
+    } catch (erro) {
+      return [];
+    }
+    if (!dados) return [];
+    const vistos = new Set();
+    const lista = [];
+    const incluir = (r, fora) => {
+      if (!r?.tituloCompleto || vistos.has(r.tituloCompleto)) return;
+      vistos.add(r.tituloCompleto);
+      lista.push({ tituloCompleto: r.tituloCompleto, vencimentoTexto: r.vencimentoTexto || '', fora });
+    };
+    (dados.foraDoRelatorio || []).forEach((r) => incluir(r, true));
+    [...(dados.registros || []), ...(dados.naoCobrar || [])]
+      .filter((r) => r.situacaoKey === 'EM_CARTORIO')
+      .forEach((r) => incluir(r, false));
+    return lista;
   }
 
   /* ---------------------------------------------------------------------
@@ -395,6 +531,38 @@
     });
     painelEl.appendChild(textareaObservacao);
 
+    // Títulos em cartório fora do relatório (v1.47.0) -- só aparece se o
+    // cliente tiver algum título em cartório (ou já marcado).
+    const caixasForaDoRelatorio = [];
+    const titulosCartorio = titulosDoPainelForaDoRelatorio();
+    if (titulosCartorio.length > 0) {
+      const secao = criarDiv('', { marginBottom: '10px', paddingTop: '8px', borderTop: `1px solid ${CORES.linha}` });
+      secao.setAttribute('data-papel', 'fora-do-relatorio');
+      secao.appendChild(criarDiv('Títulos em cartório fora do relatório', {
+        color: CORES.tinta, fontWeight: '600', fontSize: '12.5px', marginBottom: '2px',
+      }));
+      secao.appendChild(criarDiv('Marcado: sai do relatório e da cobrança até constar como pago.', {
+        color: CORES.apagado, fontSize: '11px', marginBottom: '6px', lineHeight: '1.4',
+      }));
+      titulosCartorio.forEach((t, i) => {
+        const linha = criarDiv('', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' });
+        const caixa = document.createElement('input');
+        caixa.type = 'checkbox';
+        caixa.id = `smarttable-alerta-fora-relatorio-${i}`;
+        caixa.checked = t.fora;
+        caixa.dataset.titulo = t.tituloCompleto;
+        const rotulo = document.createElement('label');
+        rotulo.htmlFor = caixa.id;
+        rotulo.textContent = t.vencimentoTexto ? `${t.tituloCompleto} · venc. ${t.vencimentoTexto}` : t.tituloCompleto;
+        Object.assign(rotulo.style, { color: CORES.texto, cursor: 'pointer', fontSize: '12.5px' });
+        linha.appendChild(caixa);
+        linha.appendChild(rotulo);
+        secao.appendChild(linha);
+        caixasForaDoRelatorio.push(caixa);
+      });
+      painelEl.appendChild(secao);
+    }
+
     const botaoConfirmar = document.createElement('button');
     botaoConfirmar.type = 'button';
     botaoConfirmar.textContent = 'Confirmar';
@@ -408,6 +576,7 @@
         intervaloDias: parseInt(inputDias.value, 10),
         observacao: textareaObservacao.value,
       });
+      caixasForaDoRelatorio.forEach((caixa) => marcarForaDoRelatorio(cnpj, caixa.dataset.titulo, caixa.checked));
       atualizarBadgeDoBotao(cnpj);
       fecharPainel();
     });
@@ -490,6 +659,7 @@
     const cnpj = cnpjDaPagina();
     if (!cnpj) return; // só faz sentido na página do cliente
 
+    desmarcarPagosDaPagina(cnpj);
     botaoEl = criarBotao(cnpj);
     atualizarBadgeDoBotao(cnpj);
     mostrarAvisoSeNecessario(cnpj);
@@ -513,6 +683,13 @@
     obterAlerta,
     salvarAlerta,
     estaSuprimidoDaPrioridade,
+    titulosForaDoRelatorio,
+    marcarForaDoRelatorio,
+    predicadoForaDoRelatorio,
+    tituloForaDoRelatorio,
+    desmarcarPagos,
+    desmarcarPagosDaPagina,
+    titulosDoPainelForaDoRelatorio,
     abrirPainel,
     fecharPainel,
     mostrarAvisoSeNecessario,

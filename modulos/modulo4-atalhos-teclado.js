@@ -1938,6 +1938,12 @@
     if (dados && (dados.registros?.length ?? 0) === 0 && (dados.naoCobrar?.length ?? 0) > 0) {
       return 'títulos em NÃO COBRAR / CARTEIRA';
     }
+    // v1.47.0 (revisor): tudo que sobrou foi marcado "fora do relatório" no
+    // ⚠ Alerta -- decisão do usuário: fora da cobrança INTEIRA, inclusive
+    // dos números das outras razões do grupo.
+    if (dados && (dados.registros?.length ?? 0) === 0 && (dados.foraDoRelatorio?.length ?? 0) > 0) {
+      return 'títulos em cartório marcados fora do relatório no ⚠ Alerta';
+    }
     return null;
   }
 
