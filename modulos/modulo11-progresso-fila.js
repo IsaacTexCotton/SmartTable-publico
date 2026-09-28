@@ -12,11 +12,12 @@
  * direita-inferior já tem os toasts do Módulo 7). Fica na borda direita,
  * centralizado na vertical -- único ponto ainda livre.
  *
- * DE ONDE VÊM OS NÚMEROS: a MESMA fila que o Alt+U já monta e guarda em
- * localStorage (window.filaDebug, chave compartilhada com o Módulo 3) --
- * este módulo não calcula prioridade nem confere resultado, só AGRUPA o que
- * já está lá por prioridadeTier (window.filaDebug.obterFila().clientes) e
- * cruza com quem já foi contatado hoje (window.filaDebug.obterAtendidosHoje()).
+ * DE ONDE VÊM OS NÚMEROS: o SNAPSHOT da primeira fila por prioridade do
+ * dia (window.filaPrioridadeDebug.lerSnapshotProgresso(), gravado pelo
+ * Módulo 7) -- NÃO a fila "ao vivo" do Módulo 3, que encolhe conforme os
+ * clientes são atendidos (ver montarProgresso). Este módulo não calcula
+ * prioridade nem confere resultado, só AGRUPA o snapshot por prioridadeTier
+ * e cruza com quem já foi contatado hoje (window.filaDebug.obterAtendidosHoje()).
  * Nomes e cores das faixas vêm do Módulo 7 (NOMES_PRIORIDADE/CORES_PRIORIDADE)
  * -- não duplicados aqui, pra nunca divergir se uma faixa mudar de nome.
  *

@@ -28,10 +28,11 @@
 
   const CONFIG_PAINEL = {
     ID_PAINEL: 'smarttable-painel-config',
-    // Mesmo z-index do banner de grupo (Módulo 5) e do painel de novidades
-    // (Módulo 4): ABAIXO dos modais do CRM, que usam z-50. Já tivemos o bug
-    // de um elemento nosso cortando um modal do CRM ao meio; a regra é essa
-    // e não se abre exceção sem motivo.
+    // Mesmo z-index do painel de novidades (Módulo 4): ABAIXO dos modais do
+    // CRM, que usam z-50. Já tivemos o bug de um elemento nosso cortando um
+    // modal do CRM ao meio; a regra é essa e não se abre exceção sem motivo.
+    // (O banner de grupo do Módulo 5, que seguia a mesma regra, saiu na
+    // v1.14.0.)
     Z_INDEX: 30,
   };
 

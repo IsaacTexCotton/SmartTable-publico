@@ -1,7 +1,11 @@
 /* =========================================================================
  * MÓDULO 4: ATALHOS DE TECLADO — CRM TexCotton
  * -------------------------------------------------------------------------
- * Atalhos (todos com Alt, pra não colidir com atalhos do navegador/CRM):
+ * Atalhos (todos com Alt, pra não colidir com atalhos do navegador/CRM).
+ * A lista COMPLETA e sempre atualizada é LISTA_ATALHOS, mais abaixo (é dela
+ * que saem o aviso do console e o painel Alt+H). A lista abaixo é só um
+ * resumo dos principais -- não inclui, por exemplo, Alt+N, Alt+D, Alt+M,
+ * Alt+O, Alt+K e Shift+Alt+U:
  *
  *   Alt + I  -> Iniciar Fila de Atendimento   (na página de lista)
  *   Alt + U  -> Iniciar Fila por Prioridade   (na página de lista -- visita
@@ -37,14 +41,13 @@
  * irParaAnterior), do Módulo 7 (usa window.filaPrioridadeDebug.iniciar pro
  * Alt+U) e do Módulo 5 (usa window.__alertaGrupo pra linha de grupo com
  * vencido na mensagem e pro Alt+G).
- * * IMPORTANTE — dois atalhos ainda precisam de confirmação sua:
- *   "Gerar Relatório" e "Entrar na tela de contato" não têm uma função
- *   global exposta que eu conheça, então este módulo procura o botão certo
- *   por TEXTO (ver CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO e
- *   TEXTO_BOTAO_CONTATO). Se um atalho não fizer nada, olhe o console: vai
- *   aparecer um aviso "[Atalhos] Não encontrei...". Me diga o texto real e
- *   eu ajusto a linha certa. (Alt+F e Alt+S já estão confirmados com o
- *   HTML real do CRM.)
+ * * IMPORTANTE — um atalho ainda precisa de confirmação sua: "Entrar na
+ *   tela de contato" (Alt+C) não tem ID confirmado, então este módulo
+ *   procura o botão por TEXTO (ver CONFIG_ATALHOS.TEXTO_BOTAO_CONTATO). Se
+ *   ele não fizer nada, olhe o console: vai aparecer "[Atalhos] Não
+ *   encontrei...". Me diga o texto real e eu ajusto a linha certa. (Alt+F,
+ *   Alt+R e Alt+S já estão confirmados: classe/ID reais do CRM e o ID do
+ *   botão criado pelo Módulo 1.)
  * ========================================================================= */
 (function () {
   'use strict';
@@ -137,8 +140,10 @@
     // da tentativa (500 ms, depois 1 s).
     TENTATIVAS_COPIA: 3,
     INTERVALO_NOVA_TENTATIVA_COPIA_MS: 500,
-    // Trechos de texto (minúsculo) usados pra achar os botões que ainda
-    // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
+    // Trechos de texto (minúsculo). Relatório e Registrar já têm ID
+    // confirmado (ID_BOTAO_RELATORIO, ID_BOTAO_REGISTRAR): o texto é só
+    // plano B. Só TEXTO_BOTAO_CONTATO ainda não tem ID confirmado --
+    // AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
     TEXTO_BOTAO_CONTATO: 'contato',
     TEXTO_BOTAO_REGISTRAR: 'registrar e enviar',
@@ -1519,7 +1524,10 @@
     return partes.map((parte) => (parte === MARCADOR_IMAGEM_RELATORIO ? parte : substituirVariaveisDaFrase(parte, dados)));
   }
 
-  /**
+  /*
+   * CÓPIA DAS PARTES PRO Win+V (descrição de copiarPartesParaAreaDeTransferencia,
+   * mais abaixo; aguardarFoco logo a seguir é a peça do "BUG REAL" citado aqui).
+   *
    * Copia cada parte de texto pra área de transferência, em sequência, na
    * ORDEM INVERSA (última parte primeiro, parte 1 por último). Motivo: o
    * histórico do Windows (Win+V) mostra a cópia mais recente no topo, então
@@ -1536,15 +1544,16 @@
    * no WhatsApp desde a v1.37.1: o Alt+S recopia a parte 1.) Sem
    * `copiarImagem`, o marcador é só pulado.
    *
-   * Roda em segundo plano (quem chama não espera) -- não atrasa o clique em
-   * "Registrar e Enviar". Mesma rede de segurança de sempre: se
+   * Roda em segundo plano (o Alt+A não espera). Desde a v1.49.0 o Alt+S
+   * ESPERA a cópia confirmar antes de registrar -- ver "CONFIRMAÇÃO DA
+   * CÓPIA DO Alt+A" abaixo. Mesma rede de segurança de sempre: se
    * navigator.clipboard não existir (jsdom, alguma versão de navegador),
    * sai calada -- o restante do fluxo (caixa de observações) segue normal.
    *
    * BUG REAL (relatado pelo usuário: "vem embaralhado, às vezes faltam ou
    * frases estão duplicadas"): a API de área de transferência do navegador
    * EXIGE que o documento esteja em foco -- uma chamada de writeText() com
-   * a aba sem foco falha (silenciosamente, só cai no catch abaixo). Como
+   * a aba sem foco falha (na época, em silêncio: só caía no catch). Como
    * este laço roda em segundo plano por até ~2s (N partes x intervalo), e
    * o operador com frequência já foi pro WhatsApp Desktop nesse meio tempo
    * (é literalmente pra lá que ele vai colar), as últimas cópias do laço
@@ -1560,8 +1569,13 @@
    * sozinho assim que a aba volta a ter foco (Alt-Tab de volta, o que o
    * operador faria de qualquer forma pra continuar registrando o próximo
    * cliente).
+   */
+
+  /**
+   * Espera a aba ter foco (a API de área de transferência exige documento
+   * em foco). Resolve na hora se já tem; senão, no próximo evento "focus".
    *
-   * @param {string[]} partes Lista devolvida por montarPartesMensagemPersonalizada.
+   * @returns {Promise<void>}
    */
   function aguardarFoco() {
     if (document.hasFocus()) return Promise.resolve();
@@ -1594,6 +1608,11 @@
    * geração ANTES de entrar na fila: qualquer cópia do laço ainda pendente
    * se vê "velha" e desiste sem escrever, garantindo que a última coisa na
    * área de transferência seja sempre a mensagem que o Alt+S mandou abrir.
+   *
+   * DESDE A v1.49.0 o Alt+S (tecla) primeiro ESPERA a cópia do Alt+A
+   * terminar (aguardarCopiaEEnviar), então essa escrita de segurança só
+   * roda com o laço já concluído. O cancelamento por geração continua
+   * valendo para um NOVO Alt+A no meio do laço.
    */
   let filaEscritasClipboard = Promise.resolve();
   let geracaoAtualClipboard = 0;
@@ -1931,10 +1950,11 @@
     definirValorControlado(caixa, partes[0]);
     dispararEventosDeMudanca(caixa);
     // A imagem do relatório entra no laço, no lugar dela na mensagem (ver
-    // copiarPartesParaAreaDeTransferencia). Dentro da fila e da geração: um
-    // Alt+S no meio do laço cancela a imagem também -- antes, a recópia
-    // rodava DEPOIS do laço, fora da fila, e podia cobrir a parte 1 que o
-    // Alt+S acabou de copiar.
+    // copiarPartesParaAreaDeTransferencia). Dentro da fila e da geração.
+    // Desde a v1.49.0 o Alt+S no meio do laço ESPERA a cópia (inclusive da
+    // imagem) confirmar, em vez de cancelar -- ver aguardarCopiaEEnviar.
+    // Antes da v1.41.3, a recópia rodava DEPOIS do laço, fora da fila, e
+    // podia cobrir a parte 1 que o Alt+S acabou de copiar.
     const recopiarImagem = window.__avisoCobranca?.recopiarUltimaImagem;
     copiarPartesParaAreaDeTransferencia(partes, typeof recopiarImagem === 'function' ? recopiarImagem : null);
     console.log(
@@ -2991,8 +3011,9 @@
   }
 
   /**
-   * Ponte pro painel do Módulo 14 (Alt+M). Mesma checagem de existência das
-   * outras pontes: módulo que não carregou avisa, não derruba os outros.
+   * Ponte pro painel do Módulo 17 (Alt+N, promessa rápida). Mesma checagem
+   * de existência das outras pontes: módulo que não carregou avisa, não
+   * derruba os outros.
    */
   function alternarPromessaRapida() {
     const promessa = window.__promessaRapida;

@@ -162,7 +162,8 @@
 
   /**
    * @returns {{disponivel: boolean, motivo?: string, naFila?: boolean,
-   *   posicao?: number, total?: number, progresso?: object}}
+   *   posicao?: number, total?: number, totalAtendidos?: number,
+   *   totalPulados?: number, progresso?: object}}
    */
   function montarFilaEProgresso() {
     const filaDebug = window.filaDebug;

@@ -123,10 +123,13 @@
  *     responde X-Frame-Options: deny.
  *   - fetch + DOMParser (X-Frame-Options não se aplica a fetch): o HTML
  *     baixado vem SEM a tabela de títulos, sem o parágrafo do SCPC, sem
- *     promessa e sem grupo. A hipótese não perseguida é que a página monte
- *     o conteúdo no navegador a partir de dados embutidos num <script>,
- *     como a lista já faz com window.CLIENTES. É por aí que se procura, se
- *     um dia isto aqui não bastar.
+ *     promessa e sem grupo NO HTML. A hipótese levantada então -- a página
+ *     montar o conteúdo no navegador a partir de dados embutidos num
+ *     <script>, como a lista já faz com window.CLIENTES -- foi perseguida
+ *     depois e funcionou: ver MODO SOMBRA (v1.45.0), mais abaixo, que lê
+ *     __TITULOS_ABERTOS__ e companhia da página baixada. A fila continua
+ *     sendo montada pelas abas; a página baixada roda junto só para
+ *     comparar.
  *
  * CONCORRÊNCIA: as abas abrem de CONFIG.CONCORRENCIA_CLASSIFICACAO em
  * CONCORRENCIA_CLASSIFICACAO (4), não mais uma de cada vez -- com ~92
@@ -152,7 +155,7 @@
  * resolve o mesmo, sem trava entre abas nem abas abrindo sozinhas.
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 0
- * (Utilitários Compartilhados -- usa window.__smartTableUtil.toast/esperar/
+ * (Utilitários Compartilhados -- usa window.__smartTableUtil.toast/
  * normalizarData/escolherTituloRepresentativo) e do Módulo 3 (Fila de
  * Atendimento) -- usa window.filaDebug.construirFilaAPartirDaPagina,
  * .salvarFila, .obterFila e .CONFIG. O atalho de teclado (Alt+U) em si fica
@@ -983,8 +986,12 @@
   }
 
   /**
-   * Monta a ordem final da fila, com 1 em cada 5 clientes recebendo posição
-   * SORTEADA em vez da posição pela faixa (ver Módulo 8).
+   * Monta a ordem final da fila. O mecanismo do grupo de controle (1 em cada
+   * 5 clientes com posição SORTEADA, para o Módulo 8 medir o efeito da
+   * régua) está DESLIGADO por decisão do usuário
+   * (CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE: false): ehGrupoControle devolve
+   * false para todos e a fila sai na ordem pura da régua. O texto abaixo
+   * documenta como o sorteio funciona SE for religado.
    *
    * BUG REAL (achado conferindo uma fila de verdade, 92 clientes): a versão
    * anterior sorteava a chave no espaço das FAIXAS -- `1 + sorteio * 9`,
