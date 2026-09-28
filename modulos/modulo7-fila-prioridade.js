@@ -7,8 +7,9 @@
  * dias de atraso. Atalho separado (Alt+U) -- o Alt+I original continua
  * exatamente como está, sem nenhuma mudança de comportamento.
  *
- * REGRA DE PRIORIDADE (CONFIRMADA com o usuário -- 3ª revisão, 23/09/2026,
- * régua v2 -- ver CONFIG.VERSAO_REGUA), em ordem -- cada cliente entra na
+ * REGRA DE PRIORIDADE (CONFIRMADA com o usuário -- 3ª revisão, 23/09/2026;
+ * faixas 12 a 15 na 4ª, 28/09/2026 -- régua v3, ver CONFIG.VERSAO_REGUA),
+ * em ordem -- cada cliente entra na
  * PRIMEIRA faixa que se aplicar a ele:
  *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
  *   2. Cluster "Novo" -- vale em QUALQUER situação de título, inclusive já
@@ -17,8 +18,8 @@
  *      PEDIDO DO USUÁRIO -- um cliente novo com título em cartório precisa
  *      continuar aparecendo na fila porque a cobrança é quem bloqueia o
  *      faturamento desse cliente.
- *   3. Segundo dia de atraso (situação EM_ATRASO, dia 2 exato -- contato
- *      bem cedo, antes do problema crescer)
+ *   3. Segundo dia de atraso (situação EM_ATRASO, dia 2 exato, e NENHUM
+ *      título do cliente com mais dias, cartório incluído -- v1.47.1)
  *   4. Sem nenhum contato -- a aba Contatos do cliente está VAZIA: ninguém,
  *      de nenhum usuário, nunca registrou contato (CONFIRMADO com o usuário:
  *      "nenhum contato, de ninguém" -- é o semContatoAnterior do Módulo 6,
@@ -45,13 +46,21 @@
  *      NENHUM título do cliente com mais dias de atraso, inclusive os já em
  *      cartório (CONFIRMADO com o usuário: "também conta"). Dia 1 NÃO conta
  *      como dia de cobrança, fica de fora da lista; dia 2 tem faixa própria.
- *   12. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *   12. Título em cartório + outro vencido fora do cartório (ainda há
+ *      título que dá pra evitar) -- régua v3, 28/09/2026. Medido na fila
+ *      real: 8 dos 34 "Demais dias", mais os de 2º dia com cartório.
+ *   13. 5º dia de atraso (situação EM_ATRASO, dia 5 -- amanhã vira "último
+ *      dia") -- régua v3. Era "Demais dias" de propósito até a v2; 12 dos 34.
+ *   14. SCPC negativado antes do aviso de suspensão (NEGATIVADO_SCPC, abaixo
+ *      do 16º dia) -- régua v3; 14 dos 34. Dentro dela, quem está mais perto
+ *      do 16º dia vem primeiro.
+ *   15. Demais dias (tudo que não caiu em nenhuma faixa acima)
  *
- * DENTRO DA MESMA FAIXA (CONFIRMADO com o usuário na régua v2): do contato
- * mais ANTIGO pro mais recente -- quem está há mais tempo sem ser procurado
- * vem primeiro; quem nunca teve contato vem antes de todos. Empate (mesmo
- * dia de último contato, ou os dois sem contato) desempata por mais dias de
- * atraso. Ver compararPelaRegua.
+ * DENTRO DA MESMA FAIXA (CONFIRMADO com o usuário na régua v2; valor na v3):
+ * do contato mais ANTIGO pro mais recente -- quem está há mais tempo sem ser
+ * procurado vem primeiro; quem nunca teve contato vem antes de todos. Empate:
+ * maior valor vencido primeiro (v3), depois mais dias de atraso. Na faixa 14,
+ * antes de tudo, mais dias (mais perto do 16º). Ver compararPelaRegua.
  *
  * ANTES de qualquer faixa, um cliente pode ser suprimido de vez desta fila:
  * o botão "Alerta" na página do cliente (Módulo 12) marca "não cobrar" por
@@ -174,22 +183,26 @@
     DIA_ATRASO_MIN_CONSIDERADO: 2, // dia 1 não é considerado dia de cobrança
     // Prioridade 3: dia 2 de EM_ATRASO, sozinho (faixa própria, contato bem cedo).
     DIA_PRIORIDADE_SEGUNDO_DIA: 2,
-    // Prioridade 9: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
+    // Prioridade 11: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
     //
-    // O 5º DIA FICA DE FORA DE PROPÓSITO -- CONFIRMADO com o usuário depois de
-    // conferir uma fila real, onde 14 dos 92 clientes eram justamente dia 5 e
-    // caíram em "Demais dias" (P10). NÃO é lacuna esquecida entre o dia 2 e os
+    // O 5º DIA FICA DE FORA DESTA FAIXA DE PROPÓSITO -- CONFIRMADO com o usuário
+    // depois de conferir uma fila real, onde 14 dos 92 clientes eram justamente
+    // dia 5. Na régua v3 ele ganhou faixa própria (13), ABAIXO desta. NÃO é lacuna esquecida entre o dia 2 e os
     // dias 3-4: é a régua como ela foi desenhada. Quem for "consertar" isso
     // acrescentando o 5 aqui vai derrubar o teste
     // "EM_ATRASO dia 5 NÃO é atraso inicial" em tests/fila-prioridade.test.js,
     // e deve trazer a mudança pro usuário em vez de tratar como bug.
     DIAS_PRIORIDADE_ATRASO_INICIAL: [3, 4],
+    // Prioridade 13 (régua v3, 28/09/2026, pedido do usuário depois de medir
+    // a faixa "Demais dias" numa fila real): o 5º dia ganhou faixa PRÓPRIA,
+    // abaixo do atraso inicial -- continua fora da faixa 11, como decidido.
+    DIA_PRIORIDADE_QUINTO_DIA: 5,
     // Versão da régua de faixas. Sobe toda vez que a NUMERAÇÃO das faixas
     // muda: vai gravada em cada cliente da fila (versaoRegua) e em cada
     // registro do diário (campo r), pra que uma fila ou um histórico montado
     // com a numeração antiga nunca seja lido com os nomes da nova -- a faixa
     // "5" da v1 (Promessa não cumprida) é outra coisa na v2 (Dia da promessa).
-    VERSAO_REGUA: 2,
+    VERSAO_REGUA: 3,
     // Prioridade 8: última movimentação há mais desse tanto de dias corridos
     // (CONFIRMADO com o usuário: 30 dias, mesmo padrão já usado noutro ponto
     // do sistema -- expiração do retrato de títulos no Módulo 6).
@@ -254,8 +267,15 @@
     9: 'Sem contato ou movimentação há mais de um mês',
     10: 'SCPC — último dia',
     11: 'Atraso inicial (3º–4º dia)',
-    12: 'Demais dias',
+    12: 'Título em cartório e outro vencido',
+    13: '5º dia de atraso',
+    14: 'SCPC antes do aviso de suspensão',
+    15: 'Demais dias',
   };
+
+  // Faixa em que, dentro dela, quem tem MAIS dias vem primeiro (mais perto
+  // do 16º dia, quando começa o aviso de suspensão) -- ver compararPelaRegua.
+  const FAIXA_SCPC_ANTES_DO_AVISO = 14;
 
   // Cor de destaque do aviso de troca de prioridade (ver toastTrocaPrioridade
   // abaixo) -- reaproveita tons já usados em outros pontos do sistema pra
@@ -283,7 +303,14 @@
     9: '#6B4226',
     10: '#A3251A',
     11: '#B45309',
-    12: '#4E5D6C',
+    // Régua v3: cartório no mesmo âmbar-escuro do rail EM_CARTORIO do
+    // relatório; 5º dia num âmbar mais claro que o do atraso inicial
+    // (vizinhas, mesma natureza); SCPC antes do aviso num índigo ainda mais
+    // claro que as faixas 7/8 (mesma janela SCPC). Demais, o cinza de sempre.
+    12: '#8A5A00',
+    13: '#C2771D',
+    14: '#7C84C4',
+    15: '#4E5D6C',
   };
 
   /* ---------------------------------------------------------------------
@@ -621,7 +648,7 @@
   }
 
   // Primeira faixa que se aplicar vence -- por isso a ordem de checagem
-  // aqui segue exatamente a numeração das prioridades (1 a 12).
+  // aqui segue exatamente a numeração das prioridades (1 a 15, régua v3).
   //
   // contextoPromessa é o window.__contextoAdicional.promessa da aba de
   // fundo (Módulo 6): { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL',
@@ -642,6 +669,8 @@
   //     título escolhido, ou seja, não bloqueia a faixa.
   //   - ultimoContatoIso: data (AAAA-MM-DD) do contato mais recente, de
   //     qualquer pessoa (faixa 9). Ausente = só a movimentação decide.
+  //   - temTituloEmCartorio: o cliente tem título EM_CARTORIO entre os em
+  //     cobrança (faixa 12, régua v3). Ausente = false.
   function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje, extras = {}) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
     const { situacaoKey, diasAtrasoReal } = escolhido;
@@ -684,7 +713,16 @@
     ) {
       return 11;
     }
-    return 12;
+    // Régua v3 (28/09/2026): o que era "Demais dias", separado pela fila real.
+    if (extras.temTituloEmCartorio === true && situacaoKey !== 'EM_CARTORIO') return 12;
+    if (situacaoKey === 'EM_ATRASO' && diasAtrasoReal === CONFIG.DIA_PRIORIDADE_QUINTO_DIA) return 13;
+    if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal < CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC) return FAIXA_SCPC_ANTES_DO_AVISO;
+    return 15;
+  }
+
+  /** Soma do saldo dos títulos em cobrança (desempate da régua v3); 0 se nada legível. */
+  function valorVencidoEntre(registros) {
+    return (registros || []).reduce((soma, r) => soma + (window.__smartTableUtil.numeroDeMoedaBr(r?.saldoTexto) ?? 0), 0);
   }
 
   // Maior atraso real entre TODOS os títulos do cliente -- sem filtro de
@@ -820,6 +858,7 @@
         semContato: aba.__contextoAdicional?.semContatoAnterior === true,
         maiorAtrasoDoCliente: maiorAtrasoEntreTodos(dadosTitulos.registros),
         ultimoContatoIso,
+        temTituloEmCartorio: dadosTitulos.registros.some((r) => r.situacaoKey === 'EM_CARTORIO'),
       }
     );
 
@@ -833,7 +872,8 @@
     // de graça nesta mesma aba de fundo, sem custo extra de visita.
     const empresasComVencido = (aba.__alertaGrupo && aba.__alertaGrupo.empresasComVencido) || [];
 
-    return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade, empresasComVencido, ultimoContatoIso };
+    const valorVencido = valorVencidoEntre(dadosTitulos.registros);
+    return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade, empresasComVencido, ultimoContatoIso, valorVencido };
   }
 
   // Só os dígitos -- mesmo padrão usado em outros pontos do sistema pra
@@ -922,18 +962,23 @@
   /**
    * Ordena pela régua: faixa 1 primeiro; dentro da faixa, do contato mais
    * ANTIGO pro mais recente (CONFIRMADO com o usuário, régua v2), com quem
-   * nunca teve contato na frente de todos; empate, mais dias de atraso
-   * primeiro.
+   * nunca teve contato na frente de todos; empate, MAIOR VALOR VENCIDO
+   * primeiro (régua v3), depois mais dias de atraso. Na faixa 14 (SCPC antes
+   * do aviso), mais dias vem ANTES de tudo -- mais perto do 16º dia.
    *
    * ultimoContatoIso é AAAA-MM-DD, então comparar como texto já é comparar
    * como data.
    */
   function compararPelaRegua(a, b) {
     if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
+    const dias = b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
+    if (a.prioridade === FAIXA_SCPC_ANTES_DO_AVISO && dias !== 0) return dias;
     const contatoA = a.ultimoContatoIso ?? '';
     const contatoB = b.ultimoContatoIso ?? '';
     if (contatoA !== contatoB) return contatoA < contatoB ? -1 : 1;
-    return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
+    const valor = (b.valorVencido ?? 0) - (a.valorVencido ?? 0);
+    if (valor !== 0) return valor;
+    return dias;
   }
 
   /**
@@ -1265,6 +1310,7 @@
       prioridade: r.prioridade,
       empresasComVencido: r.empresasComVencido || [],
       ultimoContatoIso: r.ultimoContatoIso ?? null,
+      valorVencido: r.valorVencido ?? 0,
       escolhido: {
         diasAtrasoReal: r.escolhido.diasAtrasoReal,
         situacaoKey: r.escolhido.situacaoKey,
@@ -1278,6 +1324,10 @@
       localStorage.setItem(CONFIG.CHAVE_CACHE_CLASSIFICACAO, JSON.stringify({
         dia: window.__smartTableUtil.dataIso(new Date()),
         geradoEm: Date.now(),
+        // As faixas do cache só valem na régua em que foram calculadas: com a
+        // numeração nova, reclassifica (senão "12" antiga e "12" nova se
+        // misturariam na mesma fila).
+        versaoRegua: CONFIG.VERSAO_REGUA,
         resultados: resultados.map(paraOCache),
       }));
       return true;
@@ -1309,6 +1359,10 @@
     }
 
     if (!dados || dados.dia !== window.__smartTableUtil.dataIso(new Date())) return null;
+    if (dados.versaoRegua !== CONFIG.VERSAO_REGUA) {
+      console.warn('[Fila Prioridade] Classificação do dia feita com outra régua de faixas -- reclassificando.');
+      return null;
+    }
     if (!Array.isArray(dados.resultados) || dados.resultados.length === 0) return null;
 
     // Defesa contra formato antigo: se faltar campo que o pipeline usa, é
@@ -1377,6 +1431,9 @@
       localStorage.setItem(CONFIG.CHAVE_SNAPSHOT_PROGRESSO, JSON.stringify({
         dia: window.__smartTableUtil.dataIso(new Date()),
         geradoEm: Date.now(),
+        // Com a versão da régua, o painel (Módulo 11) sabe se os números das
+        // faixas deste snapshot ainda querem dizer o mesmo (régua v3, 28/09).
+        versaoRegua: CONFIG.VERSAO_REGUA,
         clientes: clientesDaFila.map((c) => ({
           cnpj: c.cnpj,
           prioridadeTier: c.prioridadeTier,
@@ -2082,6 +2139,7 @@
     filtrarPorRegrasDaLista,
     determinarPrioridade,
     maiorAtrasoEntreTodos,
+    valorVencidoEntre,
     ehClusterNovo,
     movimentacaoMaisDeUmMes,
     filtrarPorGrupoEconomico,

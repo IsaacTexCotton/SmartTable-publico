@@ -450,6 +450,21 @@
   }
 
   /**
+   * "R$ 1.234,56" (ou "R$\u00a01.234,56") -> 1234.56; null se não for número.
+   * Mesma regra do Módulo 4 (converterMoedaBrParaNumero), aqui pra quem mais
+   * precisar (Alt+U, desempate por valor vencido -- v1.48.0).
+   *
+   * @param {unknown} texto
+   * @returns {number|null}
+   */
+  function numeroDeMoedaBr(texto) {
+    if (texto == null || texto === '') return null;
+    const limpo = String(texto).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+    const numero = parseFloat(limpo);
+    return Number.isFinite(numero) ? numero : null;
+  }
+
+  /**
    * Identificador CENSURADO pra log/console/diagnóstico (regra permanente do
    * usuário: "Para todos os codigos no devstool, codifique de uma maneira
    * que as informações sensíveis sejam censuradas"). Devolve o apelido
@@ -836,6 +851,7 @@
     dataIso,
     dataCurtaDeIso,
     apelidoParaLog,
+    numeroDeMoedaBr,
     lerVariavelDoScript,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,

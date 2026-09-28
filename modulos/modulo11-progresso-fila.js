@@ -104,19 +104,23 @@
     snapshot.clientes.forEach((c) => {
       if (!c || c.prioridadeTier == null) return;
       const tier = c.prioridadeTier;
-      if (!porTier.has(tier)) porTier.set(tier, { total: 0, cobrados: 0 });
+      if (!porTier.has(tier)) porTier.set(tier, { total: 0, cobrados: 0, nomeGravado: c.prioridadeNome || null });
       const registro = porTier.get(tier);
       registro.total += 1;
       if (c.cnpj && atendidos.has(c.cnpj)) registro.cobrados += 1;
     });
 
-    const nomes = prioridadeDebug.NOMES_PRIORIDADE || {};
-    const cores = prioridadeDebug.CORES_PRIORIDADE || {};
+    // Snapshot de OUTRA régua (ex.: o da manhã do dia em que a régua v3
+    // entrou, sem versão gravada): os números das faixas querem dizer outra
+    // coisa -- vale o nome gravado com ele, e a cor fica neutra.
+    const mesmaRegua = snapshot.versaoRegua != null && snapshot.versaoRegua === prioridadeDebug.CONFIG?.VERSAO_REGUA;
+    const nomes = mesmaRegua ? (prioridadeDebug.NOMES_PRIORIDADE || {}) : {};
+    const cores = mesmaRegua ? (prioridadeDebug.CORES_PRIORIDADE || {}) : {};
 
     const faixas = Array.from(porTier.entries())
-      .map(([tier, { total, cobrados }]) => ({
+      .map(([tier, { total, cobrados, nomeGravado }]) => ({
         tier,
-        nome: nomes[tier] || `Faixa ${tier}`,
+        nome: nomes[tier] || nomeGravado || `Faixa ${tier}`,
         cor: cores[tier] || CORES.apagado,
         total,
         cobrados,
@@ -133,7 +137,7 @@
     if (clienteAtual && clienteAtual.prioridadeTier != null) {
       estagioAtual = {
         tier: clienteAtual.prioridadeTier,
-        nome: nomes[clienteAtual.prioridadeTier] || `Faixa ${clienteAtual.prioridadeTier}`,
+        nome: nomes[clienteAtual.prioridadeTier] || clienteAtual.prioridadeNome || `Faixa ${clienteAtual.prioridadeTier}`,
         cor: cores[clienteAtual.prioridadeTier] || CORES.apagado,
       };
     }

@@ -80,9 +80,11 @@
     // 1 em cada 5 clientes entra no grupo de controle (posição sorteada em
     // vez de posição pela régua). Confirmado com o usuário.
     PROPORCAO_CONTROLE: 5,
-    // Maior número de faixa válido na régua atual do Módulo 7 (régua v2: 12
-    // faixas). Usado na análise e na autoconferência.
-    FAIXA_MAXIMA: 12,
+    // Maior número de faixa SE o Módulo 7 não estiver carregado. Com ele, o
+    // limite vem da própria régua (faixaMaxima) -- na régua v3 (28/09) as
+    // faixas foram de 12 pra 15 e um número fixo aqui acusaria as novas
+    // como "faixa inválida" na autoconferência.
+    FAIXA_MAXIMA: 15,
   };
 
   /* ---------------------------------------------------------------------
@@ -501,7 +503,7 @@
     const versaoAtual = window.filaPrioridadeDebug?.CONFIG?.VERSAO_REGUA ?? null;
     const daReguaAtual = versaoAtual == null ? linhas : linhas.filter((l) => l.versaoRegua === versaoAtual);
     const porFaixa = {};
-    for (let faixa = 1; faixa <= CONFIG_DIARIO.FAIXA_MAXIMA; faixa += 1) {
+    for (let faixa = 1; faixa <= faixaMaxima(); faixa += 1) {
       const doTier = daReguaAtual.filter((l) => l.faixa === faixa);
       if (doTier.length > 0) porFaixa[faixa] = resumir(doTier);
     }
@@ -817,6 +819,12 @@
     return saida;
   }
 
+  /** Maior faixa da régua atual (Módulo 7); sem ele, o valor de reserva. */
+  function faixaMaxima() {
+    const numeros = Object.keys(window.filaPrioridadeDebug?.NOMES_PRIORIDADE ?? {}).map(Number).filter(Number.isFinite);
+    return numeros.length > 0 ? Math.max(...numeros) : CONFIG_DIARIO.FAIXA_MAXIMA;
+  }
+
   /* ---------------------------------------------------------------------
    * 8. AUTOCONFERÊNCIA (window.__conferir)
    * -----------------------------------------------------------------
@@ -944,8 +952,9 @@
       const semCnpj = filasHoje.filter((e) => !e.c).length;
       exigir(semCnpj === 0, `${semCnpj} registro(s) de fila sem CNPJ -- não dá pra cruzar com contato nem com baixa.`);
 
-      const faixaInvalida = filasHoje.filter((e) => !(e.f >= 1 && e.f <= CONFIG_DIARIO.FAIXA_MAXIMA)).length;
-      exigir(faixaInvalida === 0, `${faixaInvalida} registro(s) de fila com faixa fora de 1..${CONFIG_DIARIO.FAIXA_MAXIMA}.`);
+      const maxima = faixaMaxima();
+      const faixaInvalida = filasHoje.filter((e) => !(e.f >= 1 && e.f <= maxima)).length;
+      exigir(faixaInvalida === 0, `${faixaInvalida} registro(s) de fila com faixa fora de 1..${maxima}.`);
     }
 
     // --- 5. Tamanho do diário -----------------------------------------
@@ -1001,6 +1010,7 @@
     registrar,
     registrarLote,
     conferir,
+    faixaMaxima,
     apelido,
     valorMascarado,
     nomeMascarado,

@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.48.0', data: '28/09/2026',
+      mudancas: [
+        'Alt+U, régua de prioridade com 15 faixas: o antigo "Demais dias" foi separado em 12 Título em cartório e outro vencido, 13 5º dia de atraso, 14 SCPC antes do aviso de suspensão (quem está mais perto do 16º dia primeiro) e 15 Demais dias.',
+        'Dentro de cada faixa, com o mesmo último contato, o cliente com maior valor vencido vem primeiro.',
+        'A classificação do dia feita antes da atualização é refeita automaticamente no próximo Alt+U, para não misturar a numeração antiga com a nova.',
+      ],
+    },
+    {
       versao: '1.47.1', data: '28/09/2026',
       mudancas: [
         'Alt+U, prioridade "Segundo dia": só entra quem tem o título mais atrasado no 2º dia. Antes, um cliente com título de 2 dias e outro já em cartório entrava nessa faixa. A fila do dia já montada só muda depois de um Shift+Alt+U.',
