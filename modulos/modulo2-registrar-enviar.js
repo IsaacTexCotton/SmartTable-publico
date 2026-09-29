@@ -230,10 +230,17 @@
         return 'https://web.whatsapp.com/send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
     }
 
+    // Devolve true se a página chegou a abrir o WhatsApp (chamou window.open
+    // com a URL do wa.me). REVISÃO GERAL (29/09/2026, AUTORIZADO pelo
+    // usuário, lote D): abrirWhatsAppCliente() pode voltar sem abrir nada
+    // (telefone ou mensagem que a página recusa), e o Registrar e Enviar
+    // dizia "Contato registrado" como se a mensagem tivesse saído.
     function abrirWhatsAppSemNovaAba() {
         const openOriginal = window.open;
+        let abriu = false;
 
         window.open = function (url) {
+            abriu = true;
             // O canal é lido AQUI, no clique, e não no carregamento do
             // módulo: assim virar o interruptor no painel (Alt+O) vale na
             // próxima mensagem, sem recarregar a página. O padrão é o
@@ -255,6 +262,7 @@
         } finally {
             window.open = openOriginal; // restaura sempre, mesmo se der erro lá dentro
         }
+        return abriu;
     }
 
     // ============================================================
@@ -318,11 +326,23 @@
             // observacao (a frase padrao escolhida pelo operador). A caixa
             // nao foi alterada, entao a funcao da propria pagina le o texto
             // normalmente.
+            let whatsAppAbriu = false;
             if (typeof window.abrirWhatsAppCliente === 'function') {
-                abrirWhatsAppSemNovaAba();
+                whatsAppAbriu = abrirWhatsAppSemNovaAba();
             } else {
                 console.warn('[registrar-enviar] abrirWhatsAppCliente() não encontrada nesta página.');
-                toast('Contato registrado, mas não foi possível abrir o WhatsApp automaticamente.', 'error');
+            }
+
+            // O contato JÁ está no CRM, mas a mensagem não saiu: nada de
+            // "registrado" verde, nada de fechar o contato nem recarregar (a
+            // mensagem continua na caixa, pra enviar à mão). O botão fica
+            // travado: um segundo clique registraria o contato de novo.
+            if (!whatsAppAbriu) {
+                toast('O contato FOI registrado no CRM, mas o WhatsApp não abriu (telefone ou mensagem recusados pela página). ' +
+                    'Envie a mensagem à mão; não clique de novo, senão o contato é registrado outra vez.', 'error');
+                botao.textContent = rotuloOriginal;
+                botao.style.cursor = 'not-allowed';
+                return;
             }
 
             toast('Contato registrado: "' + resumoPadronizado + '"', 'success');

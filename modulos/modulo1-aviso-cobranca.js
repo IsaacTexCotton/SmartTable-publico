@@ -701,8 +701,15 @@
             }
         });
 
+        // CENSURADO (revisão geral, 29/09/2026, AUTORIZADO pelo usuário,
+        // lote D): o motivo trazia o texto da célula e a mensagem do erro,
+        // que podem ter dado do cliente. O console mostra só a posição e o tipo.
         if (ignorados.length > 0) {
-            console.warn('[aviso-cobranca] ' + ignorados.length + ' linha(s) ignorada(s):', ignorados);
+            console.warn('[aviso-cobranca] ' + ignorados.length + ' linha(s) ignorada(s):',
+                ignorados.map(i => ({
+                    ordem: i.ordem,
+                    motivo: String(i.motivo).startsWith('vencimento ilegível') ? 'vencimento ilegível' : 'erro ao ler a linha'
+                })));
         }
 
         // SEGURANÇA (regra de negócio confirmada pelo usuário): se TODOS os
@@ -718,14 +725,17 @@
             registros.length = 0;
         }
 
+        // CENSURADO (mesma revisão): número do título e vencimento ligam o
+        // log a um cliente. Sai o apelido estável do título (Módulo 8) e os
+        // dois números de dias.
         const divergentes = registros.filter(r => r.divergenciaDias);
         if (divergentes.length > 0) {
+            const apelido = (valor) => window.__smartTableUtil?.apelidoParaLog?.(valor) ?? 'tit.????';
             console.warn('[aviso-cobranca] Divergência entre dias do CRM e dias calculados:',
                 divergentes.map(r => ({
-                    titulo: r.titulo,
+                    titulo: apelido(r.tituloCompleto),
                     crm: r.diasInformados,
-                    calculado: r.diasAtrasoReal,
-                    vencimento: r.vencimentoTexto
+                    calculado: r.diasAtrasoReal
                 })));
         }
 
@@ -782,7 +792,13 @@
     }
 
     // A SmartTable recria as linhas em cada ordenacao/filtro, o que apagaria os
-    // destaques. O observer reaplica pelo indice da linha.
+    // destaques. O observer reaplica pelo TÍTULO de cada linha.
+    //
+    // CORRIGIDO (revisão geral, 29/09/2026, AUTORIZADO pelo usuário, lote D):
+    // reaplicava pelo ÍNDICE da linha. Depois de ordenar ou filtrar, a cor
+    // de "Último dia", "Em cartório" ou "SCPC" caía em OUTRO título. Agora
+    // cada linha é lida pelas colunas número/sequência (as mesmas da coleta)
+    // e a classe velha sai antes.
     let _observer = null;
 
     function observarTabela(tabela, registros) {
@@ -791,11 +807,24 @@
         const tbody = tabela.querySelector('tbody');
         if (!tbody) return;
 
-        const porOrdem = new Map(registros.map(r => [r.ordem, r.situacaoKey]));
+        let idx;
+        try {
+            idx = mapearColunas(tabela);
+        } catch (erro) {
+            return; // sem as colunas, não há como saber qual título é qual linha
+        }
+        const porTitulo = new Map(registros.map(r => [r.tituloCompleto, r.situacaoKey]));
+        const tituloDaLinha = (tr) => {
+            const celulas = tr.querySelectorAll('td');
+            const numero = celulas[idx.numeroTitulo] ? celulas[idx.numeroTitulo].textContent.trim() : '';
+            const sequencia = celulas[idx.sequencia] ? celulas[idx.sequencia].textContent.trim() : '';
+            return numero ? numero + '/' + sequencia : null;
+        };
 
         _observer = new MutationObserver(() => {
-            tbody.querySelectorAll('tr').forEach((tr, i) => {
-                const key = porOrdem.get(i);
+            tbody.querySelectorAll('tr').forEach((tr) => {
+                tr.className = tr.className.replace(/\bcob-\S+/g, '').trim();
+                const key = porTitulo.get(tituloDaLinha(tr));
                 if (key && SITUACOES[key].pintaTela) {
                     tr.classList.add('cob-' + key.toLowerCase());
                 }
@@ -1296,17 +1325,34 @@
         // Acordos (Módulo 16, v1.41.0): o relatório só sai depois de saber
         // quais títulos estão em acordo -- nunca uma imagem com título
         // negociado por ter gerado cedo demais. Espera com teto, sempre.
-        if (window.__negociacoes?.aguardar) await window.__negociacoes.aguardar();
+        //
+        // REVISÃO GERAL (29/09/2026, AUTORIZADO pelo usuário, lote D): o
+        // retorno da espera era ignorado. Estourado o teto (a leitura dos
+        // acordos ainda não terminou), o relatório saía com os títulos do
+        // acordo como vencidos comuns. Agora não gera e pede para tentar de
+        // novo; a próxima tentativa espera outra vez.
+        if (window.__negociacoes?.aguardar) {
+            const acordosLidos = await window.__negociacoes.aguardar();
+            if (acordosLidos === false) {
+                throw new Error('Ainda estou lendo os acordos do cliente (aba Negociações). Tente de novo em alguns segundos -- ' +
+                    'sem isso o relatório poderia sair com título que está em acordo.');
+            }
+        }
+        const avisoAcordos = window.__negociacoes?.avisoPendente?.() || null;
 
         const hoje = normalizarData(new Date());
         const dados = coletarRegistros(hoje);
 
         if (dados.registros.length === 0) {
-            throw new Error(dados.emAcordo.length > 0
+            // Linha com vencimento ilegível não é "nenhum título": diz quantas.
+            const ilegiveis = dados.ignorados.length > 0
+                ? ' ' + dados.ignorados.length + ' linha(s) da tabela não puderam ser lidas (vencimento ilegível) -- confira a tabela.'
+                : '';
+            throw new Error((dados.emAcordo.length > 0
                 ? 'Todos os títulos vencidos estão em acordo -- sem relatório (veja a aba Negociações).'
                 : dados.foraDoRelatorio.length > 0 && dados.naoCobrar.length === 0
                     ? 'Os títulos vencidos restantes estão marcados como fora do relatório (painel ⚠ Alerta).'
-                    : 'Nenhum título vencido encontrado para este cliente.');
+                    : 'Nenhum título vencido encontrado para este cliente.') + ilegiveis);
         }
 
         const tabela = localizarTabela();
@@ -1322,7 +1368,12 @@
             total: dados.registros.length,
             copiado: resultado.copiado,
             divergentes: dados.divergentes.length,
-            ignorados: dados.ignorados.length
+            ignorados: dados.ignorados.length,
+            // Saldo que ficou FORA do "Valor total" (só existe cartão de total com 2+ títulos).
+            semValorNoTotal: dados.registros.length > 1
+                ? dados.registros.filter(r => converterMoedaBrasileira(r.saldoTexto) === null).length
+                : 0,
+            avisoAcordos
         };
     }
 
@@ -1343,7 +1394,17 @@
             if (r.divergentes > 0) {
                 msg += ' ' + r.divergentes + ' com contagem divergente do sistema.';
             }
-            notificar(msg, 'success');
+            // REVISÃO GERAL (29/09/2026, AUTORIZADO, lote D): o que ficou de
+            // fora da imagem sem ninguém saber agora aparece no aviso.
+            const atencao = [];
+            if (r.ignorados > 0) atencao.push(r.ignorados + ' linha(s) da tabela ficaram FORA do relatório (vencimento ilegível) -- confira a tabela');
+            if (r.semValorNoTotal > 0) atencao.push(r.semValorNoTotal + ' saldo(s) não reconhecido(s) ficaram FORA do Valor total');
+            if (r.avisoAcordos) atencao.push(r.avisoAcordos);
+            if (atencao.length > 0) {
+                notificar(msg + ' ATENÇÃO: ' + atencao.join('. ') + '.', 'error');
+            } else {
+                notificar(msg, 'success');
+            }
 
         } catch (erro) {
             console.error('[aviso-cobranca]', erro);
@@ -1371,6 +1432,8 @@
     // urgência (vermelho, sem botão de fechar), mas com hierarquia melhor
     // -- selo com ícone, título curto em destaque, detalhe secundário --
     // em vez de uma única frase corrida em negrito.
+    let _avisouFalhaNaoCobrar = false;
+
     function avisarSeNaoCobrar() {
         if (document.getElementById('aviso-nao-cobrar-banner')) return; // já existe, não duplica
 
@@ -1378,7 +1441,18 @@
         try {
             dados = coletarRegistros(normalizarData(new Date()));
         } catch (erro) {
-            return; // sem tabela ainda ou erro -- não é o momento de travar nada por isso
+            // Sem tabela ainda: normal no carregamento, a instalação chama de
+            // novo. QUALQUER OUTRO erro (ex.: o CRM mudou as colunas) deixava
+            // o banner de segurança sumir calado (revisão geral, 29/09/2026,
+            // AUTORIZADO, lote D): agora avisa, uma vez por página.
+            if (!/Tabela de títulos não encontrada/.test(String(erro?.message))) {
+                console.warn('[aviso-cobranca] Não consegui conferir os títulos "NÃO COBRAR" desta página:', erro?.message);
+                if (!_avisouFalhaNaoCobrar) {
+                    _avisouFalhaNaoCobrar = true;
+                    notificar('Não consegui conferir se este cliente tem título "NÃO COBRAR" (' + (erro?.message || 'erro') + '). Confira a tabela antes de cobrar.', 'error');
+                }
+            }
+            return;
         }
 
         if (!dados.naoCobrar || dados.naoCobrar.length === 0) return;

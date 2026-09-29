@@ -24,6 +24,17 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.62.1', data: '29/09/2026',
+      mudancas: [
+        'Registrar e Enviar: se o WhatsApp não abrir (a página recusou o telefone ou a mensagem), não aparece mais "Contato registrado" em verde. Aparece um aviso vermelho dizendo que o contato FOI registrado no CRM e a mensagem não saiu; o contato fica aberto com a mensagem na caixa e o botão fica travado, para não registrar duas vezes.',
+        'Relatório (Alt+R e Alt+A): se a leitura dos acordos (aba Negociações) ainda não terminou, o relatório não é gerado e pede para tentar de novo em alguns segundos. Antes ele saía com os títulos do acordo como vencidos comuns.',
+        'Relatório: o aviso depois de gerar diz o que ficou de fora: linhas da tabela com vencimento ilegível, saldos que não entraram no "Valor total" e acordos que não puderam ser lidos. Nesses casos o aviso é vermelho, não verde. A imagem do relatório não mudou.',
+        'Tabela de títulos: as cores de "Último dia", "Em cartório" e "SCPC" acompanham o título certo depois de ordenar ou filtrar a tabela (antes podiam cair em outra linha).',
+        'Aviso "NÃO COBRAR": se o SmartTable não conseguir conferir a tabela (por exemplo, o CRM mudou as colunas), aparece um aviso vermelho pedindo para conferir antes de cobrar. Antes o banner simplesmente não aparecia.',
+        'Privacidade: os avisos do console sobre dias divergentes e linhas ignoradas não mostram mais o número do título, o vencimento nem o texto da célula.',
+      ],
+    },
+    {
       versao: '1.62.0', data: '29/09/2026',
       mudancas: [
         'Fila do Alt+U (régua v6): cliente no último dia do SCPC que também tem um título negativado no 19º dia (a mensagem do Alt+A já fala da suspensão de hoje) sobe para a faixa 7, "Aviso final antes da suspensão". Antes ficava na 12, "SCPC — último dia". A classificação do dia feita antes desta versão é refeita no próximo Alt+U.',
