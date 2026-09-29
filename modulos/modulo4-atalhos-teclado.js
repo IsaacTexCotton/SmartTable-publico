@@ -685,6 +685,19 @@
       case 'EM_ATRASO':
       case 'PRAZO_FINAL':
         return '';
+      case 'SEM_PROTESTO': {
+        // v1.57.0, texto aprovado pelo usuário em 29/09/2026: título "não
+        // protestar" já vencido -- sem cartório, prazo final ou encaminhamento.
+        // Com o relatório, esta linha nem chega à mensagem (a linha dele no
+        // relatório é neutra, sem cor a explicar: a legenda fica só com
+        // "Segue o relatório...", como no atraso comum). Sem o relatório
+        // (recontato), as datas ancoram a mensagem. A pergunta final é a do
+        // estágio inicial (obterPerguntaFinal cai no default).
+        const datas = obterDatasVencimentoPorSituacao(dados, 'SEM_PROTESTO');
+        return datas.length > 1
+          ? `Os títulos vencidos em ${datas.join(', ')} estão em aberto.`
+          : `O título vencido em ${datas[0]} está em aberto.`;
+      }
       case 'ULTIMO_DIA': {
         const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
         // CORRIGIDO (achado real via bateria de cobrança digna): sem
@@ -956,7 +969,7 @@
         }
         return frase(FRASES.ctaCartorio);
       }
-      default: // EM_ATRASO, PRAZO_FINAL -- estágio inicial, sem pressão
+      default: // EM_ATRASO, PRAZO_FINAL, SEM_PROTESTO -- estágio inicial, sem pressão
         return obterPerguntaFinalConsiderandoPromessa();
     }
   }

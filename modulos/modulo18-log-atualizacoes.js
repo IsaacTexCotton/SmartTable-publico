@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.57.0', data: '29/09/2026',
+      mudancas: [
+        'Título com posição "NAO PROTESTAR" agora é cobrado: a partir do 6º dia de atraso (sem SCPC) ele vira "Vencido", em vez de "em cartório". Antes, no Itaú, o cliente com só títulos "não protestar" era tratado como "tudo em cartório" e sumia da fila do Alt+U e do Alt+A.',
+        'Alt+A para esses títulos: a mensagem não fala de cartório, prazo final nem encaminhamento; é a mensagem de um título vencido comum ("Segue o relatório atualizado...", ou "O título vencido em 10/09 está em aberto." quando o relatório é omitido) com a pergunta "Consegue regularizar hoje?" e afins. No relatório a linha aparece como "Vencido", com a cor do atraso comum.',
+        'Fila do Alt+U: esses clientes seguem a régua normal (sem contato há 14 dias ou mais vai para a 9; sem outra regra, "Demais dias"). Quem passa de 19 dias de atraso continua fora da lista, como antes. Com SCPC nada muda.',
+      ],
+    },
+    {
       versao: '1.56.0', data: '29/09/2026',
       mudancas: [
         'Régua do Alt+U (v5): "Sem contato ou movimentação" passou de mais de um mês para 14 dias ou mais (vale para o último contato de qualquer pessoa e para a última movimentação da conta). A Carteira continua com o limite dela, de 30 dias.',

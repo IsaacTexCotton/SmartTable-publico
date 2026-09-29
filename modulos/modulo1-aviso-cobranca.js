@@ -95,6 +95,11 @@
     // confirmados com o usuário. Comparação sem acento/caixa (normalizarTexto).
     const POSICOES_EXCLUIDAS_DE_COBRANCA = ['NAO COBRAR', 'CARTEIRA'];
 
+    // Valor de posicaoDescricao do título que NÃO vai a protesto (confirmado
+    // por diagnóstico do usuário em 29/09/2026). Diferente dos dois de cima,
+    // este título DEVE ser cobrado -- ver SEM_PROTESTO em classificar.
+    const POSICAO_NAO_PROTESTAR = 'NAO PROTESTAR';
+
     // Prazo-base em dias corridos a partir do vencimento (vencimento = dia 0).
     const DIAS_PRAZO_BASE = 6;
 
@@ -225,6 +230,20 @@
             rotuloLegendaCliente: 'Vencido',
             tint: '#EFEAF4', rail: '#54407C', corTexto: '#151A21',
             pintaTela: true
+        },
+        // v1.57.0 (AUTORIZADO pelo usuário em 29/09/2026, com o visual
+        // aprovado: rótulo "Vencido" e a MESMA cor do atraso comum, sem cor
+        // nova): título com posição "NAO PROTESTAR" no fluxo cartório, do 6º
+        // dia em diante. Ele nunca vai a cartório, então nada de "último dia",
+        // "prazo final" nem "em cartório" pra ele -- é só um título vencido
+        // que precisa ser cobrado. Mesmas cores do EM_ATRASO (contraste já
+        // medido), sem pintar a tela.
+        SEM_PROTESTO: {
+            ordem: 7,
+            rotulo: () => 'Vencido',
+            rotuloLegenda: 'Vencido',
+            tint: '#EDF1F5', rail: '#4E5D6C', corTexto: '#151A21',
+            pintaTela: false
         }
     };
 
@@ -470,6 +489,9 @@
     // Ordem de decisao:
     //   1. Posicao CARTORIO no CRM vence qualquer inferencia por data.
     //   2. Antes do prazo-base (1 a 5 dias): atraso inicial.
+    //   2b. Posicao NAO PROTESTAR no fluxo cartorio, do 6o dia em diante:
+    //       SEM_PROTESTO (v1.57.0) -- nunca vai a cartorio, entao nao tem
+    //       ultimo dia, prazo final nem "em cartorio". No SCPC nada muda.
     //   3. Hoje e a data limite: ultimo dia.
     //   4. Ainda nao chegou na data limite: prazo prorrogado.
     //   5. Passou da data limite: negativado (SCPC) ou verificar posicao (cartorio).
@@ -486,6 +508,13 @@
         if (diasAtrasoReal >= DIAS_ATRASO_MIN && diasAtrasoReal <= DIAS_ATRASO_MAX) {
             return 'EM_ATRASO';
         }
+
+        // BUG REAL (confirmado com dado do usuário em 29/09/2026): um título
+        // NAO PROTESTAR do Itaú, vencido há 10 dias, virava EM_CARTORIO pela
+        // regra do portador lento abaixo, e o cliente saía da fila e do Alt+A
+        // (todos os vencidos "em cartório" viram naoCobrar). O usuário quer
+        // COBRAR quem tem "não protestar".
+        if (fluxo !== 'SCPC' && normalizarTexto(posicao).includes(POSICAO_NAO_PROTESTAR)) return 'SEM_PROTESTO';
 
         const comparacao = compararDatas(hoje, prazos.dataLimitePagamento);
 
