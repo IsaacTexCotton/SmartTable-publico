@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.56.0', data: '29/09/2026',
+      mudancas: [
+        'Régua do Alt+U (v5): "Sem contato ou movimentação" passou de mais de um mês para 14 dias ou mais (vale para o último contato de qualquer pessoa e para a última movimentação da conta). A Carteira continua com o limite dela, de 30 dias.',
+        'Régua do Alt+U (v5): o atraso inicial (3º e 4º dia) agora vem ANTES dos dois SCPC, que ficaram logo abaixo dele: faixa 10 atraso inicial, 11 SCPC antes do aviso de suspensão, 12 SCPC último dia. As faixas 13 a 15 não mudaram e as cores acompanham o nome de cada faixa. A fila e a classificação de hoje montadas com a régua anterior são descartadas: use Shift+Alt+U para refazer.',
+      ],
+    },
+    {
       versao: '1.55.0', data: '29/09/2026',
       mudancas: [
         'Alt+A: cliente SCPC com um título no último dia para pagar e outro negativado (até o 19º dia de atraso) agora tem a pergunta final e a ordem da legenda seguindo o título negativado: o aviso do SCPC vem antes da frase do vermelho, e a pergunta pede a regularização hoje conforme o dia da suspensão. A frase do vermelho continua na mensagem. Acima do 19º dia nada muda. A fila do Alt+U e a nota do CRM não mudam.',

@@ -764,7 +764,7 @@
    *   valor vencido (fila montada antes da v1.49.2) pra decidir o empate.
    */
   function vizinhosNaOrdemDaRegua(anterior, atual) {
-    const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 10;
+    const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 11;
     const dias = (atual.diasAtraso ?? 0) - (anterior.diasAtraso ?? 0);
     if (atual.prioridadeTier === faixaDiasPrimeiro && dias !== 0) return dias < 0;
     const contatoAnt = anterior.ultimoContatoIso ?? '';

@@ -122,6 +122,10 @@
     const nomes = mesmaRegua ? nomesAtuais : {};
     const cores = mesmaRegua ? coresAtuais : {};
     const corPorNome = new Map(Object.entries(nomesAtuais).map(([faixa, nome]) => [nome, coresAtuais[faixa]]));
+    // Nome da faixa 9 até a régua v4 (na v5 virou "... há 14 dias ou mais"):
+    // um snapshot gravado com o nome antigo, no dia da atualização, mantém a
+    // cor da faixa em vez de cair no cinza.
+    corPorNome.set('Sem contato ou movimentação há mais de um mês', coresAtuais[9]);
 
     const faixas = Array.from(porTier.entries())
       .map(([tier, { total, cobrados, nomeGravado }]) => ({
