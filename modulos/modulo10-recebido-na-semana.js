@@ -43,6 +43,16 @@
  *     antiga fica de fora: aumente DIAS_RETROATIVOS).
  * Depósitos seguem do consolidado (o usuário disse que só as promessas erravam).
  *
+ * JANELA PARA A FRENTE (v1.60.0): a busca também olha DIAS_ADIANTE dias depois
+ * da sexta. Uma promessa AGENDADA PARA A SEMANA QUE VEM e verificada (paga)
+ * antes tem data prometida fora da semana; sem olhar pra frente ela nem era lida.
+ *
+ * PROMESSAS FEITAS HOJE (v1.60.0, pedido do usuário): bloco à parte, com a
+ * quantidade e o valor PROMETIDO das promessas CRIADAS hoje (`dataCriacao` =
+ * hoje), de qualquer status e para qualquer data prometida, no nome de quem
+ * criou. É dinheiro prometido, não recuperado: NÃO entra no Total recuperado.
+ * O valor prometido pode incluir juros e multa (como no CRM).
+ *
  * Essa soma foi uma decisão explícita do usuário, revertendo a minha: eu
  * tinha me recusado a somar porque nada na resposta da API prova que as
  * duas sejam conjuntos disjuntos. Quem conhece o negócio definiu que são
@@ -106,6 +116,9 @@
       MAX_PAGINAS: 10,
       // Data prometida a partir de N dias antes do início da semana.
       DIAS_RETROATIVOS: 60,
+      // ...e até N dias depois da sexta (promessa agendada pra frente e paga antes;
+      // e as criadas hoje para a semana que vem).
+      DIAS_ADIANTE: 90,
       // Cumprida + o efetivamente pago das parciais (definição do usuário).
       STATUS_QUE_ENTRAM: ['CUMPRIDA', 'PARCIAL', 'CUMPRIDA_PARCIAL'],
     },
@@ -238,22 +251,48 @@
   }
 
   /**
+   * Promessas CRIADAS no dia (quantidade e valor prometido), por pessoa: as de qualquer
+   * status e para qualquer data prometida, no nome de quem criou. Função pura.
+   *
+   * @param {object[]} itens Promessas da lista da API.
+   * @param {string} hojeIso AAAA-MM-DD.
+   * @returns {{porPessoa: {nome: string, quantidade: number, valor: number}[], semValor: number}}
+   */
+  function apurarPromessasFeitasNoDia(itens, hojeIso) {
+    const porPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => ({ nome, quantidade: 0, valor: 0 }));
+    let semValor = 0;
+    (Array.isArray(itens) ? itens : []).forEach((item) => {
+      if (String(item?.dataCriacao ?? '').slice(0, 10) !== hojeIso) return;
+      const pessoa = porPessoa.find((p) => p.nome === util()?.primeiroNomeDeUsuario(item.usuarioCriacao));
+      if (!pessoa) return;
+      pessoa.quantidade += 1;
+      if (typeof item.valorPrometido === 'number' && Number.isFinite(item.valorPrometido)) pessoa.valor += item.valorPrometido;
+      else semValor += 1;
+    });
+    return { porPessoa, semValor };
+  }
+
+  /**
    * Busca na API as promessas da janela e apura a semana.
    *
    * @param {{inicio: Date, inicioIso: string, fimIso: string}} semana
-   * @returns {Promise<{porPessoa: object[], semValor: number}>}
+   * @param {Date} [hoje] Padrão: agora (o dia das "promessas feitas hoje").
+   * @returns {Promise<{porPessoa: object[], semValor: number, feitasHoje: object}>}
    * @throws {Error} Com mensagem já legível pra tela.
    */
-  async function buscarPromessasDaSemana(semana) {
+  async function buscarPromessasDaSemana(semana, hoje = new Date()) {
     const c = CONFIG_RECEBIDO.PROMESSAS;
     const desde = new Date(semana.inicio);
     desde.setDate(desde.getDate() - c.DIAS_RETROATIVOS);
     const desdeIso = util().dataIso(desde);
+    const ate = new Date(semana.inicio);
+    ate.setDate(ate.getDate() + 6 + c.DIAS_ADIANTE);
+    const ateIso = util().dataIso(ate);
 
     const itens = [];
     let completo = false;
     for (let pagina = 0; pagina < c.MAX_PAGINAS && !completo; pagina += 1) {
-      const url = `${c.ENDPOINT}?page=${pagina}&size=${c.TAMANHO_PAGINA}&dataInicio=${desdeIso}&dataFim=${encodeURIComponent(semana.fimIso)}`;
+      const url = `${c.ENDPOINT}?page=${pagina}&size=${c.TAMANHO_PAGINA}&dataInicio=${desdeIso}&dataFim=${ateIso}`;
       const corpo = await buscarJson(url);
       if (!Array.isArray(corpo?.data)) throw new Error('A lista de promessas do CRM veio em formato inesperado.');
       itens.push(...corpo.data);
@@ -272,7 +311,10 @@
         if (typeof detalhe?.data?.valorPago === 'number') valoresDoDetalhe[item.id] = detalhe.data.valorPago;
       } catch (_) { /* fica sem valor e é contada em semValor */ }
     }
-    return apurarPromessas(itens, semana, valoresDoDetalhe);
+    return {
+      ...apurarPromessas(itens, semana, valoresDoDetalhe),
+      feitasHoje: apurarPromessasFeitasNoDia(itens, util().dataIso(hoje)),
+    };
   }
 
   /**
@@ -361,8 +403,23 @@
       ),
     }));
 
+    // Promessas feitas hoje: bloco à parte, FORA do total recuperado (é valor prometido).
+    const feitas = promessas?.feitasHoje?.porPessoa ?? [];
+    const feitasHoje = {
+      porPessoa: CONFIG_RECEBIDO.PESSOAS.map((nome) => ({
+        nome,
+        quantidade: feitas.find((p) => p.nome === nome)?.quantidade ?? 0,
+        valor: feitas.find((p) => p.nome === nome)?.valor ?? 0,
+      })),
+      semValor: promessas?.feitasHoje?.semValor ?? 0,
+      erro: promessas?.erro ?? null,
+    };
+    feitasHoje.totalQuantidade = feitasHoje.porPessoa.reduce((t, p) => t + p.quantidade, 0);
+    feitasHoje.totalValor = feitasHoje.porPessoa.reduce((t, p) => t + p.valor, 0);
+
     return {
       metricas,
+      feitasHoje,
       pessoas: CONFIG_RECEBIDO.PESSOAS,
       totalPorPessoa,
       totalGeral: totalPorPessoa.reduce((soma, p) => soma + p.valor, 0),
@@ -555,12 +612,50 @@
     return bloco;
   }
 
+  const textoPromessas = (n) => `${n} ${n === 1 ? 'promessa' : 'promessas'}`;
+
+  /**
+   * O bloco "Promessas feitas hoje": quantidade e valor prometido das criadas hoje.
+   * Fica DEPOIS do total e não entra nele (é dinheiro prometido, não recuperado).
+   *
+   * @param {object} feitas Saída de montarResumo().feitasHoje.
+   * @returns {HTMLElement}
+   */
+  function criarBlocoFeitasHoje(feitas) {
+    const u = util();
+    const bloco = criarDiv('', { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${CORES.linha}` });
+    bloco.appendChild(criarDiv('Promessas feitas hoje', { color: CORES.tinta, fontWeight: '600', fontSize: '13px' }));
+    bloco.appendChild(criarDiv('criadas hoje, pelo valor prometido (não é dinheiro que entrou)', {
+      color: CORES.apagado, fontSize: '11px', marginBottom: '6px',
+    }));
+    if (feitas.erro) {
+      bloco.appendChild(criarDiv(feitas.erro, { color: CORES.erro, fontSize: '12px', lineHeight: '1.5', padding: '3px 0' }));
+      return bloco;
+    }
+    const linha = (nome, quantidade, valor, estilo = {}) => {
+      const el = criarDiv('', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0', ...estilo });
+      el.appendChild(criarDiv(nome, { color: CORES.texto }));
+      el.appendChild(criarDiv(`${textoPromessas(quantidade)} · ${u?.formatarMoeda(valor) ?? String(valor)}`, { fontFamily: 'ui-monospace, monospace', color: CORES.texto }));
+      return el;
+    };
+    feitas.porPessoa.forEach((p) => bloco.appendChild(linha(p.nome.charAt(0).toUpperCase() + p.nome.slice(1), p.quantidade, p.valor)));
+    const geral = linha('Os dois', feitas.totalQuantidade, feitas.totalValor, { marginTop: '4px', paddingTop: '5px', borderTop: `1px solid ${CORES.linha}` });
+    geral.firstChild.style.color = CORES.tinta;
+    geral.firstChild.style.fontWeight = '600';
+    bloco.appendChild(geral);
+    if (feitas.semValor > 0) {
+      bloco.appendChild(criarDiv(`${feitas.semValor} promessa(s) sem valor prometido lido: o valor pode estar baixo.`, { color: CORES.erro, fontSize: '11px', marginTop: '4px' }));
+    }
+    return bloco;
+  }
+
   /** @param {HTMLElement} corpo @param {object} resumo */
   function desenharResumo(corpo, resumo) {
     corpo.textContent = '';
     resumo.metricas.forEach((metrica) => corpo.appendChild(criarBlocoMetrica(metrica)));
 
     corpo.appendChild(criarBlocoTotal(resumo));
+    corpo.appendChild(criarBlocoFeitasHoje(resumo.feitasHoje));
   }
 
   async function abrirPainel() {
@@ -638,6 +733,7 @@
     buscarConsolidado,
     buscarPromessasDaSemana,
     apurarPromessas,
+    apurarPromessasFeitasNoDia,
     promessaEntraNaSemana,
     montarResumo,
     valorDaPessoa,

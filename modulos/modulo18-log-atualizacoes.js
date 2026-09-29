@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.60.0', data: '30/09/2026',
+      mudancas: [
+        'Alt+D: novo bloco "Promessas feitas hoje", depois do Total recuperado: quantas promessas foram criadas hoje (de qualquer status e para qualquer data prometida) e o valor prometido, por pessoa e nos dois. É valor prometido, pode incluir juros e multa, e NÃO entra no Total recuperado.',
+        'Alt+D: a busca de promessas agora olha também até 90 dias depois da sexta. Uma promessa agendada para a semana que vem e verificada (paga) esta semana passa a entrar na soma desta semana; antes ela nem era lida.',
+      ],
+    },
+    {
       versao: '1.59.1', data: '30/09/2026',
       mudancas: [
         'Alt+D (Entrou na semana): "Promessas cumpridas" agora conta pela semana em que a promessa foi VERIFICADA (o CRM não guarda o dia do pagamento; o pagamento consta no sistema no dia útil seguinte) e não mais pela semana em que foi criada. Uma promessa criada na semana passada e verificada esta semana entra nesta semana. Entram as cumpridas, as cumpridas parciais e as parciais (o valor efetivamente pago), no nome de quem CRIOU a promessa.',
