@@ -31,17 +31,29 @@
  * /crm/promessas):
  *   - entram as promessas CUMPRIDA, PARCIAL e CUMPRIDA_PARCIAL (o valor pago
  *     das cumpridas mais o efetivamente pago das parciais);
- *   - na semana (sábado a sexta) da `dataVerificacao`. A API NÃO guarda a data
- *     do pagamento (o modal "Verificar" pede só valor pago e status); o usuário
- *     aprovou a data da verificação, porque o pagamento consta no sistema no
- *     dia útil seguinte. LIMITE CONHECIDO: verificar dias depois do pagamento
- *     move o valor de semana; verificar de novo uma parcial o move outra vez;
+ *   - na semana (sábado a sexta) do DIA DO PAGAMENTO estimado (ver "DATA DO
+ *     PAGAMENTO" acima; v1.59.1 a v1.60.0 usavam a data da verificação). LIMITE
+ *     CONHECIDO: verificar de novo uma parcial move o valor de semana;
  *   - o crédito é de quem CRIOU a promessa (`usuarioCriacao`, esquema
  *     "ISAAC.03876"), e não de quem verificou;
  *   - a busca traz as promessas com data prometida nos DIAS_RETROATIVOS antes
  *     do início da semana até o fim dela (quem verifica uma promessa muito
  *     antiga fica de fora: aumente DIAS_RETROATIVOS).
  * Depósitos seguem do consolidado (o usuário disse que só as promessas erravam).
+ *
+ * DATA DO PAGAMENTO (v1.61.0, decisão do usuário em 30/09/2026): o CRM não guarda
+ * o dia em que o cliente pagou; a verificação é automática, de madrugada (95% das
+ * verificações vêm de um só verificador, 90% entre 0h e 7h -- diagnóstico do
+ * usuário) e vem no dia útil DEPOIS do pagamento. Então o dia do pagamento é
+ * estimado como o DIA ÚTIL ANTERIOR à data da verificação (fim de semana e
+ * feriado pulados, pelo calendário do Módulo 1): verificada na terça, paga na
+ * segunda; verificada na segunda, paga na sexta (semana ANTERIOR, sábado começa
+ * a semana nova); verificada na terça depois de uma segunda de feriado, paga na
+ * sexta. É uma estimativa: para pagamento de sábado ou domingo (raro na amostra)
+ * ela erra pra sexta. As 5% de verificações manuais seguem a mesma regra.
+ * Por isso a data da verificação sozinha NÃO decide mais a semana, e o painel
+ * ganhou o botão "semana anterior": o que foi pago na sexta e verificado na
+ * segunda pertence à semana passada.
  *
  * JANELA PARA A FRENTE (v1.60.0): a busca também olha DIAS_ADIANTE dias depois
  * da sexta. Uma promessa AGENDADA PARA A SEMANA QUE VEM e verificada (paga)
@@ -102,7 +114,7 @@
       {
         chave: 'promessasCumpridas',
         rotulo: 'Promessas cumpridas',
-        detalhe: 'recuperado por promessas da cobrança',
+        detalhe: 'recuperado por promessas (pagamento estimado: dia útil anterior à verificação)',
         // Não vem do consolidado: ver "PROMESSAS CUMPRIDAS" no cabeçalho.
         origem: 'promessasVerificadas',
       },
@@ -135,7 +147,11 @@
     fundo: '#ffffff',
   };
 
+  // Relógio do painel (os testes trocam `agora` pra fixar o dia, senão o resultado dependeria do dia em que rodam).
+  const relogio = { agora: () => new Date() };
   let painelEl = null;
+  // true = mostrando a semana anterior (botão do painel); volta a false toda vez que o Alt+D abre do zero.
+  let semanaAnterior = false;
 
   /** @returns {object|null} */
   function util() {
@@ -217,11 +233,59 @@
    * PROMESSAS CUMPRIDAS: pela data da verificação, no crédito de quem criou
    * --------------------------------------------------------------------- */
 
-  /** A promessa entra na conta da semana? (status que entra + verificada dentro da semana) */
+  /** AAAA-MM-DD -> Date ao meio-dia (a convenção de data do projeto). */
+  function dataDeIso(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0) : null;
+  }
+
+  /** Feriados (AAAA-MM-DD) do ano, do calendário do Módulo 1; sem ele, só o fim de semana é pulado. */
+  function feriadosDoAno(ano) {
+    try {
+      const lista = window.__avisoCobranca?.feriados?.(ano);
+      return Array.isArray(lista) ? lista : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function ehDiaUtilIso(iso) {
+    const d = dataDeIso(iso);
+    if (!d || d.getDay() === 0 || d.getDay() === 6) return false;
+    return !feriadosDoAno(d.getFullYear()).includes(iso);
+  }
+
+  /**
+   * O dia útil imediatamente ANTERIOR a uma data (fim de semana e feriado pulados).
+   * @param {string} iso AAAA-MM-DD
+   * @returns {string|null}
+   */
+  function diaUtilAnteriorIso(iso) {
+    const d = dataDeIso(iso);
+    if (!d) return null;
+    for (let i = 0; i < 30; i += 1) {
+      d.setDate(d.getDate() - 1);
+      const dia = util().dataIso(d);
+      if (ehDiaUtilIso(dia)) return dia;
+    }
+    return null;
+  }
+
+  /**
+   * O dia (estimado) em que o cliente pagou: o dia útil anterior à verificação.
+   * @param {object} item Promessa da API.
+   * @returns {string|null} AAAA-MM-DD, ou null sem verificação válida.
+   */
+  function diaDoPagamentoDaPromessa(item) {
+    const verificacao = String(item?.dataVerificacao ?? '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(verificacao) ? diaUtilAnteriorIso(verificacao) : null;
+  }
+
+  /** A promessa entra na conta da semana? (status que entra + dia do pagamento estimado dentro da semana) */
   function promessaEntraNaSemana(item, semana) {
     if (!CONFIG_RECEBIDO.PROMESSAS.STATUS_QUE_ENTRAM.includes(item?.status)) return false;
-    const dia = String(item?.dataVerificacao ?? '').slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(dia) && dia >= semana.inicioIso && dia <= semana.fimIso;
+    const dia = diaDoPagamentoDaPromessa(item);
+    return dia !== null && dia >= semana.inicioIso && dia <= semana.fimIso;
   }
 
   /**
@@ -447,7 +511,7 @@
   }
 
   /** @returns {HTMLElement} O corpo, que é trocado quando os dados chegam. */
-  function criarEsqueleto(semana) {
+  function criarEsqueleto(semana, anterior = false) {
     painelEl = document.createElement('div');
     painelEl.id = CONFIG_RECEBIDO.ID_PAINEL;
     Object.assign(painelEl.style, {
@@ -468,10 +532,24 @@
       overflowY: 'auto',
     });
 
-    const titulo = criarDiv('Entrou na semana', {
+    const cabecalho = criarDiv('', { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' });
+    const titulo = criarDiv(anterior ? 'Entrou na semana anterior' : 'Entrou na semana', {
       color: CORES.tinta, fontWeight: '700', fontSize: '14px',
     });
-    painelEl.appendChild(titulo);
+    cabecalho.appendChild(titulo);
+    // v1.61.0: o que foi pago na sexta e verificado na segunda pertence à semana passada.
+    const alternar = document.createElement('button');
+    alternar.type = 'button';
+    alternar.dataset.papel = 'alternar-semana';
+    alternar.textContent = anterior ? 'semana atual ▶' : '◀ semana anterior';
+    alternar.setAttribute('aria-label', anterior ? 'Voltar para a semana atual' : 'Ver a semana anterior');
+    Object.assign(alternar.style, {
+      border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, borderRadius: '6px',
+      padding: '3px 8px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
+    });
+    alternar.addEventListener('click', () => { semanaAnterior = !anterior; abrirPainel(); });
+    cabecalho.appendChild(alternar);
+    painelEl.appendChild(cabecalho);
 
     const periodo = criarDiv(
       `${semana.inicio.toLocaleDateString('pt-BR')} (sáb) a ${semana.fim.toLocaleDateString('pt-BR')} (sex)`,
@@ -650,12 +728,13 @@
   }
 
   /** @param {HTMLElement} corpo @param {object} resumo */
-  function desenharResumo(corpo, resumo) {
+  function desenharResumo(corpo, resumo, { semanaAnterior: anterior = false } = {}) {
     corpo.textContent = '';
     resumo.metricas.forEach((metrica) => corpo.appendChild(criarBlocoMetrica(metrica)));
 
     corpo.appendChild(criarBlocoTotal(resumo));
-    corpo.appendChild(criarBlocoFeitasHoje(resumo.feitasHoje));
+    // "Promessas feitas hoje" é do dia de hoje: não faz sentido na semana anterior.
+    if (!anterior) corpo.appendChild(criarBlocoFeitasHoje(resumo.feitasHoje));
   }
 
   async function abrirPainel() {
@@ -675,8 +754,14 @@
       return;
     }
 
-    const semana = u.semanaSabadoASexta();
-    const corpo = criarEsqueleto(semana);
+    const anterior = semanaAnterior;
+    // Semana anterior: a semana que contém o mesmo dia da semana passada.
+    const referencia = new Date(relogio.agora());
+    if (anterior) referencia.setDate(referencia.getDate() - 7);
+    const semana = u.semanaSabadoASexta(referencia);
+    // Trocar de semana pelo botão refaz o painel (o de antes sai sem devolver nada a ninguém).
+    if (painelEl) { painelEl.remove(); painelEl = null; }
+    const corpo = criarEsqueleto(semana, anterior);
     corpo.appendChild(criarDiv('Consultando o CRM...', { color: CORES.apagado, padding: '6px 0' }));
 
     try {
@@ -684,7 +769,7 @@
       // aparecem e as promessas mostram o erro (nunca um zero no lugar).
       const [rDados, rPromessas] = await Promise.allSettled([
         buscarConsolidado(semana.inicioIso, semana.fimIso),
-        buscarPromessasDaSemana(semana),
+        buscarPromessasDaSemana(semana, relogio.agora()),
       ]);
       // O painel pode ter sido fechado enquanto a resposta vinha. Sem esta
       // guarda, escreveríamos num elemento já removido -- sem estourar, mas
@@ -698,7 +783,7 @@
         console.warn('[Recebido na semana] Promessas:', rPromessas.reason?.message);
         promessas = { erro: `Não consegui ler as promessas: ${rPromessas.reason?.message ?? 'erro desconhecido'}` };
       }
-      desenharResumo(corpo, montarResumo(rDados.value, promessas));
+      desenharResumo(corpo, montarResumo(rDados.value, promessas), { semanaAnterior: anterior });
     } catch (erro) {
       if (!painelEl || !corpo.isConnected) return;
       corpo.textContent = '';
@@ -714,6 +799,7 @@
       fecharPainel();
       return;
     }
+    semanaAnterior = false;
     abrirPainel();
   }
 
@@ -735,8 +821,11 @@
     apurarPromessas,
     apurarPromessasFeitasNoDia,
     promessaEntraNaSemana,
+    diaUtilAnteriorIso,
+    diaDoPagamentoDaPromessa,
     montarResumo,
     valorDaPessoa,
     CONFIG_RECEBIDO,
+    relogio,
   };
 })();

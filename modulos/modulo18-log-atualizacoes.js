@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.61.0', data: '30/09/2026',
+      mudancas: [
+        'Alt+D: as promessas cumpridas agora contam pela semana em que o cliente PAGOU, e não pela semana da verificação. O CRM não guarda o dia do pagamento; a verificação é automática, de madrugada, no dia útil seguinte, então o dia do pagamento é estimado como o dia útil ANTERIOR à verificação (fim de semana e feriado pulados). Paga na sexta e verificada na segunda conta na semana da sexta.',
+        'Alt+D: novo botão "◀ semana anterior" (e "semana atual ▶" para voltar). Na semana anterior o painel mostra os mesmos blocos daquela semana; o bloco "Promessas feitas hoje" só aparece na semana atual. O Alt+D sempre abre na semana atual. Na segunda de manhã o total da semana atual é menor do que era antes desta versão, porque o que foi pago na sexta agora pertence à semana passada.',
+        'Alt+D: o texto do bloco de promessas passou a dizer como o pagamento é estimado ("dia útil anterior à verificação"). Pagamento de sábado ou domingo (raro) é contado como de sexta.',
+      ],
+    },
+    {
       versao: '1.60.0', data: '30/09/2026',
       mudancas: [
         'Alt+D: novo bloco "Promessas feitas hoje", depois do Total recuperado: quantas promessas foram criadas hoje (de qualquer status e para qualquer data prometida) e o valor prometido, por pessoa e nos dois. É valor prometido, pode incluir juros e multa, e NÃO entra no Total recuperado.',
