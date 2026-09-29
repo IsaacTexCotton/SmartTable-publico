@@ -45,6 +45,18 @@
  *   - Falha do CRM: #modal-aviso-promessa ("Promessa não criada", com a
  *     mensagem em #modal-aviso-promessa-mensagem).
  *
+ * TELA (v1.59.0, visual aprovado pelo usuário em 29/09/2026): diálogo no CENTRO
+ * da tela, com fundo escurecido que cobre só a área abaixo do cabeçalho do CRM
+ * (o cabeçalho, z-50, e o menu lateral, z-40, ficam acima do nosso z-30). Uma
+ * linha por título em colunas (atalho, título, dias, situação, valor sem quebra),
+ * situação legível (Cobrança, Último dia, Em cartório, Negativado, Não protestar,
+ * vinda do Módulo 1; sem ele, só os valores confirmados do CRM), teclas H, A, D,
+ * T, Enter e Esc visíveis, total do valor em aberto dos marcados (sem juros e
+ * multa: o CRM calcula o final) e o sinal de cartório em cada título e em cada
+ * data. Clique fora, X, Esc e Cancelar fecham. O Tab fica preso no painel e, se o
+ * foco for parar no body, o painel reassume: as teclas 1, A e Enter não morrem.
+ * A sequência Alt+N, 1, A, Enter continua igual.
+ *
  * REGRA DO CARTÓRIO (v1.58.0, pedido do usuário, texto e visual aprovados em
  * 29/09/2026): não deixa registrar promessa para um título que, NA DATA
  * ESCOLHIDA, já estará em cartório. "Estará em cartório" = a data escolhida é
@@ -68,6 +80,11 @@
 
   const CONFIG_PROMESSA = {
     ID_PAINEL: 'smarttable-painel-promessa',
+    ID_FUNDO: 'smarttable-fundo-promessa',
+    // Cabeçalho do CRM (fato confirmado em 23/09/2026: header#sit-header, fixo, ~80px, z-50).
+    ID_CABECALHO: 'sit-header',
+    ALTURA_CABECALHO_PADRAO: 80,
+    LARGURA_PAINEL: 560,
     // Ponte pro reload: { cnpj, titulos, data, criadoEm }. Só isso.
     CHAVE_PONTE: 'smarttable_promessa_pendente_v1',
     VALIDADE_PONTE_MS: 3 * 60 * 1000,
@@ -115,6 +132,8 @@
   const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
   let painelEl = null;
+  let fundoEl = null;
+  let focoAnterior = null;
   let registrando = false;
 
   /* ---------------------------------------------------------------------
@@ -294,10 +313,18 @@
     return estado.titulos.filter((t) => t.atraso > 0 || estado.mostrarAVencer || estado.marcados.has(t.valor));
   }
 
-  function fecharPainel() {
+  /** Fecha o painel e o fundo. Só Esc, X, Cancelar e clique fora devolvem o foco a quem abriu. */
+  function fecharPainel({ devolverFoco = false } = {}) {
     if (!painelEl) return;
+    fundoEl?.remove();
     painelEl.remove();
     painelEl = null;
+    fundoEl = null;
+    const volta = focoAnterior;
+    focoAnterior = null;
+    if (devolverFoco && volta?.isConnected) {
+      try { volta.focus({ preventScroll: true }); } catch (_) { /* sem foco a devolver */ }
+    }
   }
 
   /** Recalcula a regra do cartório com o que está marcado e a data escolhida agora. */
@@ -322,81 +349,166 @@
       (razoes > 1 ? ` · ${razoes} razões (o CRM cria uma promessa por razão)` : '');
   }
 
+  /* ---- Peças visuais (v1.59.0: diálogo no centro, colunas, teclas visíveis) ---- */
+  const ROTULO_POR_POSICAO = { COBRANCA: 'Cobrança', CARTORIO: 'Em cartório', 'NAO PROTESTAR': 'Não protestar' };
+  const CHAVE_DA_SITUACAO = {
+    EM_ATRASO: 'EM_ATRASO', PRAZO_FINAL: 'EM_ATRASO', ULTIMO_DIA: 'ULTIMO_DIA', EM_CARTORIO: 'EM_CARTORIO',
+    NEGATIVADO_SCPC: 'NEGATIVADO_SCPC', SEM_PROTESTO: 'EM_ATRASO', VERIFICAR_POSICAO: 'VERIFICAR_POSICAO',
+  };
+  const ROTULO_DA_SITUACAO = {
+    EM_ATRASO: 'Cobrança', PRAZO_FINAL: 'Cobrança', ULTIMO_DIA: 'Último dia', EM_CARTORIO: 'Em cartório',
+    NEGATIVADO_SCPC: 'Negativado', SEM_PROTESTO: 'Não protestar', VERIFICAR_POSICAO: 'Verificar posição',
+  };
+
+  const moedaBr = (n) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/\u00a0/g, ' ');
+
+  /** Mesmo índice da regra do cartório: título ("915249/2") -> o que o Módulo 1 sabe dele. */
+  function indiceDosTitulos(dados) {
+    if (!dados) return new Map();
+    const todos = [...(dados.registros ?? []), ...(dados.foraDoRelatorio ?? []), ...(dados.naoCobrar ?? [])];
+    return new Map(todos.map((r) => [String(r.tituloCompleto), r]));
+  }
+
+  /** Etiqueta de situação: o que o Módulo 1 classificou; sem ele, só os valores confirmados do CRM; o resto, cru. */
+  function situacaoParaExibir(t, registro) {
+    if (registro) {
+      const chave = ehNaoProtestar(registro.posicao) ? 'SEM_PROTESTO' : registro.situacaoKey;
+      if (ROTULO_DA_SITUACAO[chave]) return { rotulo: ROTULO_DA_SITUACAO[chave], chave: CHAVE_DA_SITUACAO[chave] };
+    }
+    const posicao = String(t.situacao ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+    const rotulo = ROTULO_POR_POSICAO[posicao];
+    if (rotulo) return { rotulo, chave: posicao === 'CARTORIO' ? 'EM_CARTORIO' : 'EM_ATRASO' };
+    return { rotulo: t.situacao || '', chave: null };
+  }
+
+  /** "vai a cartório em 01/10", "já está em cartório" ou "" (SCPC, NAO PROTESTAR, a vencer). */
+  function textoDoCartorioNoTitulo(t, registro, dados) {
+    if (!dados || t.atraso <= 0) return '';
+    if (!registro) return 'cartório: não checado';
+    if (dados.fluxo === 'SCPC' || ehNaoProtestar(registro.posicao)) return '';
+    if (registro.situacaoKey === 'EM_CARTORIO') return 'já está em cartório';
+    const iso = isoDeData(registro.prazos?.dataEncaminhamento);
+    return iso ? `vai a cartório em ${dataCurta(iso)}` : '';
+  }
+
+  function tecla(texto) {
+    return el('kbd', { textContent: texto }, {
+      display: 'inline-block', minWidth: '16px', padding: '1px 5px', marginRight: '5px', textAlign: 'center',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '11px', fontWeight: '700', lineHeight: '16px',
+      color: CORES.texto, background: '#F2F4F7', border: `1px solid ${CORES.borda}`, borderBottomWidth: '2px', borderRadius: '4px',
+    });
+  }
+
+  function legendaDaSecao(texto, tecladoDica) {
+    const linha = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', margin: '14px 0 6px' });
+    linha.appendChild(el('div', { textContent: texto }, { fontSize: '11px', fontWeight: '700', letterSpacing: '0.04em', color: CORES.apagado, textTransform: 'uppercase' }));
+    if (tecladoDica) linha.appendChild(el('div', { textContent: tecladoDica }, { fontSize: '11px', color: CORES.apagado }));
+    return linha;
+  }
+
+  function etiquetaDaSituacao(situacao) {
+    const cores = (situacao.chave && window.__avisoCobranca?.situacoes?.[situacao.chave]) || null;
+    return el('span', { textContent: situacao.rotulo }, {
+      display: 'inline-block', padding: '1px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
+      color: cores?.corTexto ?? CORES.texto, background: cores?.tint ?? '#F2F4F7', border: `1px solid ${cores?.rail ?? CORES.borda}`,
+    });
+  }
+
   function desenhar() {
     if (!painelEl) return;
     const corpo = painelEl.querySelector('[data-papel="corpo"]');
     corpo.replaceChildren();
 
     recalcularBloqueios();
+    const dados = lerDadosDeCobranca();
+    const indice = indiceDosTitulos(dados);
 
     // Títulos
     const visiveis = titulosVisiveis();
-    const cab = el('div', { textContent: 'Títulos · 1 a 9 marcam e desmarcam' }, { fontSize: '11px', fontWeight: '700', color: CORES.apagado, textTransform: 'uppercase', margin: '0 0 6px' });
-    corpo.appendChild(cab);
-    const lista = el('div', {}, { display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '40vh', overflowY: 'auto' });
+    corpo.appendChild(legendaDaSecao('Títulos', '1 a 9 marcam e desmarcam'));
+    const lista = el('div', {}, { display: 'flex', flexDirection: 'column', gap: '6px' });
     lista.setAttribute('role', 'group');
     lista.setAttribute('aria-label', 'Títulos da promessa');
     if (!visiveis.length) {
-      lista.appendChild(el('div', { textContent: 'Nenhum título vencido neste cliente. T mostra os que ainda vão vencer.' }, { fontSize: '12px', color: CORES.apagado }));
+      lista.appendChild(el('div', { textContent: 'Nenhum título vencido neste cliente. T mostra os que ainda vão vencer.' }, { fontSize: '13px', color: CORES.apagado }));
     }
     let separouGrupo = false;
     visiveis.forEach((t, i) => {
       if (t.outraRazao && !separouGrupo) {
         separouGrupo = true;
-        lista.appendChild(el('div', { textContent: 'Outras razões do grupo' }, { fontSize: '11px', fontWeight: '700', color: CORES.apagado, margin: '6px 0 0' }));
+        lista.appendChild(el('div', { textContent: 'Outras razões do grupo' }, { fontSize: '11px', fontWeight: '700', letterSpacing: '0.04em', textTransform: 'uppercase', color: CORES.apagado, margin: '8px 0 0' }));
       }
       const marcado = estado.marcados.has(t.valor);
+      const registro = indice.get(String(t.valor)) ?? null;
       const item = el('label', {}, {
-        display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer',
+        display: 'grid', gridTemplateColumns: '18px 20px minmax(96px, 1fr) auto auto 92px', columnGap: '10px', alignItems: 'center',
+        padding: '8px 10px', borderRadius: '8px', cursor: 'pointer',
         border: `1px solid ${marcado ? CORES.marca : CORES.borda}`, background: marcado ? CORES.fundoMarca : CORES.fundo,
       });
-      const cb = el('input', { type: 'checkbox', checked: marcado }, { marginTop: '2px' });
+      const cb = el('input', { type: 'checkbox', checked: marcado }, { margin: '0' });
       cb.addEventListener('change', () => alternarTitulo(t.valor));
-      const numero = el('span', { textContent: i < CONFIG_PROMESSA.MAX_NUMERADOS ? String(i + 1) : '·' }, { fontWeight: '700', color: CORES.marca, minWidth: '10px' });
-      const texto = el('div', {}, { flex: '1', minWidth: '0', fontSize: '12px', color: CORES.tinta });
-      const dias = t.atraso > 0 ? `${t.atraso} ${t.atraso === 1 ? 'dia' : 'dias'}` : `vence ${dataCurta(t.vencimento)}`;
-      texto.appendChild(el('div', { textContent: `${t.valor} · ${dias}${t.situacao ? ` · ${t.situacao}` : ''}${t.valorTela ? ` · ${t.valorTela}` : ''}` }, { fontWeight: '600' }));
-      if (t.outraRazao && t.razao) texto.appendChild(el('div', { textContent: t.razao }, { color: CORES.apagado, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }));
+      const numero = el('span', { textContent: i < CONFIG_PROMESSA.MAX_NUMERADOS ? String(i + 1) : '·' }, { fontWeight: '700', color: CORES.marca, textAlign: 'center' });
+      const codigo = el('div', {}, { minWidth: '0' });
+      codigo.appendChild(el('div', { textContent: t.valor }, { fontWeight: '600', fontSize: '13px', color: CORES.tinta }));
+      const cartorio = textoDoCartorioNoTitulo(t, registro, dados);
+      const detalhes = [];
+      if (t.outraRazao && t.razao) detalhes.push(t.razao);
+      if (cartorio) detalhes.push(cartorio);
+      if (detalhes.length) codigo.appendChild(el('div', { textContent: detalhes.join(' · ') }, { fontSize: '11px', color: CORES.apagado, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }));
       if (t.promessaPendente) {
-        texto.appendChild(el('div', { textContent: `⚠ já está numa promessa pendente (${t.promessaPendente}) — o CRM vai pedir pra você decidir` }, { color: CORES.alerta }));
+        codigo.appendChild(el('div', { textContent: `⚠ já está numa promessa pendente (${t.promessaPendente}) — o CRM vai pedir pra você decidir` }, { fontSize: '11px', color: CORES.alerta }));
       }
-      item.appendChild(cb);
-      item.appendChild(numero);
-      item.appendChild(texto);
+      const dias = el('span', { textContent: t.atraso > 0 ? `${t.atraso} ${t.atraso === 1 ? 'dia' : 'dias'}` : `vence ${dataCurta(t.vencimento)}` }, { fontSize: '12px', color: CORES.texto, whiteSpace: 'nowrap' });
+      const situacao = etiquetaDaSituacao(situacaoParaExibir(t, registro));
+      const valor = el('span', { textContent: t.valorTela || '' }, { fontSize: '13px', fontWeight: '600', color: CORES.tinta, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' });
+      [cb, numero, codigo, dias, situacao, valor].forEach((parte) => item.appendChild(parte));
       lista.appendChild(item);
     });
     corpo.appendChild(lista);
     const aVencer = estado.titulos.filter((t) => t.atraso <= 0).length;
     if (aVencer) {
-      corpo.appendChild(el('div', { textContent: `T — ${estado.mostrarAVencer ? 'esconder' : 'mostrar'} os que ainda vão vencer (${aVencer})` }, { fontSize: '11px', color: CORES.apagado, margin: '4px 0 0' }));
+      const linhaT = el('div', {}, { fontSize: '12px', color: CORES.apagado, margin: '8px 0 0' });
+      linhaT.appendChild(tecla('T'));
+      linhaT.appendChild(document.createTextNode(`${estado.mostrarAVencer ? 'esconder' : 'mostrar'} os que ainda vão vencer (${aVencer})`));
+      corpo.appendChild(linhaT);
     }
 
     // Data
-    corpo.appendChild(el('div', { textContent: 'Data do pagamento · H hoje · A amanhã · D outra' }, { fontSize: '11px', fontWeight: '700', color: CORES.apagado, textTransform: 'uppercase', margin: '12px 0 6px' }));
-    const datas = el('div', {}, { display: 'flex', flexWrap: 'wrap', gap: '4px' });
-    datasSugeridas().forEach((iso) => {
+    corpo.appendChild(legendaDaSecao('Data do pagamento'));
+    const datas = el('div', {}, { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' });
+    const teclaDaData = (iso, i) => (iso === hojeIso() ? 'H' : (i === 1 ? 'A' : null));
+    datasSugeridas().forEach((iso, i) => {
       const ativo = estado.data === iso;
-      const b = el('button', { type: 'button', textContent: rotuloDaData(iso) }, {
-        padding: '4px 8px', borderRadius: '999px', fontSize: '12px', cursor: 'pointer',
-        border: `1px solid ${ativo ? CORES.marca : CORES.borda}`, background: ativo ? CORES.marca : CORES.fundo, color: ativo ? '#fff' : CORES.tinta,
+      const emCartorio = estado.marcados.size > 0 && avaliarCartorioDaPromessa([...estado.marcados], iso, dados).length > 0;
+      const b = el('button', { type: 'button' }, {
+        padding: '5px 10px', borderRadius: '999px', fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
+        border: `1px solid ${emCartorio ? CORES.perigo : (ativo ? CORES.marca : CORES.borda)}`,
+        background: ativo ? CORES.marca : CORES.fundo, color: ativo ? '#fff' : (emCartorio ? CORES.perigo : CORES.tinta),
       });
+      const dica = teclaDaData(iso, i);
+      if (dica) b.appendChild(tecla(dica));
+      b.appendChild(document.createTextNode(rotuloDaData(iso) + (emCartorio ? ' · cartório' : '')));
       b.setAttribute('aria-pressed', String(ativo));
       b.addEventListener('click', () => escolherData(iso));
       datas.appendChild(b);
     });
     const outra = el('input', { type: 'date', min: hojeIso(), value: estado.data && !datasSugeridas().includes(estado.data) ? estado.data : '' }, {
-      padding: '3px 6px', border: `1px solid ${CORES.borda}`, borderRadius: '6px', fontSize: '12px', color: CORES.tinta,
+      padding: '4px 8px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', fontSize: '13px', color: CORES.tinta,
     });
     outra.dataset.papel = 'outra-data';
     outra.setAttribute('aria-label', 'Outra data');
     outra.addEventListener('change', () => { if (outra.value) escolherData(outra.value); });
-    datas.appendChild(outra);
+    const rotuloOutra = el('label', {}, { display: 'inline-flex', alignItems: 'center', fontSize: '12px', color: CORES.apagado });
+    rotuloOutra.appendChild(tecla('D'));
+    rotuloOutra.appendChild(el('span', { textContent: 'outra' }, { marginRight: '6px' }));
+    rotuloOutra.appendChild(outra);
+    datas.appendChild(rotuloOutra);
     corpo.appendChild(datas);
 
     // Regra do cartório: aviso vermelho (o botão de registrar fica travado).
     if (estado.bloqueios.length) {
       const caixa = el('div', {}, {
-        marginTop: '10px', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', lineHeight: '1.4',
+        marginTop: '10px', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.4',
         color: CORES.perigo, background: CORES.fundoPerigo, border: `1px solid ${CORES.perigo}`,
       });
       caixa.dataset.papel = 'bloqueio-cartorio';
@@ -408,20 +520,34 @@
     // Forma de pagamento (as opções do próprio CRM)
     const opcoes = [...document.querySelectorAll(`${SEL.FORMA} option`)];
     if (opcoes.length) {
-      const forma = el('select', {}, { marginTop: '10px', padding: '4px 6px', border: `1px solid ${CORES.borda}`, borderRadius: '6px', fontSize: '12px', color: CORES.tinta });
+      corpo.appendChild(legendaDaSecao('Forma de pagamento'));
+      const forma = el('select', {}, { padding: '5px 8px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', fontSize: '13px', color: CORES.tinta });
       forma.setAttribute('aria-label', 'Forma de pagamento');
       opcoes.forEach((o) => forma.appendChild(el('option', { value: o.value, textContent: o.textContent.trim(), selected: o.value === estado.forma })));
       forma.addEventListener('change', () => { estado.forma = forma.value; atualizarRodape(); });
-      const rot = el('label', { textContent: 'Forma de pagamento ' }, { display: 'block', fontSize: '12px', color: CORES.texto });
-      rot.appendChild(forma);
-      corpo.appendChild(rot);
+      corpo.appendChild(forma);
     }
     atualizarRodape();
+    // desenhar() refaz o miolo: se o foco estava num item que sumiu, volta pro painel (senão 1, A, Enter morrem).
+    if (painelEl && !painelEl.contains(document.activeElement)) painelEl.focus({ preventScroll: true });
+  }
+
+  /** Soma do valor em aberto dos marcados (o que a lista do CRM mostra: sem juros nem multa). */
+  function totalDosMarcados() {
+    const marcados = estado.titulos.filter((t) => estado.marcados.has(t.valor));
+    const numeros = marcados.map((t) => window.__smartTableUtil?.numeroDeMoedaBr?.(t.valorTela));
+    if (!marcados.length) return null;
+    if (numeros.some((n) => typeof n !== 'number' || !Number.isFinite(n))) return { texto: '—', incompleto: true };
+    return { texto: moedaBr(numeros.reduce((soma, n) => soma + n, 0)), incompleto: false };
   }
 
   function atualizarRodape() {
     if (!painelEl) return;
     painelEl.querySelector('[data-papel="resumo"]').textContent = resumoConfirmacao();
+    const total = totalDosMarcados();
+    const totalEl = painelEl.querySelector('[data-papel="total"]');
+    totalEl.textContent = total ? `Total marcado: ${total.texto}` : '';
+    totalEl.title = 'Valor em aberto dos títulos marcados, sem juros e multa: o CRM calcula o valor final ao salvar.';
     const botao = painelEl.querySelector('[data-papel="registrar"]');
     botao.disabled = !podeRegistrar();
     botao.style.opacity = botao.disabled ? '0.5' : '1';
@@ -440,11 +566,41 @@
     desenhar();
   }
 
+  /** O que dá pra focar dentro do painel (pro Tab não sair dele). */
+  function focaveisDoPainel() {
+    return [...painelEl.querySelectorAll('button, input, select')].filter((e) => !e.disabled && visivel(e));
+  }
+
   function aoTeclar(e) {
     const alvo = e.target;
     const emCampo = alvo && (alvo.tagName === 'INPUT' && alvo.type !== 'checkbox' || alvo.tagName === 'SELECT');
-    if (e.key === 'Escape') { e.preventDefault(); fecharPainel(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); fecharPainel({ devolverFoco: true }); return; }
+    if (e.key === 'Tab') {
+      // Foco preso, e conduzido por nós (o Tab nativo do Chromium às vezes passa por "nenhum elemento"
+      // entre dois foco-áveis, e aí 1, A e Enter morrem). Só o campo de data segue nativo: o Tab dele
+      // percorre dia, mês e ano.
+      const focaveis = focaveisDoPainel();
+      if (!focaveis.length) { e.preventDefault(); return; }
+      const ativo = document.activeElement;
+      if (ativo?.tagName === 'INPUT' && ativo.type === 'date') {
+        const primeiro = focaveis[0];
+        const ultimo = focaveis[focaveis.length - 1];
+        if (e.shiftKey && ativo === primeiro) { e.preventDefault(); ultimo.focus(); }
+        else if (!e.shiftKey && ativo === ultimo) { e.preventDefault(); primeiro.focus(); }
+        return;
+      }
+      e.preventDefault();
+      const i = focaveis.indexOf(ativo);
+      const proximo = i === -1
+        ? (e.shiftKey ? focaveis.length - 1 : 0)
+        : (i + (e.shiftKey ? -1 : 1) + focaveis.length) % focaveis.length;
+      focaveis[proximo].focus();
+      return;
+    }
     if (e.key === 'Enter') {
+      // Enter num BOTÃO (Cancelar, X, chip de data, Registrar) aciona o botão: sem isto, Tab até "Cancelar" + Enter
+      // registrava a promessa. Fora de botão (painel, caixa de título), Enter registra, como sempre.
+      if (alvo?.tagName === 'BUTTON') return;
       e.preventDefault();
       if (podeRegistrar()) registrar();
       return;
@@ -462,6 +618,23 @@
     else if (e.code === 'KeyD') { e.preventDefault(); painelEl.querySelector('[data-papel="outra-data"]')?.focus(); }
   }
 
+  /** Base do painel: a faixa abaixo do cabeçalho do CRM (fato: header#sit-header, z-50, ~80px). */
+  function alturaDoCabecalho() {
+    const base = document.getElementById(CONFIG_PROMESSA.ID_CABECALHO)?.getBoundingClientRect().bottom;
+    return Number.isFinite(base) && base > 0 && base < 200 ? Math.round(base) : CONFIG_PROMESSA.ALTURA_CABECALHO_PADRAO;
+  }
+
+  /**
+   * Folga à esquerda do fundo: 16px, e mais só se o painel centralizado de verdade encostaria no menu lateral do CRM
+   * (z-40, acima do fundo). Em 1600px o painel fica no centro exato; em telas estreitas se afasta do menu.
+   */
+  function folgaEsquerda() {
+    const menu = window.__smartTableUtil?.margemMenuLateral?.() ?? 0;
+    const largura = Math.min(CONFIG_PROMESSA.LARGURA_PAINEL, window.innerWidth - 32);
+    const esquerdaCentral = (window.innerWidth - largura) / 2;
+    return menu > 0 && esquerdaCentral < menu + 16 ? menu + 16 : 16;
+  }
+
   function abrirPainel() {
     const titulos = lerTitulos();
     if (!titulos) {
@@ -472,6 +645,8 @@
       avisar('Há um contato aberto: salve ou feche antes de registrar a promessa (Alt+N).', 'erro');
       return;
     }
+    // Quem tinha o foco antes de abrir (se o painel já estava aberto, continua sendo quem abriu da primeira vez).
+    const quemAbriu = painelEl ? focoAnterior : (typeof document.activeElement?.focus === 'function' ? document.activeElement : null);
     window.__smartTableUtil?.fecharOutrosPaineis?.('promessaRapida');
     fecharPainel();
 
@@ -482,59 +657,88 @@
     estado.forma = document.querySelector(SEL.FORMA)?.value || null;
     estado.mostrarAVencer = vencidos.length === 0;
     estado.bloqueios = [];
+    focoAnterior = quemAbriu;
+
+    // Fundo: cobre só a área abaixo do cabeçalho do CRM (o cabeçalho e o menu lateral têm z-index acima do nosso).
+    fundoEl = el('div', { id: CONFIG_PROMESSA.ID_FUNDO }, {
+      position: 'fixed', top: `${alturaDoCabecalho()}px`, left: '0', right: '0', bottom: '0', zIndex: CONFIG_PROMESSA.Z_INDEX,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: `16px 16px 16px ${folgaEsquerda()}px`, boxSizing: 'border-box',
+      background: 'rgba(16, 24, 40, 0.35)',
+    });
+    // Clique no fundo (fora do painel) fecha; a seleção se perde, como em qualquer Esc.
+    fundoEl.addEventListener('mousedown', (e) => { if (e.target === fundoEl) fecharPainel({ devolverFoco: true }); });
 
     painelEl = el('div', { id: CONFIG_PROMESSA.ID_PAINEL, tabIndex: -1 }, {
-      position: 'fixed', top: '96px', left: '16px', zIndex: CONFIG_PROMESSA.Z_INDEX,
-      width: '380px', maxWidth: '92vw', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', boxSizing: 'border-box',
-      background: CORES.fundo, border: `1px solid ${CORES.borda}`, borderRadius: '10px', padding: '14px 16px',
-      boxShadow: '0 8px 24px rgba(16,24,40,0.18)', fontFamily: 'system-ui, -apple-system, sans-serif', color: CORES.texto, outline: 'none',
+      display: 'flex', flexDirection: 'column', width: `${CONFIG_PROMESSA.LARGURA_PAINEL}px`, maxWidth: '100%', maxHeight: '100%', boxSizing: 'border-box',
+      background: CORES.fundo, border: `1px solid ${CORES.borda}`, borderRadius: '12px', overflow: 'hidden',
+      boxShadow: '0 20px 48px rgba(16,24,40,0.28)', fontFamily: 'system-ui, -apple-system, sans-serif', color: CORES.texto, outline: 'none',
     });
     painelEl.setAttribute('role', 'dialog');
+    painelEl.setAttribute('aria-modal', 'true');
     painelEl.setAttribute('aria-label', 'Registrar promessa');
 
-    const topo = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' });
-    topo.appendChild(el('div', { textContent: '📅 Registrar promessa' }, { fontWeight: '700', fontSize: '15px', color: CORES.tinta }));
-    const fechar = el('button', { type: 'button', textContent: '✕' }, { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '15px', color: CORES.apagado });
+    // Topo: título, cliente (a razão da própria página) e fechar.
+    const topo = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', padding: '14px 18px 10px', borderBottom: `1px solid ${CORES.borda}` });
+    const titulosTopo = el('div', {}, { minWidth: '0' });
+    titulosTopo.appendChild(el('div', { textContent: '📅 Registrar promessa' }, { fontWeight: '700', fontSize: '16px', color: CORES.tinta }));
+    const cliente = titulos.find((t) => !t.outraRazao && t.razao)?.razao;
+    if (cliente) titulosTopo.appendChild(el('div', { textContent: cliente }, { fontSize: '12px', color: CORES.apagado, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }));
+    topo.appendChild(titulosTopo);
+    const fechar = el('button', { type: 'button', textContent: '✕' }, { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '16px', color: CORES.apagado, padding: '2px 4px' });
     fechar.setAttribute('aria-label', 'Fechar (Esc)');
-    fechar.addEventListener('click', fecharPainel);
+    fechar.addEventListener('click', () => fecharPainel({ devolverFoco: true }));
     topo.appendChild(fechar);
     painelEl.appendChild(topo);
 
+    const meio = el('div', {}, { flex: '1 1 auto', minHeight: '0', overflowY: 'auto', padding: '2px 18px 14px' });
     const ctx = window.__contextoAdicional;
     if (ctx?.promessa?.tipo === 'DIA_DA_PROMESSA') {
-      painelEl.appendChild(el('div', { textContent: 'Este cliente já tem promessa pendente pra hoje.' }, {
-        fontSize: '12px', color: CORES.alerta, background: CORES.fundoAlerta, borderRadius: '6px', padding: '6px 8px', marginBottom: '8px',
+      meio.appendChild(el('div', { textContent: 'Este cliente já tem promessa pendente pra hoje.' }, {
+        fontSize: '12px', color: CORES.alerta, background: CORES.fundoAlerta, borderRadius: '8px', padding: '6px 10px', margin: '12px 0 0',
       }));
     }
-
     const corpo = el('div');
     corpo.dataset.papel = 'corpo';
-    painelEl.appendChild(corpo);
+    meio.appendChild(corpo);
+    painelEl.appendChild(meio);
 
-    const rodape = el('div', {}, { borderTop: `1px solid ${CORES.borda}`, marginTop: '12px', paddingTop: '10px' });
+    const rodape = el('div', {}, { borderTop: `1px solid ${CORES.borda}`, padding: '10px 18px 14px', background: '#FAFBFC' });
+    const linhaResumo = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '12px' });
     const resumo = el('div', {}, { fontSize: '12px', color: CORES.tinta, minHeight: '16px' });
     resumo.dataset.papel = 'resumo';
     resumo.setAttribute('aria-live', 'polite');
-    const botao = el('button', { type: 'button', textContent: 'Enter · Registrar promessa' }, {
-      marginTop: '8px', width: '100%', padding: '8px 10px', border: 'none', borderRadius: '6px',
-      background: CORES.tinta, color: '#fff', fontSize: '13px', fontWeight: '600',
+    const total = el('div', {}, { fontSize: '13px', fontWeight: '700', color: CORES.tinta, whiteSpace: 'nowrap' });
+    total.dataset.papel = 'total';
+    linhaResumo.appendChild(resumo);
+    linhaResumo.appendChild(total);
+    const botoes = el('div', {}, { display: 'flex', gap: '8px', marginTop: '10px' });
+    const botao = el('button', { type: 'button' }, {
+      flex: '1', padding: '9px 12px', border: 'none', borderRadius: '8px',
+      background: CORES.tinta, color: '#fff', fontSize: '14px', fontWeight: '600',
     });
+    botao.appendChild(document.createTextNode('Enter · Registrar promessa'));
     botao.dataset.papel = 'registrar';
     botao.addEventListener('click', () => { if (podeRegistrar()) registrar(); });
-    rodape.appendChild(resumo);
-    rodape.appendChild(botao);
+    const cancelar = el('button', { type: 'button', textContent: 'Esc · Cancelar' }, {
+      padding: '9px 14px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '13px', cursor: 'pointer',
+    });
+    cancelar.addEventListener('click', () => fecharPainel({ devolverFoco: true }));
+    botoes.appendChild(botao);
+    botoes.appendChild(cancelar);
+    rodape.appendChild(linhaResumo);
+    rodape.appendChild(botoes);
     painelEl.appendChild(rodape);
 
     painelEl.addEventListener('keydown', (e) => { e.stopPropagation(); aoTeclar(e); });
-    document.body.appendChild(painelEl);
-    window.__smartTableUtil?.acompanharMenuLateral?.(painelEl);
+    fundoEl.appendChild(painelEl);
+    document.body.appendChild(fundoEl);
     desenhar();
     painelEl.focus();
   }
 
   function alternarPainel() {
     if (registrando) { avisar('Registrando a promessa, aguarde.', 'info'); return; }
-    if (painelEl) fecharPainel();
+    if (painelEl) fecharPainel({ devolverFoco: true });
     else abrirPainel();
   }
 
@@ -746,7 +950,13 @@
   else iniciar();
 
   document.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && painelEl) fecharPainel();
+    if (!painelEl) return;
+    if (e.code === 'Escape') { fecharPainel({ devolverFoco: true }); return; }
+    // Foco perdido pra página (nenhum elemento focado): o painel reassume e trata a tecla, senão 1, A e Enter morrem.
+    if (e.target === document.body || e.target === document.documentElement) {
+      painelEl.focus({ preventScroll: true });
+      aoTeclar(e);
+    }
   });
 
   window.__smartTableUtil?.registrarPainel?.('promessaRapida', fecharPainel);

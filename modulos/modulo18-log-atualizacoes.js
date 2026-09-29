@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.59.0', data: '29/09/2026',
+      mudancas: [
+        'Alt+N (promessa rápida): a tela agora abre no CENTRO, com o fundo escurecido abaixo do cabeçalho do CRM, e ficou mais clara: uma linha por título com o código, os dias de atraso, a situação (Cobrança, Último dia, Em cartório, Negativado ou Não protestar) e o valor sem quebrar de linha; o nome do cliente no topo; as teclas H, A, D, T, Enter e Esc aparecem como teclas; e o rodapé mostra o total marcado (valor em aberto, sem juros e multa: o CRM calcula o valor final ao salvar).',
+        'Alt+N: cada título mostra em que dia vai a cartório ("cartório: não checado" quando o sistema não lê o título), e os botões de data que já cairiam em cartório ficam marcados em vermelho. Clique fora da janela, X, Esc e Cancelar fecham. O Tab não sai mais da janela e, se o foco for parar na página, as teclas 1, A e Enter continuam funcionando. A sequência Alt+N, 1, A, Enter não mudou.',
+      ],
+    },
+    {
       versao: '1.58.0', data: '29/09/2026',
       mudancas: [
         'Alt+N (promessa rápida): não deixa mais registrar promessa para um título que, na data escolhida, já estará em cartório (a partir do dia seguinte ao último dia para pagamento) nem para título que já está em cartório. Aparece um aviso em vermelho no painel, dizendo o dia do cartório e até quando escolher ("Título 90001/1 estará em cartório em 01/10/2026; escolha até 30/09/2026."), e o botão de registrar fica travado até você trocar a data ou desmarcar o título.',
