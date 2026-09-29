@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.58.0', data: '29/09/2026',
+      mudancas: [
+        'Alt+N (promessa rápida): não deixa mais registrar promessa para um título que, na data escolhida, já estará em cartório (a partir do dia seguinte ao último dia para pagamento) nem para título que já está em cartório. Aparece um aviso em vermelho no painel, dizendo o dia do cartório e até quando escolher ("Título 90001/1 estará em cartório em 01/10/2026; escolha até 30/09/2026."), e o botão de registrar fica travado até você trocar a data ou desmarcar o título.',
+        'A regra não vale para cliente SCPC nem para título com posição "NAO PROTESTAR". Ela só cobre o painel do Alt+N: o campo de data do próprio CRM e os botões "Agendar pagamento" do Registrar e Enviar não foram alterados.',
+      ],
+    },
+    {
       versao: '1.57.0', data: '29/09/2026',
       mudancas: [
         'Título com posição "NAO PROTESTAR" agora é cobrado: a partir do 6º dia de atraso (sem SCPC) ele vira "Vencido", em vez de "em cartório". Antes, no Itaú, o cliente com só títulos "não protestar" era tratado como "tudo em cartório" e sumia da fila do Alt+U e do Alt+A.',

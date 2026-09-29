@@ -45,6 +45,16 @@
  *   - Falha do CRM: #modal-aviso-promessa ("Promessa não criada", com a
  *     mensagem em #modal-aviso-promessa-mensagem).
  *
+ * REGRA DO CARTÓRIO (v1.58.0, pedido do usuário, texto e visual aprovados em
+ * 29/09/2026): não deixa registrar promessa para um título que, NA DATA
+ * ESCOLHIDA, já estará em cartório. "Estará em cartório" = a data escolhida é
+ * o dia seguinte ao último dia para pagamento (dataEncaminhamento, do Módulo
+ * 1) ou depois; título que JÁ está em cartório também não agenda. Aviso
+ * vermelho no painel (com a data máxima) E botão travado. NÃO vale para
+ * cliente SCPC (fluxo SCPC) nem para título com posição "NAO PROTESTAR", que
+ * nunca vai a cartório. Só cobre este painel: o campo de data do próprio CRM
+ * (que não valida nada) e os botões do Módulo 2 (data de hoje) ficam de fora.
+ *
  * NÃO conta como cobrança enviada no progresso da fila -- do mesmo jeito
  * que o "Salvar Contato" manual nunca contou (o Módulo 3 conta o Registrar e
  * Enviar, que é a cobrança saindo pelo WhatsApp).
@@ -178,6 +188,56 @@
   }
 
   /* ---------------------------------------------------------------------
+   * 1b. REGRA DO CARTÓRIO (ver o cabeçalho): dados do Módulo 1 da própria página
+   * --------------------------------------------------------------------- */
+  const ehNaoProtestar = (posicao) => /NAO\s+PROTESTAR/.test(String(posicao ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase());
+  const isoDeData = (d) => (d instanceof Date && !Number.isNaN(d.getTime()) ? hojeIso(d) : null);
+
+  /** O que o Módulo 1 sabe desta página (títulos com situação e prazos), ou null sem ele. */
+  function lerDadosDeCobranca() {
+    try {
+      return window.__avisoCobranca?.simular?.() ?? null;
+    } catch (erro) {
+      console.warn('[Promessa Rápida] Não consegui ler a situação dos títulos (regra do cartório desligada nesta leitura):', erro?.name);
+      return null;
+    }
+  }
+
+  /**
+   * Títulos marcados que, na data escolhida, estarão em cartório.
+   *
+   * @param {string[]} valores  títulos marcados ("915249/2")
+   * @param {string|null} iso   data escolhida (AAAA-MM-DD); sem data só pega quem já está em cartório
+   * @param {object|null} dados retorno do simular() do Módulo 1
+   * @returns {{valor: string, motivo: 'ja'|'data', encaminhamentoIso: string|null, ultimoDiaIso: string|null}[]}
+   */
+  function avaliarCartorioDaPromessa(valores, iso, dados) {
+    if (!dados || dados.fluxo === 'SCPC') return [];
+    const todos = [...(dados.registros ?? []), ...(dados.foraDoRelatorio ?? []), ...(dados.naoCobrar ?? [])];
+    const porTitulo = new Map(todos.map((r) => [String(r.tituloCompleto), r]));
+    const bloqueados = [];
+    for (const valor of valores) {
+      const r = porTitulo.get(String(valor));
+      if (!r || ehNaoProtestar(r.posicao)) continue;
+      const encaminhamentoIso = isoDeData(r.prazos?.dataEncaminhamento);
+      const ultimoDiaIso = isoDeData(r.prazos?.dataLimitePagamento);
+      if (r.situacaoKey === 'EM_CARTORIO') bloqueados.push({ valor, motivo: 'ja', encaminhamentoIso, ultimoDiaIso });
+      else if (iso && encaminhamentoIso && iso >= encaminhamentoIso) bloqueados.push({ valor, motivo: 'data', encaminhamentoIso, ultimoDiaIso });
+    }
+    return bloqueados;
+  }
+
+  /** As frases do aviso vermelho (no máximo 3 títulos, depois "+N"). */
+  function frasesDoBloqueio(bloqueios) {
+    const linhas = bloqueios.slice(0, 3).map((b) => (b.motivo === 'ja'
+      ? `Título ${b.valor} já está em cartório: não dá pra agendar.`
+      : `Título ${b.valor} estará em cartório em ${dataBr(b.encaminhamentoIso)}; escolha até ${b.ultimoDiaIso ? dataBr(b.ultimoDiaIso) : 'o último dia para pagamento'}.`));
+    if (bloqueios.length > 3) linhas.push(`+ ${bloqueios.length - 3} título(s) na mesma situação.`);
+    linhas.push('Desmarque o título ou escolha outra data.');
+    return linhas;
+  }
+
+  /* ---------------------------------------------------------------------
    * 2. LEITURA DA LISTA DO CRM (sem abrir o modal)
    * --------------------------------------------------------------------- */
   function titulosDaPromessaPendente() {
@@ -228,7 +288,7 @@
   /* ---------------------------------------------------------------------
    * 3. PAINEL
    * --------------------------------------------------------------------- */
-  const estado = { titulos: [], marcados: new Set(), data: null, forma: null, mostrarAVencer: false };
+  const estado = { titulos: [], marcados: new Set(), data: null, forma: null, mostrarAVencer: false, bloqueios: [] };
 
   function titulosVisiveis() {
     return estado.titulos.filter((t) => t.atraso > 0 || estado.mostrarAVencer || estado.marcados.has(t.valor));
@@ -240,13 +300,20 @@
     painelEl = null;
   }
 
+  /** Recalcula a regra do cartório com o que está marcado e a data escolhida agora. */
+  function recalcularBloqueios() {
+    estado.bloqueios = estado.marcados.size ? avaliarCartorioDaPromessa([...estado.marcados], estado.data, lerDadosDeCobranca()) : [];
+    return estado.bloqueios;
+  }
+
   function podeRegistrar() {
-    return estado.marcados.size > 0 && !!estado.data && !registrando;
+    return estado.marcados.size > 0 && !!estado.data && !registrando && estado.bloqueios.length === 0;
   }
 
   function resumoConfirmacao() {
     const marcados = estado.titulos.filter((t) => estado.marcados.has(t.valor));
     if (!marcados.length) return 'Marque o(s) título(s) que o cliente prometeu pagar.';
+    if (estado.bloqueios.length) return 'Registro bloqueado: veja o aviso em vermelho.';
     if (!estado.data) return 'Escolha a data do pagamento (H, A ou outra).';
     const forma = document.querySelector(`${SEL.FORMA} option[value="${estado.forma}"]`)?.textContent.trim() || estado.forma || '';
     const razoes = new Set(marcados.map((t) => t.cnpj)).size;
@@ -259,6 +326,8 @@
     if (!painelEl) return;
     const corpo = painelEl.querySelector('[data-papel="corpo"]');
     corpo.replaceChildren();
+
+    recalcularBloqueios();
 
     // Títulos
     const visiveis = titulosVisiveis();
@@ -323,6 +392,18 @@
     outra.addEventListener('change', () => { if (outra.value) escolherData(outra.value); });
     datas.appendChild(outra);
     corpo.appendChild(datas);
+
+    // Regra do cartório: aviso vermelho (o botão de registrar fica travado).
+    if (estado.bloqueios.length) {
+      const caixa = el('div', {}, {
+        marginTop: '10px', padding: '8px 10px', borderRadius: '6px', fontSize: '12px', lineHeight: '1.4',
+        color: CORES.perigo, background: CORES.fundoPerigo, border: `1px solid ${CORES.perigo}`,
+      });
+      caixa.dataset.papel = 'bloqueio-cartorio';
+      caixa.setAttribute('role', 'alert');
+      frasesDoBloqueio(estado.bloqueios).forEach((linha) => caixa.appendChild(el('div', { textContent: linha })));
+      corpo.appendChild(caixa);
+    }
 
     // Forma de pagamento (as opções do próprio CRM)
     const opcoes = [...document.querySelectorAll(`${SEL.FORMA} option`)];
@@ -400,6 +481,7 @@
     estado.data = null;
     estado.forma = document.querySelector(SEL.FORMA)?.value || null;
     estado.mostrarAVencer = vencidos.length === 0;
+    estado.bloqueios = [];
 
     painelEl = el('div', { id: CONFIG_PROMESSA.ID_PAINEL, tabIndex: -1 }, {
       position: 'fixed', top: '96px', left: '16px', zIndex: CONFIG_PROMESSA.Z_INDEX,
@@ -512,6 +594,7 @@
       forma: estado.forma,
     };
     if (!escolha.titulos.length || !escolha.data) return { ok: false, motivo: 'faltou título ou data' };
+    if (recalcularBloqueios().length) return { ok: false, motivo: 'título em cartório na data escolhida' };
     registrando = true;
     fecharPainel();
     try {
@@ -674,6 +757,8 @@
     alternarPainel,
     registrar,
     lerTitulos,
+    avaliarCartorioDaPromessa,
+    frasesDoBloqueio,
     datasSugeridas,
     rotuloDaData,
     conferirDepoisDoReload,
