@@ -16,11 +16,32 @@
  * provavelmente foi pago". Aqui não se infere nada.
  *
  * SÃO DOIS NÚMEROS, NÃO DOIS CANDIDATOS AO MESMO (definição do usuário):
- *   - Depósitos          -> dinheiro recuperado por NEGOCIAÇÕES.
+ *   - Depósitos          -> dinheiro recuperado por NEGOCIAÇÕES (seção
+ *                           `depositos` do consolidado, por período).
  *   - Promessas cumpridas-> dinheiro recuperado por PROMESSAS feitas na
- *                           cobrança.
- * Eles vêm de seções diferentes da API e medem origens diferentes, e o
- * painel mostra os dois separados. O TOTAL RECUPERADO soma os dois.
+ *                           cobrança. A PARTIR DA v1.59.1 NÃO vem mais do
+ *                           consolidado (ver abaixo).
+ * Eles medem origens diferentes, e o painel mostra os dois separados. O
+ * TOTAL RECUPERADO soma os dois.
+ *
+ * PROMESSAS CUMPRIDAS (v1.59.1, pedido do usuário, 29/09/2026): o consolidado
+ * agrupa o cumprido pela PROMESSA, e não pelo pagamento -- uma promessa criada
+ * na semana passada e paga hoje caía no relatório da semana passada. Agora a
+ * soma sai da LISTA de promessas (GET /api/crm/promessas, a mesma da tela
+ * /crm/promessas):
+ *   - entram as promessas CUMPRIDA, PARCIAL e CUMPRIDA_PARCIAL (o valor pago
+ *     das cumpridas mais o efetivamente pago das parciais);
+ *   - na semana (sábado a sexta) da `dataVerificacao`. A API NÃO guarda a data
+ *     do pagamento (o modal "Verificar" pede só valor pago e status); o usuário
+ *     aprovou a data da verificação, porque o pagamento consta no sistema no
+ *     dia útil seguinte. LIMITE CONHECIDO: verificar dias depois do pagamento
+ *     move o valor de semana; verificar de novo uma parcial o move outra vez;
+ *   - o crédito é de quem CRIOU a promessa (`usuarioCriacao`, esquema
+ *     "ISAAC.03876"), e não de quem verificou;
+ *   - a busca traz as promessas com data prometida nos DIAS_RETROATIVOS antes
+ *     do início da semana até o fim dela (quem verifica uma promessa muito
+ *     antiga fica de fora: aumente DIAS_RETROATIVOS).
+ * Depósitos seguem do consolidado (o usuário disse que só as promessas erravam).
  *
  * Essa soma foi uma decisão explícita do usuário, revertendo a minha: eu
  * tinha me recusado a somar porque nada na resposta da API prova que as
@@ -72,10 +93,22 @@
         chave: 'promessasCumpridas',
         rotulo: 'Promessas cumpridas',
         detalhe: 'recuperado por promessas da cobrança',
-        secao: 'promessas',
-        campo: 'cumprido',
+        // Não vem do consolidado: ver "PROMESSAS CUMPRIDAS" no cabeçalho.
+        origem: 'promessasVerificadas',
       },
     ],
+
+    // Lista de promessas do CRM (mesma da tela /crm/promessas; confirmada por
+    // diagnóstico do usuário em 29/09/2026).
+    PROMESSAS: {
+      ENDPOINT: '/api/crm/promessas',
+      TAMANHO_PAGINA: 1000,
+      MAX_PAGINAS: 10,
+      // Data prometida a partir de N dias antes do início da semana.
+      DIAS_RETROATIVOS: 60,
+      // Cumprida + o efetivamente pago das parciais (definição do usuário).
+      STATUS_QUE_ENTRAM: ['CUMPRIDA', 'PARCIAL', 'CUMPRIDA_PARCIAL'],
+    },
   };
 
   const CORES = {
@@ -106,6 +139,20 @@
    */
   async function buscarConsolidado(inicioIso, fimIso) {
     const url = `${CONFIG_RECEBIDO.ENDPOINT}?inicio=${encodeURIComponent(inicioIso)}&fim=${encodeURIComponent(fimIso)}`;
+    const corpo = await buscarJson(url);
+    if (!corpo?.data) throw new Error('A resposta do CRM veio sem o campo "data".');
+    return corpo.data;
+  }
+
+  /**
+   * GET de um endereço do CRM, com timeout, e o corpo JSON inteiro.
+   * Só leitura. Erros já saem com mensagem legível pra tela.
+   *
+   * @param {string} url Caminho + parâmetros, mesma origem.
+   * @returns {Promise<object>}
+   * @throws {Error}
+   */
+  async function buscarJson(url) {
 
     // AbortController em vez de confiar no timeout do navegador: sem isto, um
     // backend lento deixa o painel em "Carregando..." pra sempre, e o
@@ -146,15 +193,86 @@
       );
     }
 
-    let corpo;
     try {
-      corpo = await resposta.json();
+      return await resposta.json();
     } catch {
       throw new Error('A resposta do CRM não veio em JSON.');
     }
+  }
 
-    if (!corpo?.data) throw new Error('A resposta do CRM veio sem o campo "data".');
-    return corpo.data;
+  /* ---------------------------------------------------------------------
+   * PROMESSAS CUMPRIDAS: pela data da verificação, no crédito de quem criou
+   * --------------------------------------------------------------------- */
+
+  /** A promessa entra na conta da semana? (status que entra + verificada dentro da semana) */
+  function promessaEntraNaSemana(item, semana) {
+    if (!CONFIG_RECEBIDO.PROMESSAS.STATUS_QUE_ENTRAM.includes(item?.status)) return false;
+    const dia = String(item?.dataVerificacao ?? '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(dia) && dia >= semana.inicioIso && dia <= semana.fimIso;
+  }
+
+  /**
+   * Soma, por pessoa, o valor pago das promessas que entram na semana.
+   * Função pura: separada da rede pra ser testada sem navegador.
+   *
+   * @param {object[]} itens Promessas da lista da API.
+   * @param {{inicioIso: string, fimIso: string}} semana
+   * @param {Object<string, number>} [valoresDoDetalhe] valorPago lido no detalhe (por id), pra quem veio sem valor na lista.
+   * @returns {{porPessoa: {nome: string, valor: number, quantidade: number, presente: boolean}[], semValor: number}}
+   */
+  function apurarPromessas(itens, semana, valoresDoDetalhe = {}) {
+    const porPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => ({ nome, valor: 0, quantidade: 0, presente: false }));
+    let semValor = 0;
+    (Array.isArray(itens) ? itens : []).forEach((item) => {
+      if (!promessaEntraNaSemana(item, semana)) return;
+      // Crédito de quem CRIOU a promessa (decisão do usuário), não de quem verificou.
+      const pessoa = porPessoa.find((p) => p.nome === util()?.primeiroNomeDeUsuario(item.usuarioCriacao));
+      if (!pessoa) return;
+      const bruto = typeof item.valorPago === 'number' ? item.valorPago : valoresDoDetalhe[item.id];
+      pessoa.presente = true;
+      pessoa.quantidade += 1;
+      if (typeof bruto === 'number' && Number.isFinite(bruto)) pessoa.valor += bruto;
+      else semValor += 1;
+    });
+    return { porPessoa, semValor };
+  }
+
+  /**
+   * Busca na API as promessas da janela e apura a semana.
+   *
+   * @param {{inicio: Date, inicioIso: string, fimIso: string}} semana
+   * @returns {Promise<{porPessoa: object[], semValor: number}>}
+   * @throws {Error} Com mensagem já legível pra tela.
+   */
+  async function buscarPromessasDaSemana(semana) {
+    const c = CONFIG_RECEBIDO.PROMESSAS;
+    const desde = new Date(semana.inicio);
+    desde.setDate(desde.getDate() - c.DIAS_RETROATIVOS);
+    const desdeIso = util().dataIso(desde);
+
+    const itens = [];
+    let completo = false;
+    for (let pagina = 0; pagina < c.MAX_PAGINAS && !completo; pagina += 1) {
+      const url = `${c.ENDPOINT}?page=${pagina}&size=${c.TAMANHO_PAGINA}&dataInicio=${desdeIso}&dataFim=${encodeURIComponent(semana.fimIso)}`;
+      const corpo = await buscarJson(url);
+      if (!Array.isArray(corpo?.data)) throw new Error('A lista de promessas do CRM veio em formato inesperado.');
+      itens.push(...corpo.data);
+      const totalPaginas = Number(corpo.pagination?.totalPages);
+      completo = corpo.data.length < c.TAMANHO_PAGINA || (Number.isFinite(totalPaginas) && pagina + 1 >= totalPaginas);
+    }
+    // Melhor recusar do que somar só parte da lista e mostrar como se fosse tudo.
+    if (!completo) throw new Error(`Há promessas demais na janela (mais de ${c.MAX_PAGINAS * c.TAMANHO_PAGINA}): a soma ficaria incompleta.`);
+
+    // Quem entra na semana mas veio sem valor pago na lista: lê o detalhe (uma promessa por vez).
+    const valoresDoDetalhe = {};
+    for (const item of itens) {
+      if (!promessaEntraNaSemana(item, semana) || typeof item.valorPago === 'number') continue;
+      try {
+        const detalhe = await buscarJson(`${c.ENDPOINT}/${encodeURIComponent(item.id)}`);
+        if (typeof detalhe?.data?.valorPago === 'number') valoresDoDetalhe[item.id] = detalhe.data.valorPago;
+      } catch (_) { /* fica sem valor e é contada em semValor */ }
+    }
+    return apurarPromessas(itens, semana, valoresDoDetalhe);
   }
 
   /**
@@ -187,11 +305,28 @@
    * Monta a tabela de números. Separado do DOM pra poder ser testado sem
    * navegador -- é aqui que mora a única aritmética do módulo.
    *
-   * @param {object} dados O `data` da API.
+   * @param {object} dados O `data` do consolidado.
+   * @param {{porPessoa: object[], semValor?: number}|{erro: string}} [promessas] A apuração de
+   *   promessas (buscarPromessasDaSemana). Com `erro`, a métrica aparece como indisponível
+   *   e o total NÃO é mostrado (melhor nada do que um total que esconde parte). Ausente =
+   *   sem promessas (zero por ausência), como nos testes puros.
    * @returns {{metricas: object[], pessoas: string[]}}
    */
-  function montarResumo(dados) {
+  function montarResumo(dados, promessas) {
     const metricas = CONFIG_RECEBIDO.METRICAS.map((metrica) => {
+      if (metrica.origem === 'promessasVerificadas') {
+        const porPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => {
+          const achada = promessas?.porPessoa?.find((p) => p.nome === nome);
+          return { nome, valor: achada?.valor ?? 0, presente: achada?.presente === true };
+        });
+        return {
+          ...metrica,
+          porPessoa,
+          total: porPessoa.reduce((soma, p) => soma + p.valor, 0),
+          semValor: promessas?.semValor ?? 0,
+          erro: promessas?.erro ?? null,
+        };
+      }
       const porPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => ({
         nome,
         ...valorDaPessoa(dados, metrica, nome),
@@ -231,6 +366,8 @@
       pessoas: CONFIG_RECEBIDO.PESSOAS,
       totalPorPessoa,
       totalGeral: totalPorPessoa.reduce((soma, p) => soma + p.valor, 0),
+      // Uma métrica sem leitura: o total ficaria parcial sem dizer, então a tela não o mostra.
+      totalIndisponivel: metricas.some((m) => m.erro),
     };
   }
 
@@ -317,6 +454,12 @@
       color: CORES.apagado, fontSize: '11px', marginBottom: '6px',
     }));
 
+    if (metrica.erro) {
+      // Falha na leitura desta métrica: diz aqui, sem números (um zero pareceria "não entrou nada").
+      bloco.appendChild(criarDiv(metrica.erro, { color: CORES.erro, fontSize: '12px', lineHeight: '1.5', padding: '3px 0' }));
+      return bloco;
+    }
+
     metrica.porPessoa.forEach((pessoa) => {
       const linha = criarDiv('', {
         display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
@@ -348,6 +491,13 @@
     }));
     bloco.appendChild(total);
 
+    if (metrica.semValor > 0) {
+      bloco.appendChild(criarDiv(
+        `${metrica.semValor} promessa(s) verificada(s) sem valor pago lido: o total pode estar baixo.`,
+        { color: CORES.erro, fontSize: '11px', marginTop: '4px' }
+      ));
+    }
+
     return bloco;
   }
 
@@ -373,6 +523,11 @@
     bloco.appendChild(criarDiv('depósitos + promessas cumpridas', {
       color: CORES.apagado, fontSize: '11px', marginBottom: '6px',
     }));
+
+    if (resumo.totalIndisponivel) {
+      bloco.appendChild(criarDiv('Indisponível: uma das leituras falhou (veja acima).', { color: CORES.erro, fontSize: '12px', padding: '3px 0' }));
+      return bloco;
+    }
 
     resumo.totalPorPessoa.forEach((pessoa) => {
       const linha = criarDiv('', {
@@ -430,12 +585,25 @@
     corpo.appendChild(criarDiv('Consultando o CRM...', { color: CORES.apagado, padding: '6px 0' }));
 
     try {
-      const dados = await buscarConsolidado(semana.inicioIso, semana.fimIso);
+      // As duas leituras andam juntas; se só a das promessas falhar, os depósitos
+      // aparecem e as promessas mostram o erro (nunca um zero no lugar).
+      const [rDados, rPromessas] = await Promise.allSettled([
+        buscarConsolidado(semana.inicioIso, semana.fimIso),
+        buscarPromessasDaSemana(semana),
+      ]);
       // O painel pode ter sido fechado enquanto a resposta vinha. Sem esta
       // guarda, escreveríamos num elemento já removido -- sem estourar, mas
       // deixando o trabalho invisível e o código mentindo sobre o que fez.
       if (!painelEl || !corpo.isConnected) return;
-      desenharResumo(corpo, montarResumo(dados));
+      if (rDados.status === 'rejected') throw rDados.reason;
+      let promessas;
+      if (rPromessas.status === 'fulfilled') {
+        promessas = rPromessas.value;
+      } else {
+        console.warn('[Recebido na semana] Promessas:', rPromessas.reason?.message);
+        promessas = { erro: `Não consegui ler as promessas: ${rPromessas.reason?.message ?? 'erro desconhecido'}` };
+      }
+      desenharResumo(corpo, montarResumo(rDados.value, promessas));
     } catch (erro) {
       if (!painelEl || !corpo.isConnected) return;
       corpo.textContent = '';
@@ -468,6 +636,9 @@
     fecharPainel,
     estaAberto: () => painelEl !== null,
     buscarConsolidado,
+    buscarPromessasDaSemana,
+    apurarPromessas,
+    promessaEntraNaSemana,
     montarResumo,
     valorDaPessoa,
     CONFIG_RECEBIDO,

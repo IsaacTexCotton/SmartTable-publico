@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.59.1', data: '30/09/2026',
+      mudancas: [
+        'Alt+D (Entrou na semana): "Promessas cumpridas" agora conta pela semana em que a promessa foi VERIFICADA (o CRM não guarda o dia do pagamento; o pagamento consta no sistema no dia útil seguinte) e não mais pela semana em que foi criada. Uma promessa criada na semana passada e verificada esta semana entra nesta semana. Entram as cumpridas, as cumpridas parciais e as parciais (o valor efetivamente pago), no nome de quem CRIOU a promessa.',
+        'Alt+D: o valor vem da lista de promessas do CRM (a mesma da tela Promessas). Se essa leitura falhar, o painel diz o erro no lugar do número e não mostra o Total recuperado (antes ele mostraria um total incompleto). Os depósitos continuam como estavam.',
+      ],
+    },
+    {
       versao: '1.59.0', data: '29/09/2026',
       mudancas: [
         'Alt+N (promessa rápida): a tela agora abre no CENTRO, com o fundo escurecido abaixo do cabeçalho do CRM, e ficou mais clara: uma linha por título com o código, os dias de atraso, a situação (Cobrança, Último dia, Em cartório, Negativado ou Não protestar) e o valor sem quebrar de linha; o nome do cliente no topo; as teclas H, A, D, T, Enter e Esc aparecem como teclas; e o rodapé mostra o total marcado (valor em aberto, sem juros e multa: o CRM calcula o valor final ao salvar).',
