@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.55.0', data: '29/09/2026',
+      mudancas: [
+        'Alt+A: cliente SCPC com um título no último dia para pagar e outro negativado (até o 19º dia de atraso) agora tem a pergunta final e a ordem da legenda seguindo o título negativado: o aviso do SCPC vem antes da frase do vermelho, e a pergunta pede a regularização hoje conforme o dia da suspensão. A frase do vermelho continua na mensagem. Acima do 19º dia nada muda. A fila do Alt+U e a nota do CRM não mudam.',
+      ],
+    },
+    {
       versao: '1.54.2', data: '29/09/2026',
       mudancas: [
         'Alt+K: nova seção "Ritmo do operador" com os três diagnósticos (Qualidade do diário, Ritmo e Fila defasada). Cada botão mostra uma linha de leitura e o resultado em números, com o botão "Copiar (só números)" para colar no chat. Antes, só existiam como comandos no console do navegador.',

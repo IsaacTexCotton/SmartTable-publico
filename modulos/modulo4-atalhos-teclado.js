@@ -773,13 +773,44 @@
 
     // Entre os títulos negativados que sobraram, o mais urgente decide o
     // texto (dia 19 exato > janela 16-18 > qualquer outro).
-    const maisUrgente = negativados.reduce((a, b) => {
+    return textoAvisoScpc(maisUrgenteEntreNegativados(negativados).diasAtrasoReal);
+  }
+
+  /** O título negativado mais urgente da lista: dia 19 > janela 16-18 > qualquer outro; empate, mais dias. */
+  function maisUrgenteEntreNegativados(negativados) {
+    return negativados.reduce((a, b) => {
       const pa = prioridadeUrgenciaScpc(a.diasAtrasoReal);
       const pb = prioridadeUrgenciaScpc(b.diasAtrasoReal);
       if (pb !== pa) return pb > pa ? b : a;
       return b.diasAtrasoReal > a.diasAtrasoReal ? b : a;
     });
-    return textoAvisoScpc(maisUrgente.diasAtrasoReal);
+  }
+
+  /*
+   * PEDIDO DO USUÁRIO (29/09/2026): cliente SCPC com algum título de ÚLTIMO
+   * DIA e algum título NEGATIVADO -- a mensagem referencia o que estiver
+   * negativado. Decidido com ele, ponto a ponto:
+   *   - vale QUALQUER dia de atraso do negativado, até o 19º (acima disso
+   *     nada muda: o título de último dia segue sendo o assunto);
+   *   - a frase "Em vermelho, o título no prazo final antes do SCPC" fica;
+   *   - o aviso do negativado ABRE (vem antes do vermelho);
+   *   - a PERGUNTA FINAL passa a seguir o negativado (as mesmas perguntas de
+   *     quem só tem o negativado: 19º dia, janela 16-18 ou a genérica).
+   * Com vários negativados (até o 19º), vale o mais urgente.
+   *
+   * Só a MENSAGEM muda: escolherTituloRepresentativo (Módulo 0) continua com
+   * ULTIMO_DIA na frente, porque ele também decide a faixa da fila (Alt+U) e
+   * o texto da nota do contato no CRM, que o usuário não pediu pra mexer.
+   *
+   * @returns {object|null} O título negativado que manda, ou null (fora do
+   *   caso: o escolhido não é de último dia, ou não há negativado até o 19º).
+   */
+  function tituloNegativadoQueManda(escolhido, dados) {
+    if (escolhido?.situacaoKey !== 'ULTIMO_DIA') return null;
+    const candidatos = (dados?.registros ?? []).filter(
+      (r) => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal <= DIAS_ULTIMO_DIA_SUSPENSAO_SCPC
+    );
+    return candidatos.length > 0 ? maisUrgenteEntreNegativados(candidatos) : null;
   }
 
   /* ---------------------------------------------------------------------
@@ -906,14 +937,17 @@
   // ou já negativado/em cartório, o CTA pode ser mais específico e
   // urgente, sem virar ameaça: só nomeia a consequência real (evitar o
   // encaminhamento, confirmar a baixa da restrição, evitar a suspensão).
-  function obterPerguntaFinal(escolhido) {
-    switch (escolhido.situacaoKey) {
+  function obterPerguntaFinal(escolhido, dados) {
+    // Cliente SCPC com último dia + negativado: a pergunta segue o negativado
+    // (ver tituloNegativadoQueManda). Sem `dados` (chamada antiga), comportamento de sempre.
+    const referencia = tituloNegativadoQueManda(escolhido, dados) ?? escolhido;
+    switch (referencia.situacaoKey) {
       case 'ULTIMO_DIA':
         return frase(FRASES.ctaUltimoDia);
       case 'EM_CARTORIO':
         return frase(FRASES.ctaCartorio);
       case 'NEGATIVADO_SCPC': {
-        const dias = escolhido.diasAtrasoReal;
+        const dias = referencia.diasAtrasoReal;
         if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
           return frase(FRASES.ctaSuspensaoScpc);
         }
@@ -1278,11 +1312,14 @@
 
     // Complementam (não substituem) a linha principal -- ver
     // obterLinhaEmCartorioAdicional e obterLinhaNegativadoScpcAdicional.
-    const frases = [
-      linhaContexto,
-      obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio),
-      obterLinhaNegativadoScpcAdicional(escolhido, dados),
-    ].filter(Boolean);
+    const cartorioAdicional = obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio);
+    const negativadoAdicional = obterLinhaNegativadoScpcAdicional(escolhido, dados);
+    // Último dia + negativado (até o 19º): o aviso do negativado ABRE.
+    const negativadoAbre = tituloNegativadoQueManda(escolhido, dados) !== null;
+    const frases = (negativadoAbre
+      ? [negativadoAdicional, linhaContexto, cartorioAdicional]
+      : [linhaContexto, cartorioAdicional, negativadoAdicional]
+    ).filter(Boolean);
     // Mesmo ajuste D da legenda (montarLegendaRelatorio): somado a outras
     // situações, o aviso do 19º dia vai na versão curta.
     const aviso19 = textoAvisoScpc(DIAS_ULTIMO_DIA_SUSPENSAO_SCPC);
@@ -1359,7 +1396,12 @@
     if (cores && avisoScpc === textoAvisoScpc(DIAS_ULTIMO_DIA_SUSPENSAO_SCPC)) avisoScpc = AVISO_ULTIMO_DIA_SCPC_CURTO;
     // Uma ideia por linha: no celular, três linhas curtas leem melhor que
     // um parágrafo corrido.
-    return [montarLinhaRelatorio(), cores, avisoScpc].filter(Boolean).join('\n');
+    // Último dia + negativado (até o 19º): o aviso do negativado vem ANTES do vermelho.
+    const negativadoAbre = tituloNegativadoQueManda(escolhido, dados) !== null;
+    return (negativadoAbre
+      ? [montarLinhaRelatorio(), avisoScpc, cores]
+      : [montarLinhaRelatorio(), cores, avisoScpc]
+    ).filter(Boolean).join('\n');
   }
 
   const AVISO_ULTIMO_DIA_SCPC_CURTO =
@@ -1569,7 +1611,7 @@
       partes.push(linhaSituacao);
     }
     if (precisaDePerguntaFinal(linhaSituacao, blocoContexto)) {
-      const pergunta = obterPerguntaFinal(escolhido);
+      const pergunta = obterPerguntaFinal(escolhido, dados);
       const ressalva = obterRessalvaPagamentoEmDiaNaoUtil(dados);
       partes.push(ressalva ? `${pergunta} ${ressalva}` : pergunta);
     }
@@ -3620,6 +3662,7 @@
     copiarPartesParaAreaDeTransferencia,
     instalarCorrecaoTextoWhatsApp,
     copiaDoAltADestaPagina,
+    tituloNegativadoQueManda,
     TEXTO_IMAGEM_FORA_DO_CTRL_V,
     obterRessalvaPagamentoEmDiaNaoUtil,
     LISTA_ATALHOS,
