@@ -210,7 +210,7 @@
     // registro do diário (campo r), pra que uma fila ou um histórico montado
     // com a numeração antiga nunca seja lido com os nomes da nova -- a faixa
     // "5" da v1 (Promessa não cumprida) é outra coisa na v2 (Dia da promessa).
-    VERSAO_REGUA: 5,
+    VERSAO_REGUA: 6,
     // Prioridade 9: última movimentação OU último contato há tantos dias
     // corridos OU MAIS (régua v5, 29/09/2026, pedido do usuário: "duas
     // semanas", e ">= 14"). Era 30 e "mais de" (> 30) até a v4. A Carteira
@@ -684,6 +684,8 @@
   //     qualquer pessoa (faixa 9). Ausente = só a movimentação decide.
   //   - temTituloEmCartorio: o cliente tem título EM_CARTORIO entre os em
   //     cobrança (faixa 13, régua v3/v4). Ausente = false.
+  //   - temNegativadoNoDiaDaSuspensao: o cliente tem título NEGATIVADO_SCPC
+  //     exatamente no 19º dia (faixa 7, régua v6). Ausente = false.
   function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje, extras = {}) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
     const { situacaoKey, diasAtrasoReal } = escolhido;
@@ -707,6 +709,13 @@
     if (tipoPromessa === 'DIA_DA_PROMESSA') return 5;
     if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 6;
     if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC) return 7;
+    // Régua v6 (29/09/2026, decisão do usuário): último dia + outro título
+    // negativado no 19º dia. O título escolhido é o de último dia (Módulo 0),
+    // mas a mensagem do Alt+A já fala da suspensão de hoje (Módulo 4,
+    // tituloNegativadoQueManda); a fila passa a tratar como o dia 19 (faixa 7)
+    // em vez da 12. Os negativados de 16 a 18 e de 1 a 15 ficaram de fora
+    // (não decididos pelo usuário).
+    if (situacaoKey === 'ULTIMO_DIA' && extras.temNegativadoNoDiaDaSuspensao === true) return 7;
     if (
       situacaoKey === 'NEGATIVADO_SCPC' &&
       diasAtrasoReal >= CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC &&
@@ -879,6 +888,9 @@
         maiorAtrasoDoCliente: maiorAtrasoEntreTodos(dadosTitulos.registros),
         ultimoContatoIso,
         temTituloEmCartorio: dadosTitulos.registros.some((r) => r.situacaoKey === 'EM_CARTORIO'),
+        temNegativadoNoDiaDaSuspensao: dadosTitulos.registros.some(
+          (r) => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
+        ),
       }
     );
 
@@ -1648,9 +1660,26 @@
         porCnpj.set(c.cnpj, { cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome });
       }
     });
+    // Referência antiga de OUTRA régua (revisão geral, 29/09/2026): o número
+    // da faixa dela quer dizer outra coisa. O cobrado mantido vai para a faixa
+    // atual de MESMO NOME; sem faixa com esse nome, sai da conta (misturar
+    // números de duas réguas punha o cliente na faixa errada, sem aviso).
+    const mesmaRegua = antigo?.versaoRegua === CONFIG.VERSAO_REGUA;
+    const faixaPorNome = new Map(Object.entries(NOMES_PRIORIDADE).map(([faixa, nome]) => [nome, Number(faixa)]));
+    faixaPorNome.set('Sem contato ou movimentação há mais de um mês', 9); // nome da faixa 9 até a régua v4
+    let semFaixaNaReguaAtual = 0;
     const mantidos = (antigo?.clientes ?? [])
       .filter((c) => c?.cnpj && atendidos.has(c.cnpj) && !porCnpj.has(c.cnpj))
-      .map((c) => ({ cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome }));
+      .map((c) => {
+        if (mesmaRegua) return { cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome };
+        const faixa = faixaPorNome.get(c.prioridadeNome);
+        if (faixa == null) { semFaixaNaReguaAtual += 1; return null; }
+        return { cnpj: c.cnpj, prioridadeTier: faixa, prioridadeNome: NOMES_PRIORIDADE[faixa] };
+      })
+      .filter(Boolean);
+    if (semFaixaNaReguaAtual > 0) {
+      console.warn(`[Fila Prioridade] ${semFaixaNaReguaAtual} cliente(s) cobrado(s) da referência antiga sem faixa com o mesmo nome na régua atual -- fora da conta.`);
+    }
     const clientes = [...porCnpj.values(), ...mantidos];
     const resumo = {
       ok: true,
@@ -1666,6 +1695,7 @@
         dia: window.__smartTableUtil.dataIso(new Date()),
         geradoEm: agora,
         trocadoEm: agora,
+        versaoRegua: CONFIG.VERSAO_REGUA,
         clientes,
       }));
     } catch (erro) {
@@ -1775,87 +1805,94 @@
     }
 
     classificandoEmAndamento = true;
-    atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
-
-    // MODO SOMBRA (v1.45.0): a classificação pela página baixada corre JUNTO
-    // com as abas e é comparada no fim. Não entra na fila.
-    const sombra = window.__avisoCobranca?.simularTitulos && window.__grupoEconomico && window.__contextoAdicionalDebug?.contextoDaPaginaBaixada && !sombraJaRodouHoje()
-      ? rodarSombra(sobreviventes)
-      : null;
-
-    const resultados = [];
-    let lote;
+    // A trava vale até o FIM (revisão geral, 29/09/2026): antes ela era solta
+    // logo depois das abas, e durante a espera da sombra (até 20 s) não havia
+    // fila nem cache gravados -- um segundo Alt+U começava outra
+    // classificação inteira, com o dobro de abas contra o CRM.
     try {
-      lote = await classificarEmLote(
-        sobreviventes,
-        (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`)
-      );
-    } catch (erro) {
-      // Sem isto, uma exceção inesperada deixava a trava ligada e o
-      // indicador na tela até recarregar: todo Alt+U seguinte respondia
-      // "já tem uma classificação em andamento".
-      console.error('[Fila Prioridade] Erro inesperado na classificação -- abortando esta rodada.', erro);
-      toast('Erro ao classificar a fila (veja o console). Tente Shift+Alt+U de novo.', 6000);
-      return;
+      atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
+
+      // MODO SOMBRA (v1.45.0): a classificação pela página baixada corre JUNTO
+      // com as abas e é comparada no fim. Não entra na fila.
+      const sombra = window.__avisoCobranca?.simularTitulos && window.__grupoEconomico && window.__contextoAdicionalDebug?.contextoDaPaginaBaixada && !sombraJaRodouHoje()
+        ? rodarSombra(sobreviventes)
+        : null;
+
+      const resultados = [];
+      let lote;
+      try {
+        lote = await classificarEmLote(
+          sobreviventes,
+          (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`)
+        );
+      } catch (erro) {
+        // Sem isto, uma exceção inesperada deixava a trava ligada e o
+        // indicador na tela até recarregar: todo Alt+U seguinte respondia
+        // "já tem uma classificação em andamento".
+        console.error('[Fila Prioridade] Erro inesperado na classificação -- abortando esta rodada.', erro);
+        toast('Erro ao classificar a fila (veja o console). Tente Shift+Alt+U de novo.', 6000);
+        return;
+      } finally {
+        removerIndicadorProgresso();
+      }
+      const { resultados: todos, abortouPorPopup } = lote;
+
+      if (sombra) {
+        const pelaPagina = await esperarSombra(sombra);
+        if (pelaPagina) {
+          const relatorio = compararSombra(todos, pelaPagina);
+          gravarRelatorioSombra(relatorio);
+          console.log('[Fila Prioridade] Modo sombra (página baixada x aba):', JSON.stringify(relatorio));
+          const n = relatorio.diferencas.length;
+          toast(n === 0
+            ? `Modo sombra: ${relatorio.comparados} clientes comparados, nenhuma diferença.`
+            : `Modo sombra: ${n} diferença(s) em ${relatorio.comparados} clientes -- detalhes no console (a fila usa as abas, como sempre).`, 7000);
+        } else {
+          console.warn('[Fila Prioridade] Modo sombra não terminou a tempo -- comparação desta rodada descartada.');
+        }
+      }
+
+      if (abortouPorPopup) {
+        console.warn('[Fila Prioridade] Parando cedo: pop-ups bloqueados de forma sistemática.');
+        toast(
+          '⚠️ O navegador está bloqueando as abas de fundo. Permita pop-ups para texhub.texcotton.com.br ' +
+          '(ícone na barra de endereço, ou chrome://settings/content/popups) e tente Shift+Alt+U de novo.',
+          9000
+        );
+        return;
+      }
+
+      const contadores = {
+        excluidosPorPromessa: todos.filter((r) => r.excluidoPorPromessaFutura).length,
+        excluidosPorNaoCobrar: todos.filter((r) => r.excluidoPorNaoCobrar).length,
+        excluidosPorAcordo: todos.filter((r) => r.excluidoPorAcordo).length,
+        comPopupBloqueado: todos.filter((r) => r.erro === 'popup-bloqueado').length,
+        comOutroErro: todos.filter((r) => r.erro && r.erro !== 'popup-bloqueado').length,
+      };
+      todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar && !r.excluidoPorAcordo)
+        .forEach((r) => resultados.push(r));
+
+      // LISTA FILTRADA (v1.43.0, decisão do usuário): com um filtro do CRM
+      // ligado, os candidatos são só os do filtro. A fila vale pra agora, mas
+      // NÃO vira a classificação do dia (o cache seria reaproveitado pelos
+      // próximos Alt+U, já sem filtro, entregando só parte da carteira), nem a
+      // referência do progresso (Módulo 11), nem a atribuição do diário.
+      const filtrosNaLista = filtrosAtivosNaListaAtual();
+      if (filtrosNaLista) {
+        console.warn(`[Fila Prioridade] Lista com filtro (${filtrosNaLista.join(', ')}) -- fila montada só com esses clientes; cache do dia, progresso e diário NÃO gravados.`);
+        toast(`Lista com filtro (${filtrosNaLista.join(', ')}): esta fila tem só os clientes do filtro. A classificação do dia e o progresso só são gravados com a lista completa.`, 9000);
+        finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: false, gravarReferenciaDoProgresso: false });
+        return;
+      }
+
+      // Grava o cache ANTES de montar a fila: se a montagem falhar por algum
+      // motivo, o trabalho caro (as ~92 visitas) não se perde.
+      gravarCacheClassificacao(resultados);
+
+      finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: true });
     } finally {
-      removerIndicadorProgresso();
       classificandoEmAndamento = false;
     }
-    const { resultados: todos, abortouPorPopup } = lote;
-
-    if (sombra) {
-      const pelaPagina = await esperarSombra(sombra);
-      if (pelaPagina) {
-        const relatorio = compararSombra(todos, pelaPagina);
-        gravarRelatorioSombra(relatorio);
-        console.log('[Fila Prioridade] Modo sombra (página baixada x aba):', JSON.stringify(relatorio));
-        const n = relatorio.diferencas.length;
-        toast(n === 0
-          ? `Modo sombra: ${relatorio.comparados} clientes comparados, nenhuma diferença.`
-          : `Modo sombra: ${n} diferença(s) em ${relatorio.comparados} clientes -- detalhes no console (a fila usa as abas, como sempre).`, 7000);
-      } else {
-        console.warn('[Fila Prioridade] Modo sombra não terminou a tempo -- comparação desta rodada descartada.');
-      }
-    }
-
-    if (abortouPorPopup) {
-      console.warn('[Fila Prioridade] Parando cedo: pop-ups bloqueados de forma sistemática.');
-      toast(
-        '⚠️ O navegador está bloqueando as abas de fundo. Permita pop-ups para texhub.texcotton.com.br ' +
-        '(ícone na barra de endereço, ou chrome://settings/content/popups) e tente Shift+Alt+U de novo.',
-        9000
-      );
-      return;
-    }
-
-    const contadores = {
-      excluidosPorPromessa: todos.filter((r) => r.excluidoPorPromessaFutura).length,
-      excluidosPorNaoCobrar: todos.filter((r) => r.excluidoPorNaoCobrar).length,
-      excluidosPorAcordo: todos.filter((r) => r.excluidoPorAcordo).length,
-      comPopupBloqueado: todos.filter((r) => r.erro === 'popup-bloqueado').length,
-      comOutroErro: todos.filter((r) => r.erro && r.erro !== 'popup-bloqueado').length,
-    };
-    todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar && !r.excluidoPorAcordo)
-      .forEach((r) => resultados.push(r));
-
-    // LISTA FILTRADA (v1.43.0, decisão do usuário): com um filtro do CRM
-    // ligado, os candidatos são só os do filtro. A fila vale pra agora, mas
-    // NÃO vira a classificação do dia (o cache seria reaproveitado pelos
-    // próximos Alt+U, já sem filtro, entregando só parte da carteira), nem a
-    // referência do progresso (Módulo 11), nem a atribuição do diário.
-    const filtrosNaLista = filtrosAtivosNaListaAtual();
-    if (filtrosNaLista) {
-      console.warn(`[Fila Prioridade] Lista com filtro (${filtrosNaLista.join(', ')}) -- fila montada só com esses clientes; cache do dia, progresso e diário NÃO gravados.`);
-      toast(`Lista com filtro (${filtrosNaLista.join(', ')}): esta fila tem só os clientes do filtro. A classificação do dia e o progresso só são gravados com a lista completa.`, 9000);
-      finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: false, gravarReferenciaDoProgresso: false });
-      return;
-    }
-
-    // Grava o cache ANTES de montar a fila: se a montagem falhar por algum
-    // motivo, o trabalho caro (as ~92 visitas) não se perde.
-    gravarCacheClassificacao(resultados);
-
-    finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: true });
   }
 
   /**

@@ -24,6 +24,16 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.62.0', data: '29/09/2026',
+      mudancas: [
+        'Fila do Alt+U (régua v6): cliente no último dia do SCPC que também tem um título negativado no 19º dia (a mensagem do Alt+A já fala da suspensão de hoje) sobe para a faixa 7, "Aviso final antes da suspensão". Antes ficava na 12, "SCPC — último dia". A classificação do dia feita antes desta versão é refeita no próximo Alt+U.',
+        'Alt+N: se o contato do CRM abrir com outro título já marcado, o SmartTable desmarca antes de salvar (antes ele entrava na promessa). Se não conseguir desmarcar, não salva e diz qual título ficou marcado.',
+        'Alt+N: o "✓ Promessa registrada" só aparece quando surge uma promessa NOVA na aba Promessas. Uma promessa antiga com a mesma data e os mesmos títulos (quebrada ou cumprida) não confirma mais o registro antes de o CRM responder.',
+        'Alt+U: apertar Alt+U de novo enquanto a rodada anterior termina a comparação do modo sombra não abre mais uma segunda rodada de abas; aparece "já tem uma classificação em andamento".',
+        'Progresso (Usar a fila atual): a referência trocada leva a versão da régua, e os clientes já cobrados que vinham de uma referência de outra régua vão para a faixa de mesmo nome na régua atual.',
+      ],
+    },
+    {
       versao: '1.61.1', data: '29/09/2026',
       mudancas: [
         'Alt+A: não agradece mais a "baixa" de um título que saiu da cobrança sem ser pago. Título que entrou em acordo, virou CARTEIRA/NÃO COBRAR ou foi marcado "fora do relatório" no Alerta sumia da lista e era tratado como pago ("Recebemos a baixa do título X, obrigado!").',

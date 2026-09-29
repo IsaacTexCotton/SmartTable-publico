@@ -834,6 +834,15 @@
       else if (!cb.checked) cb.click();
     });
     if (faltando.length) return devolver(`Não achei no contato: ${faltando.join(', ')}. Nada foi salvo; confira o modal.`, 'erro');
+    // Revisão geral (29/09/2026): se o contato abrir com OUTRO título já
+    // marcado, ele entraria na promessa sem ninguém ter escolhido. Desmarca
+    // (o mesmo clique que marca) e confere; se não sair, não salva.
+    const escolhidos = new Set(escolha.titulos.map((t) => t.valor));
+    const sobrando = () => checks.filter((c) => c.checked && !escolhidos.has(c.value));
+    sobrando().forEach((c) => c.click());
+    if (sobrando().length) {
+      return devolver(`O contato está com outro título marcado (${sobrando().map((c) => c.value).join(', ')}) e não consegui desmarcar. Nada foi salvo; confira o modal.`, 'erro');
+    }
 
     // 3. Data (o CRM recalcula o valor no change) e forma de pagamento.
     const data = document.querySelector(SEL.DATA);
@@ -876,18 +885,32 @@
     const salvar = document.querySelector(SEL.SALVAR);
     if (!salvar || salvar.disabled) return devolver('O botão Salvar Contato está desabilitado. Confira o contato.', 'erro');
     const ponte = { cnpj: cnpjDaUrl(), titulos: escolha.titulos.map((t) => t.valor), data: escolha.data, criadoEm: Date.now() };
+    // Quantas promessas IGUAIS (mesma data, mesmos títulos) já existiam antes
+    // do clique: uma antiga (quebrada, cumprida) não pode passar por "a nova
+    // apareceu" antes de o CRM responder.
+    ponte.jaExistiam = contarPromessasIguais(ponte) ?? 0;
     gravarPonte(ponte);
     salvar.click();
     return acompanharResultado(ponte);
   }
 
-  /** A promessa da ponte já está na aba Promessas? */
-  function promessaApareceu(ponte) {
+  /**
+   * Quantas promessas da aba Promessas têm a data e os títulos da ponte.
+   * @returns {number|null} null quando o Módulo 6 não está lá para ler a aba.
+   */
+  function contarPromessasIguais(ponte) {
     const lerPromessas = window.__contextoAdicionalDebug?.lerPromessas;
-    if (typeof lerPromessas !== 'function') return false;
+    if (typeof lerPromessas !== 'function') return null;
     const dataBrPonte = dataBr(ponte.data);
-    return lerPromessas().some((p) => p.dataPrometidaTexto === dataBrPonte &&
-      ponte.titulos.every((t) => (p.titulos || []).map((x) => String(x).replace('-', '/')).includes(t)));
+    return lerPromessas().filter((p) => p.dataPrometidaTexto === dataBrPonte &&
+      ponte.titulos.every((t) => (p.titulos || []).map((x) => String(x).replace('-', '/')).includes(t))).length;
+  }
+
+  /** A promessa da ponte já está na aba Promessas? (uma a MAIS do que havia antes do clique) */
+  function promessaApareceu(ponte) {
+    const quantas = contarPromessasIguais(ponte);
+    const antes = Number.isFinite(ponte.jaExistiam) ? ponte.jaExistiam : 0;
+    return quantas !== null && quantas > antes;
   }
 
   function textoSucesso(ponte) {
