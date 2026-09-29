@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.54.2', data: '29/09/2026',
+      mudancas: [
+        'Alt+K: nova seção "Ritmo do operador" com os três diagnósticos (Qualidade do diário, Ritmo e Fila defasada). Cada botão mostra uma linha de leitura e o resultado em números, com o botão "Copiar (só números)" para colar no chat. Antes, só existiam como comandos no console do navegador.',
+      ],
+    },
+    {
       versao: '1.54.1', data: '28/09/2026',
       mudancas: [
         'Alt+S e Alt+A: se você apertar Alt+A de novo e Alt+S em seguida enquanto a cópia anterior ainda termina, o fim da espera antiga não derruba mais a espera nova (antes, um terceiro Alt+S podia registrar o contato em dobro).',

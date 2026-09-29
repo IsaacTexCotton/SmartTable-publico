@@ -369,6 +369,120 @@
     return bloco;
   }
 
+  /* ---------------------------------------------------------------------
+   * Ritmo do operador (v1.54.2) -- os três diagnósticos do Módulo 8
+   * (window.__diag.qualidade / ritmo / filaDefasada) DENTRO do painel, a
+   * pedido do usuário: "esses testes importantes não eram pra ficar no
+   * Alt+K?". Nada é recalculado aqui: cada botão chama a função do Módulo 8
+   * e mostra (a) uma linha de leitura e (b) o JSON, que já sai do filtro de
+   * privacidade dele (só número, booleano e textos de uma lista fechada).
+   * O botão "Copiar" copia esse mesmo JSON: pode colar no chat sem censurar.
+   * --------------------------------------------------------------------- */
+  const porcento = (x) => `${Math.round(x * 1000) / 10}%`;
+
+  /** Uma linha de leitura por diagnóstico, sem esconder o JSON completo logo abaixo. */
+  const LEITURAS_DO_RITMO = {
+    qualidade: (o) => (o.pode_concluir
+      ? `${o.dias_validos} dia(s) válido(s) (mínimo ${o.dias_minimos_para_concluir}): já dá para concluir.`
+      : `${o.dias_validos} dia(s) válido(s) de ${o.dias_minimos_para_concluir} necessários: ainda NÃO dá para concluir.`),
+    ritmo: (o) => {
+      const todos = o.recortes?.todos;
+      if (!todos || todos.resultado === 'sem dados') {
+        return `Sem dados: só ${o.dias_validos} dia(s) válido(s). Precisa de 10 (dias com 30 contatos de clientes da fila).`;
+      }
+      return `Cobertura mediana ${porcento(todos.cobertura_mediana)} em ${todos.dias} dias; ${porcento(todos.fracao_de_dias_com_cobertura_95)} dos dias com 95% ou mais. (É um teto: contato = WhatsApp aberto.)`;
+    },
+    filaDefasada: (o) => {
+      if (o.lista_disponivel === false) return 'Abra a página da LISTA de clientes para rodar este.';
+      if (o.fila_disponivel === false) return 'Não há fila de hoje salva.';
+      const avisos = [];
+      if (o.fila_inteira_fora_da_lista) avisos.push('a fila inteira parece fora da lista (formato de CNPJ diferente?): não confie no número');
+      if (o.filtro_ativo_na_lista) avisos.push('há filtro ativo na lista');
+      return `Da fila, fora da lista e ainda não contatados hoje: ${o.fora_da_lista_e_ainda_nao_contatados_hoje}.${avisos.length ? ` Atenção: ${avisos.join('; ')}.` : ''}`;
+    },
+  };
+
+  /**
+   * Roda um diagnóstico do Módulo 8 e mostra o resultado no painel. Erro
+   * inesperado: só o NOME do erro (a mensagem poderia trazer conteúdo).
+   */
+  function rodarDiagnosticoDoRitmo(nome, area) {
+    area.textContent = '';
+    const funcao = window.__diag?.[nome];
+    if (typeof funcao !== 'function') {
+      area.appendChild(criarDiv('Não disponível (o Módulo 8 não carregou).', { color: CORES.erro, fontSize: '12px' }));
+      return;
+    }
+    let saida;
+    try {
+      saida = funcao();
+    } catch (erro) {
+      area.appendChild(criarDiv(`Falhou (${erro?.name || 'erro'}).`, { color: CORES.erro, fontSize: '12px' }));
+      return;
+    }
+    if (saida?.saida_invalida) {
+      area.appendChild(criarDiv('Saída bloqueada pelo filtro de privacidade do Módulo 8.', { color: CORES.erro, fontSize: '12px', fontWeight: '600' }));
+      return;
+    }
+    const json = JSON.stringify(saida);
+    area.appendChild(criarDiv(LEITURAS_DO_RITMO[nome](saida), { color: CORES.tinta, fontSize: '12px', fontWeight: '600', marginBottom: '6px' }));
+
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify(saida, null, 1);
+    Object.assign(pre.style, {
+      margin: '0 0 6px', padding: '6px 8px', background: CORES.linha, border: `1px solid ${CORES.borda}`,
+      borderRadius: '6px', fontSize: '10.5px', lineHeight: '1.4', maxHeight: '160px', overflow: 'auto',
+      whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: CORES.texto,
+    });
+    area.appendChild(pre);
+
+    const copiar = document.createElement('button');
+    copiar.type = 'button';
+    copiar.dataset.papel = 'copiar-diagnostico';
+    copiar.textContent = 'Copiar (só números)';
+    Object.assign(copiar.style, {
+      cursor: 'pointer', border: `1px solid ${CORES.borda}`, background: CORES.fundo,
+      color: CORES.tinta, padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', fontWeight: '600',
+    });
+    const retorno = criarDiv('', { display: 'inline-block', marginLeft: '8px', fontSize: '11.5px' });
+    copiar.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(json);
+        retorno.textContent = 'Copiado.';
+        retorno.style.color = CORES.ok;
+      } catch (erro) {
+        retorno.textContent = 'Não consegui copiar (aba sem foco?).';
+        retorno.style.color = CORES.erro;
+      }
+    });
+    area.append(copiar, retorno);
+  }
+
+  function criarSecaoRitmoDoOperador() {
+    const bloco = criarSecao('Ritmo do operador');
+    bloco.appendChild(criarDiv('Só números, prontos para colar. Rode "Qualidade" primeiro.', { color: CORES.apagado, fontSize: '11.5px', marginBottom: '6px' }));
+
+    [
+      ['qualidade', 'Qualidade do diário'],
+      ['ritmo', 'Ritmo (cobertura e intervalos)'],
+      ['filaDefasada', 'Fila defasada (só na lista)'],
+    ].forEach(([nome, rotulo]) => {
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.dataset.papel = `diagnostico-${nome}`;
+      botao.textContent = rotulo;
+      Object.assign(botao.style, {
+        cursor: 'pointer', border: `1px solid ${CORES.borda}`, background: CORES.fundo,
+        color: CORES.tinta, padding: '6px 12px', borderRadius: '6px', fontSize: '12px',
+        fontWeight: '600', width: '100%', marginTop: '4px',
+      });
+      const area = criarDiv('', { marginTop: '6px' });
+      botao.addEventListener('click', () => rodarDiagnosticoDoRitmo(nome, area));
+      bloco.append(botao, area);
+    });
+    return bloco;
+  }
+
   function fecharPainel() {
     if (!painelEl) return;
     painelEl.remove();
@@ -408,6 +522,7 @@
     painelEl.appendChild(criarSecaoFila(diagnostico.filaEProgresso));
     painelEl.appendChild(criarSecaoLog(diagnostico.log));
     painelEl.appendChild(criarBotaoAutoconferencia());
+    painelEl.appendChild(criarSecaoRitmoDoOperador());
 
     painelEl.appendChild(criarDiv('Alt+K ou Esc pra fechar', {
       marginTop: '6px', paddingTop: '6px', borderTop: `1px solid ${CORES.linha}`,
@@ -445,6 +560,8 @@
     montarFilaEProgresso,
     montarLogRecente,
     registrarLog,
+    rodarDiagnosticoDoRitmo,
+    LEITURAS_DO_RITMO,
     CONFIG_CONSOLE,
   };
 })();
