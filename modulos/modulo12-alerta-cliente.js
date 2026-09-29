@@ -138,11 +138,14 @@
     }
   }
 
+  /** @returns {boolean} false quando o localStorage recusou a gravação. */
   function salvarTodos(dados) {
     try {
       localStorage.setItem(CONFIG_ALERTA.CHAVE_STORAGE, JSON.stringify(dados));
+      return true;
     } catch (erro) {
-      console.warn('[Alerta Cliente] Não consegui salvar no localStorage.', erro);
+      console.warn('[Alerta Cliente] Não consegui salvar no localStorage.', erro?.name);
+      return false;
     }
   }
 
@@ -156,11 +159,14 @@
    * Grava (ou remove, se ficar sem efeito) o alerta de um cliente.
    *
    * @param {string} cnpj
-   * @param {{naoCobrar: boolean, intervaloDias?: number, observacao?: string}} opcoes
+   * @param {{naoCobrar: boolean, intervaloDias?: number, observacao?: string, naoCobrarAte?: number}} opcoes
+   *   naoCobrarAte: mantém um prazo que já existia (o painel passa quando o
+   *   operador não mexeu nos dias), em vez de recontar a partir de agora.
    * @param {number} [agora] Injetável pra teste.
+   * @returns {boolean} false quando não gravou (sem CNPJ ou localStorage recusou).
    */
   function salvarAlerta(cnpj, opcoes, agora) {
-    if (!cnpj) return;
+    if (!cnpj) return false;
     const observacaoLimpa = (opcoes.observacao || '').trim();
     const naoCobrar = !!opcoes.naoCobrar;
 
@@ -170,20 +176,21 @@
       // Sem checkbox e sem observação não é um alerta -- é a forma de
       // LIMPAR um alerta anterior.
       delete todos[cnpj];
-      salvarTodos(todos);
-      return;
+      return salvarTodos(todos);
     }
 
     const dias = Number.isFinite(opcoes.intervaloDias) && opcoes.intervaloDias > 0
       ? opcoes.intervaloDias
       : CONFIG_ALERTA.INTERVALO_PADRAO_DIAS;
 
+    const instante = agora ?? Date.now();
+    const prazoMantido = Number.isFinite(opcoes.naoCobrarAte) && opcoes.naoCobrarAte > instante ? opcoes.naoCobrarAte : null;
     todos[cnpj] = {
       observacao: observacaoLimpa,
-      naoCobrarAte: naoCobrar ? (agora ?? Date.now()) + dias * MS_POR_DIA : null,
-      atualizadoEm: agora ?? Date.now(),
+      naoCobrarAte: naoCobrar ? (prazoMantido ?? instante + dias * MS_POR_DIA) : null,
+      atualizadoEm: instante,
     };
-    salvarTodos(todos);
+    return salvarTodos(todos);
   }
 
   /**
@@ -571,13 +578,26 @@
       padding: '7px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '600', width: '100%',
     });
     botaoConfirmar.addEventListener('click', () => {
-      salvarAlerta(cnpj, {
+      // Revisão geral (29/09/2026): mudar só a observação regravava o prazo
+      // como "agora + dias arredondados para cima" e esticava o "não cobrar"
+      // (2,1 dias restantes viravam 3). Sem mexer nos dias, o prazo fica.
+      const manterPrazo = naoCobrarAtivo && checkboxNaoCobrar.checked && inputDias.value === String(diasRestantes);
+      const alertaGravado = salvarAlerta(cnpj, {
         naoCobrar: checkboxNaoCobrar.checked,
         intervaloDias: parseInt(inputDias.value, 10),
         observacao: textareaObservacao.value,
+        naoCobrarAte: manterPrazo ? existente.naoCobrarAte : undefined,
       });
-      caixasForaDoRelatorio.forEach((caixa) => marcarForaDoRelatorio(cnpj, caixa.dataset.titulo, caixa.checked));
+      const titulosGravados = caixasForaDoRelatorio
+        .map((caixa) => marcarForaDoRelatorio(cnpj, caixa.dataset.titulo, caixa.checked))
+        .every(Boolean);
       atualizarBadgeDoBotao(cnpj);
+      // Falha de gravação NÃO fecha o painel como se tivesse salvo: o
+      // operador acharia que o título saiu da cobrança e ele continuaria entrando.
+      if (!alertaGravado || !titulosGravados) {
+        window.__smartTableUtil?.toast?.('Não consegui salvar o alerta (o navegador recusou a gravação). Confira as marcações e confirme de novo.', 8000);
+        return;
+      }
       fecharPainel();
     });
     painelEl.appendChild(botaoConfirmar);

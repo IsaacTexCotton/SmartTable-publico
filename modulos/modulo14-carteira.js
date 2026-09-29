@@ -61,7 +61,9 @@
  *      MAIS clientes (a primeira era parcial) ou se a gravada for do formato
  *      antigo (sem o bruto) -- aí a nova é estritamente mais completa.
  *
- *   2. RESULTADO -- a API do Alt+D (dashboard-consolidado), buscada na hora.
+ *   2. RESULTADO -- as APIs do Alt+D, buscadas na hora: dashboard-consolidado
+ *      (depósitos, taxa de cumprimento, acordos, contatos) e a lista de
+ *      promessas (cumpridas pelo dia do pagamento, o mesmo critério do Alt+D).
  *      Não é filtrável pelo escopo: o recuperado é tudo o que se recebeu.
  *
  *   3. RÉGUA -- eventos 'fila' e 'contato' do diário (Módulo 8), casados com
@@ -1417,8 +1419,18 @@
   /**
    * Resultado de um período para as PESSOAS. Cumprimento por VALOR, só
    * entre as decididas: cumprido / (cumprido + quebrado).
+   *
+   * RECUPERADO (revisão geral, 29/09/2026): as promessas cumpridas do
+   * recuperado vêm de `pagas` -- a MESMA apuração do Alt+D (Módulo 10), pelo
+   * dia estimado do pagamento. O `cumprido` do consolidado agrupa pela data
+   * da promessa e dava outro número com o mesmo rótulo; ele continua só na
+   * taxa de cumprimento (que é mesmo por promessa).
+   *
+   * @param {object} dados O `data` do consolidado.
+   * @param {{valor: number, quantidade: number, semValor: number}|{erro: string}} [pagas]
+   *   Sem `pagas` (ou com erro), o recuperado fica null (indisponível), nunca parcial.
    */
-  function resumirPeriodo(dados) {
+  function resumirPeriodo(dados, pagas) {
     const nomes = CONFIG_CARTEIRA.PESSOAS;
     const dep = linhaDe(dados, 'depositos', nomes);
     const prom = linhaDe(dados, 'promessas', nomes);
@@ -1428,9 +1440,11 @@
     const quebrado = somaCampo(prom, 'quebrado');
     const decididas = cumprido + quebrado;
     const depositos = somaCampo(dep, 'valor');
+    const pagasValidas = pagas && typeof pagas.valor === 'number' && Number.isFinite(pagas.valor) ? pagas : null;
     return {
       depositos,
-      recuperado: depositos + cumprido,
+      recuperado: pagasValidas ? depositos + pagasValidas.valor : null,
+      cumpridasPeloPagamento: pagasValidas ?? { erro: pagas?.erro ?? 'não lida' },
       promessas: {
         quantidade: somaCampo(prom, 'quantidade'),
         prometido: somaCampo(prom, 'prometido'),
@@ -1469,12 +1483,38 @@
     ];
   }
 
+  /**
+   * Promessas cumpridas no período pelo critério do Alt+D (dia estimado do
+   * pagamento), só das PESSOAS. Nunca lança: erro vira `{erro}` e o painel
+   * mostra "indisponível" no lugar do número.
+   */
+  async function cumpridasPeloPagamento(periodo) {
+    const buscarPromessas = window.__recebidoSemana?.buscarPromessasDaSemana;
+    if (typeof buscarPromessas !== 'function') return { erro: 'o Alt+D desta versão não lê promessas (atualize o SmartTable)' };
+    try {
+      const r = await buscarPromessas({ inicio: dataDeIso(periodo.inicioIso), inicioIso: periodo.inicioIso, fimIso: periodo.fimIso });
+      const minhas = (r?.porPessoa ?? []).filter((p) => CONFIG_CARTEIRA.PESSOAS.includes(p.nome));
+      return {
+        valor: minhas.reduce((s, p) => s + numero(p.valor), 0),
+        quantidade: minhas.reduce((s, p) => s + numero(p.quantidade), 0),
+        semValor: numero(r?.semValor),
+      };
+    } catch (erro) {
+      console.warn('[Carteira] Falha ao ler as promessas cumpridas do período:', erro?.message);
+      return { erro: erro?.message ?? String(erro) };
+    }
+  }
+
   async function buscarResultado(hoje) {
     const buscar = window.__recebidoSemana?.buscarConsolidado;
     if (typeof buscar !== 'function') throw new Error('O Módulo 10 (Alt+D) não carregou -- sem acesso à API de resultado.');
     const lista = periodos(hoje);
-    const respostas = await Promise.all(lista.map((p) => buscar(p.inicioIso, p.fimIso)));
-    return lista.map((p, i) => ({ ...p, resumo: resumirPeriodo(respostas[i]) }));
+    const [respostas, pagas] = await Promise.all([
+      Promise.all(lista.map((p) => buscar(p.inicioIso, p.fimIso))),
+      // A janela de 90 dias só serve para a taxa de cumprimento: não busca.
+      Promise.all(lista.map((p) => (p.chave === 'taxa' ? null : cumpridasPeloPagamento(p)))),
+    ]);
+    return lista.map((p, i) => ({ ...p, resumo: resumirPeriodo(respostas[i], pagas[i] ?? undefined) }));
   }
 
   /** Promessas com data em até N dias × taxa real de cumprimento (90 dias). */
@@ -2105,13 +2145,18 @@
     bloco.textContent = '';
     const [s, m, t] = resultados.map((r) => r.resumo);
     const fmtPct = (v) => (v === null ? '--' : percentual(v));
-    bloco.appendChild(criarTitulo('Resultado', 'da API do CRM (a mesma do Alt+D) · recuperado = depósitos + promessas cumpridas · tudo o que você recebeu, sem o filtro de 2º–20º dia'));
+    const fmtRecuperado = (v) => (v === null ? 'indisponível' : moeda(v));
+    const fmtPagas = (p) => {
+      if (p?.erro) return `indisponível (${p.erro})`;
+      return p.semValor > 0 ? `${moeda(p.valor)} (+${p.semValor} sem valor lido)` : moeda(p.valor);
+    };
+    bloco.appendChild(criarTitulo('Resultado', 'da API do CRM (a mesma do Alt+D) · recuperado = depósitos + promessas cumpridas pelo dia do pagamento, como no Alt+D · tudo o que você recebeu, sem o filtro de 2º–20º dia'));
     bloco.appendChild(criarTabela(
       ['', `Semana (${ddmm(resultados[0].inicioIso)}–${ddmm(resultados[0].fimIso)})`, `Mês (desde ${ddmm(resultados[1].inicioIso)})`],
       [
-        ['Recuperado', moeda(s.recuperado), moeda(m.recuperado)],
+        ['Recuperado', fmtRecuperado(s.recuperado), fmtRecuperado(m.recuperado)],
         ['  depósitos', moeda(s.depositos), moeda(m.depositos)],
-        ['  promessas cumpridas', moeda(s.promessas.cumprido), moeda(m.promessas.cumprido)],
+        ['  promessas cumpridas', fmtPagas(s.cumpridasPeloPagamento), fmtPagas(m.cumpridasPeloPagamento)],
         ['Promessas feitas', `${s.promessas.quantidade} · ${moedaCurta(s.promessas.prometido)}`, `${m.promessas.quantidade} · ${moedaCurta(m.promessas.prometido)}`],
         ['Cumprimento (valor)', fmtPct(s.promessas.cumprimento), fmtPct(m.promessas.cumprimento)],
         ['Promessas quebradas', moedaCurta(s.promessas.quebrado), moedaCurta(m.promessas.quebrado)],

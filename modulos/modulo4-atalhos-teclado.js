@@ -1161,8 +1161,14 @@
     // vivo (o mesmo relatório que vai junto). O retrato do Módulo 6 é
     // comparado no carregamento da página; se naquele instante a tabela
     // ainda não tinha as linhas, títulos abertos pareciam "sumidos".
+    // Revisão geral (29/09/2026): título que saiu da cobrança sem ser pago
+    // (acordo, NÃO COBRAR/CARTEIRA, fora do relatório) também não é baixa.
     const informados = ctx.titulosPagosDesdeUltimaVisita || [];
-    const abertos = new Set((dados?.registros || []).map((r) => r.tituloCompleto));
+    const abertos = new Set(
+      [dados?.registros, dados?.emAcordo, dados?.naoCobrar, dados?.foraDoRelatorio]
+        .flatMap((lista) => (Array.isArray(lista) ? lista : []))
+        .map((r) => r?.tituloCompleto)
+    );
     const titulos = informados.filter((t) => !abertos.has(t));
     if (informados.length > 0 && titulos.length === 0) return '';
     if (titulos.length === 0) return 'Recebemos a baixa de um dos títulos em aberto, obrigado!';

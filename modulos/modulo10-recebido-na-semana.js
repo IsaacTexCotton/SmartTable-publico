@@ -41,7 +41,7 @@
  *     antiga fica de fora: aumente DIAS_RETROATIVOS).
  * Depósitos seguem do consolidado (o usuário disse que só as promessas erravam).
  *
- * DATA DO PAGAMENTO (v1.61.0, decisão do usuário em 30/09/2026): o CRM não guarda
+ * DATA DO PAGAMENTO (v1.61.0, decisão do usuário em 29/09/2026): o CRM não guarda
  * o dia em que o cliente pagou; a verificação é automática, de madrugada (95% das
  * verificações vêm de um só verificador, 90% entre 0h e 7h -- diagnóstico do
  * usuário) e vem no dia útil DEPOIS do pagamento. Então o dia do pagamento é
@@ -339,6 +339,9 @@
   /**
    * Busca na API as promessas da janela e apura a semana.
    *
+   * Serve para qualquer PERÍODO (o Alt+M usa para o mês): a janela vai de
+   * DIAS_RETROATIVOS antes do início até DIAS_ADIANTE depois do fim.
+   *
    * @param {{inicio: Date, inicioIso: string, fimIso: string}} semana
    * @param {Date} [hoje] Padrão: agora (o dia das "promessas feitas hoje").
    * @returns {Promise<{porPessoa: object[], semValor: number, feitasHoje: object}>}
@@ -349,8 +352,9 @@
     const desde = new Date(semana.inicio);
     desde.setDate(desde.getDate() - c.DIAS_RETROATIVOS);
     const desdeIso = util().dataIso(desde);
-    const ate = new Date(semana.inicio);
-    ate.setDate(ate.getDate() + 6 + c.DIAS_ADIANTE);
+    const ate = dataDeIso(semana.fimIso);
+    if (!ate) throw new Error('Período inválido para a busca de promessas.');
+    ate.setDate(ate.getDate() + c.DIAS_ADIANTE);
     const ateIso = util().dataIso(ate);
 
     const itens = [];
@@ -360,8 +364,15 @@
       const corpo = await buscarJson(url);
       if (!Array.isArray(corpo?.data)) throw new Error('A lista de promessas do CRM veio em formato inesperado.');
       itens.push(...corpo.data);
-      const totalPaginas = Number(corpo.pagination?.totalPages);
-      completo = corpo.data.length < c.TAMANHO_PAGINA || (Number.isFinite(totalPaginas) && pagina + 1 >= totalPaginas);
+      // Revisão geral (29/09/2026): com totalPages na resposta, só ele decide.
+      // Se a API limitasse o tamanho da página abaixo do pedido, "página
+      // curta" pareceria o fim da lista e as outras páginas se perderiam
+      // em silêncio (soma menor, sem aviso).
+      const brutoTotal = corpo.pagination?.totalPages;
+      const totalPaginas = brutoTotal === null || brutoTotal === '' ? NaN : Number(brutoTotal);
+      completo = Number.isFinite(totalPaginas)
+        ? pagina + 1 >= totalPaginas
+        : corpo.data.length < c.TAMANHO_PAGINA;
     }
     // Melhor recusar do que somar só parte da lista e mostrar como se fosse tudo.
     if (!completo) throw new Error(`Há promessas demais na janela (mais de ${c.MAX_PAGINAS * c.TAMANHO_PAGINA}): a soma ficaria incompleta.`);

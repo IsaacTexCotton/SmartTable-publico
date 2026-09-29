@@ -1150,7 +1150,11 @@
         // snapshot nunca era criado. Reforça aqui também: se ainda não
         // existe snapshot de hoje, usa a própria fila retomada como base --
         // é a melhor aproximação disponível de "a primeira fila do dia".
-        gravarSnapshotProgressoSeForOPrimeiroDoDia(filaAtual.clientes);
+        // EXCETO fila de lista filtrada (revisão geral, 29/09/2026): o caminho
+        // filtrado não grava a referência de propósito, e esta retomada a
+        // gravava mesmo assim -- o progresso do dia passava a medir só os
+        // clientes do filtro até a meia-noite.
+        if (filaAtual.filtrada !== true) gravarSnapshotProgressoSeForOPrimeiroDoDia(filaAtual.clientes);
 
         const { fila: filaAtualizada, removidos } = removerAtendidosHojeDaFila(filaAtual, obterMapaClientes());
         if (removidos > 0) {
@@ -1974,6 +1978,9 @@
       totalPulados: 0,
       iniciadoEm: Date.now(),
     };
+    // Marca da lista filtrada: a retomada (retomarFilaDeHoje) lê isto para
+    // não transformar a fila parcial na referência do progresso.
+    if (opcoesDaFila?.gravarReferenciaDoProgresso === false) fila.filtrada = true;
     window.filaDebug.salvarFila(fila);
 
     // PEDIDO DO USUÁRIO: o painel de progresso (Módulo 11) fica preso ao

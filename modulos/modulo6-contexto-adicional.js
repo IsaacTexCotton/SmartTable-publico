@@ -56,7 +56,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada módulo carregado.
-  const VERSAO_SMARTTABLE = '1.61.0';
+  const VERSAO_SMARTTABLE = '1.61.1';
 
   // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
   // mesma linha em que já seta sua própria flag de "já carreguei") -- este
@@ -580,12 +580,22 @@
     }
 
     const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
+    // BUG REAL (revisão geral, 29/09/2026): título que SAI da cobrança sem ser
+    // pago (entrou em acordo, virou CARTEIRA/NÃO COBRAR ou foi marcado "fora
+    // do relatório" no Alerta) também some de `registros`, e o Alt+A
+    // agradecia a "baixa" de um título que ninguém pagou. Só conta como
+    // sumido o que não está em NENHUMA lista da tabela.
+    const aindaNaTabela = new Set(
+      [dados.registros, dados.emAcordo, dados.naoCobrar, dados.foraDoRelatorio]
+        .flatMap((lista) => (Array.isArray(lista) ? lista : []))
+        .map((r) => r?.tituloCompleto)
+    );
     const snapshots = lerSnapshotsTitulos();
     const anterior = snapshots[cnpj];
 
     const sumidosAgora =
       anterior && Array.isArray(anterior.titulos)
-        ? anterior.titulos.filter((t) => titulosAtuais.indexOf(t) === -1)
+        ? anterior.titulos.filter((t) => !aindaNaTabela.has(t))
         : [];
 
     // BUG REAL (achado em revisão, com repro): a comparação é destrutiva --
@@ -617,7 +627,7 @@
       anterior && Array.isArray(anterior.sumidos) && anterior.sumidosEm === hojeChave
         ? anterior.sumidos
         : [];
-    const titulosSumidos = [...new Set([...sumidosDeHoje, ...sumidosAgora])];
+    const titulosSumidos = [...new Set([...sumidosDeHoje, ...sumidosAgora])].filter((t) => !aindaNaTabela.has(t));
 
     const agora = Date.now();
     const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
@@ -765,9 +775,22 @@
    * comportamento em silêncio, justamente no caminho de fallback (o menos
    * testado). Agora existe um lugar só.
    *
-   * @returns {object} Contexto neutro, com o nome do negociador vindo do
-   *   CONFIG (o header do CRM não está disponível nesse caminho).
+   * @returns {object} Contexto neutro, com o nome do usuário logado (o
+   *   header do CRM existe em toda página) e o CONFIG só se ele não for lido.
+   *
+   * CORRIGIDO (revisão geral, 29/09/2026): assinava sempre com o nome do
+   * CONFIG. Na máquina de outro operador, uma falha no cálculo ou a espera
+   * de 5 s estourada faziam a mensagem sair com o nome errado, sem aviso.
    */
+  function nomeDoNegociadorSemFalhar() {
+    try {
+      return nomeDoNegociador(obterUsuarioNegociador());
+    } catch (erro) {
+      console.warn('[Contexto Adicional] Falha ao ler o usuário logado:', erro?.name);
+      return nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR);
+    }
+  }
+
   function contextoVazio() {
     return {
       promessa: null,
@@ -779,7 +802,7 @@
       contatoAntigo: false,
       nuncaContatadoPorMim: false,
       periodoNaoUtilAntesDeHoje: null,
-      nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR),
+      nomeNegociador: nomeDoNegociadorSemFalhar(),
       calcularTitulosPendentes,
     };
   }
@@ -809,12 +832,36 @@
   /* ---------------------------------------------------------------------
    * 5. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
+  /**
+   * O que o log do contexto pode mostrar: tipos, sim/não e contagens.
+   * LISTA FECHADA de propósito (revisão geral, 29/09/2026): o log espalhava
+   * o contexto inteiro (`...ctx`) e, com promessa, saíam os números dos
+   * títulos e as datas prometidas. Campo novo no contexto só aparece aqui
+   * se alguém o puser nesta lista.
+   * @param {object|null|undefined} ctx Contexto calculado.
+   * @returns {object} Resumo sem dado de cliente.
+   */
+  function resumoDoContextoParaLog(ctx) {
+    return {
+      promessa: ctx?.promessa?.tipo ?? null,
+      titulosDaPromessa: ctx?.promessa?.promessa?.titulos?.length ?? 0,
+      contatoRecente: Boolean(ctx?.contatoRecente),
+      contatoRecenteEfetivo: ctx?.contatoRecente?.efetivo ?? null,
+      houvePromessaNoUltimoContato: Boolean(ctx?.houvePromessaNoUltimoContato),
+      houveTituloPagoDesdeUltimaVisita: Boolean(ctx?.houveTituloPagoDesdeUltimaVisita),
+      titulosPagosDesdeUltimaVisita: ctx?.titulosPagosDesdeUltimaVisita?.length ?? 0,
+      semContatoAnterior: Boolean(ctx?.semContatoAnterior),
+      contatoAntigo: Boolean(ctx?.contatoAntigo),
+      nuncaContatadoPorMim: Boolean(ctx?.nuncaContatadoPorMim),
+      periodoNaoUtilAntesDeHoje: Boolean(ctx?.periodoNaoUtilAntesDeHoje),
+      negociadorLido: Boolean(ctx?.nomeNegociador),
+    };
+  }
+
   function montarEExpor() {
     try {
       window.__contextoAdicional = calcularContexto();
-      // Censurado: os títulos pagos desde a última visita saem só como contagem.
-      const ctx = window.__contextoAdicional;
-      console.log('[Contexto Adicional] Calculado:', { ...ctx, titulosPagosDesdeUltimaVisita: ctx?.titulosPagosDesdeUltimaVisita?.length ?? 0 });
+      console.log('[Contexto Adicional] Calculado:', resumoDoContextoParaLog(window.__contextoAdicional));
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
       window.__contextoAdicional = contextoVazio();

@@ -24,7 +24,19 @@
 
   const LOG_ATUALIZACOES = [
     {
-      versao: '1.61.0', data: '30/09/2026',
+      versao: '1.61.1', data: '29/09/2026',
+      mudancas: [
+        'Alt+A: não agradece mais a "baixa" de um título que saiu da cobrança sem ser pago. Título que entrou em acordo, virou CARTEIRA/NÃO COBRAR ou foi marcado "fora do relatório" no Alerta sumia da lista e era tratado como pago ("Recebemos a baixa do título X, obrigado!").',
+        'Alt+M (Resultado): "promessas cumpridas" e o "Recuperado" agora usam o mesmo critério do Alt+D (a semana ou o mês do dia estimado do pagamento). Antes o Alt+M agrupava pela data da promessa e mostrava outro número com o mesmo nome. A taxa de cumprimento continua por promessa. Se a leitura das promessas falhar, aparece "indisponível" em vez de um total parcial.',
+        'Alt+U: uma fila montada com filtro do CRM ligado não vira mais a referência do progresso do dia quando é retomada no Alt+U seguinte (antes o progresso passava a medir só os clientes do filtro até a meia-noite).',
+        'Alerta (não cobrar): mudar só a observação não prorroga mais o prazo do "não cobrar" (2,1 dias restantes viravam 3). Se o navegador recusar a gravação, o painel continua aberto e avisa, em vez de fechar como se tivesse salvo.',
+        'Alt+D: se o CRM devolver menos promessas por página do que o pedido, as outras páginas continuam sendo lidas (antes a soma podia ficar menor, sem aviso).',
+        'Mensagem do Alt+A: quando o cálculo do contexto falha, ela se apresenta com o nome de quem está logado, e não com o nome fixo da configuração.',
+        'Privacidade: o log "[Contexto Adicional] Calculado" do console mostra só tipos, sim/não e contagens (antes, com promessa ativa, mostrava os números dos títulos e a data prometida). O Alt+L tinha três versões com a data de amanhã; corrigido.',
+      ],
+    },
+    {
+      versao: '1.61.0', data: '29/09/2026',
       mudancas: [
         'Alt+D: as promessas cumpridas agora contam pela semana em que o cliente PAGOU, e não pela semana da verificação. O CRM não guarda o dia do pagamento; a verificação é automática, de madrugada, no dia útil seguinte, então o dia do pagamento é estimado como o dia útil ANTERIOR à verificação (fim de semana e feriado pulados). Paga na sexta e verificada na segunda conta na semana da sexta.',
         'Alt+D: novo botão "◀ semana anterior" (e "semana atual ▶" para voltar). Na semana anterior o painel mostra os mesmos blocos daquela semana; o bloco "Promessas feitas hoje" só aparece na semana atual. O Alt+D sempre abre na semana atual. Na segunda de manhã o total da semana atual é menor do que era antes desta versão, porque o que foi pago na sexta agora pertence à semana passada.',
@@ -32,14 +44,14 @@
       ],
     },
     {
-      versao: '1.60.0', data: '30/09/2026',
+      versao: '1.60.0', data: '29/09/2026',
       mudancas: [
         'Alt+D: novo bloco "Promessas feitas hoje", depois do Total recuperado: quantas promessas foram criadas hoje (de qualquer status e para qualquer data prometida) e o valor prometido, por pessoa e nos dois. É valor prometido, pode incluir juros e multa, e NÃO entra no Total recuperado.',
         'Alt+D: a busca de promessas agora olha também até 90 dias depois da sexta. Uma promessa agendada para a semana que vem e verificada (paga) esta semana passa a entrar na soma desta semana; antes ela nem era lida.',
       ],
     },
     {
-      versao: '1.59.1', data: '30/09/2026',
+      versao: '1.59.1', data: '29/09/2026',
       mudancas: [
         'Alt+D (Entrou na semana): "Promessas cumpridas" agora conta pela semana em que a promessa foi VERIFICADA (o CRM não guarda o dia do pagamento; o pagamento consta no sistema no dia útil seguinte) e não mais pela semana em que foi criada. Uma promessa criada na semana passada e verificada esta semana entra nesta semana. Entram as cumpridas, as cumpridas parciais e as parciais (o valor efetivamente pago), no nome de quem CRIOU a promessa.',
         'Alt+D: o valor vem da lista de promessas do CRM (a mesma da tela Promessas). Se essa leitura falhar, o painel diz o erro no lugar do número e não mostra o Total recuperado (antes ele mostraria um total incompleto). Os depósitos continuam como estavam.',
