@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.64.0', data: '30/09/2026',
+      mudancas: [
+        'Organização interna, sem mudança no que você vê: o painel da Carteira (Alt+M) foi dividido em três módulos. O Módulo 14 ficou só com o desenho do painel e a carga inicial; o Módulo 22 (Carteira: Dados) guarda as regras, o escopo e o armazenamento (IndexedDB); o Módulo 23 (Carteira: Histórico) cuida da fotografia do dia, da cura, da ponte, da régua, do resultado do período, do CSV e do backup. O código foi movido como estava; os testes da Carteira e os E2E (F5, backup, restauração, duas abas) passam sem alteração.',
+        'Se o Tampermonkey atualizar o script pela metade e faltar o Módulo 22 ou o 23, o Alt+M não abre pela metade: aparece um aviso vermelho dizendo qual falta e pedindo para atualizar o script.',
+      ],
+    },
+    {
       versao: '1.63.1', data: '30/09/2026',
       mudancas: [
         'Organização interna, sem mudança no que você vê: a cópia da mensagem para a área de transferência (Win+V, imagem no Ctrl+V), o Alt+S, o envio para "números diferentes" e o aviso do clique manual em "Registrar e Enviar" saíram do Módulo 4 para um módulo novo, o 21 (Envio e Cópia). As ferramentas de DOM dos atalhos (achar botão por texto, clicar como o React espera, esperar condição em outra aba) foram para o Módulo 20. O código foi movido como estava e os testes de cópia, Alt+S e números diferentes passam sem alteração.',

@@ -674,6 +674,8 @@
     'Mensagens de Cobrança',
     'DOM dos Atalhos',
     'Envio e Cópia',
+    'Carteira: Dados',
+    'Carteira: Histórico',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
