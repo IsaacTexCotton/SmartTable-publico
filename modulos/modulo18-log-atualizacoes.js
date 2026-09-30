@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.66.0', data: '30/09/2026',
+      mudancas: [
+        'Alt+B (busca rápida): ao apertar Enter, o SmartTable conta quantos clientes a busca acha antes de sair da página. Nenhum: a caixa continua aberta e avisa "Nenhum cliente com dívida encontrado com esses dados." (a lista do CRM só tem quem deve). Um: entra direto na página do cliente. De 2 a 5: abre uma lista no centro da tela com razão social, CNPJ, dias de atraso e valor vencido; as setas ↑ ↓ trocam o cliente, Enter abre, Esc volta ao campo e o clique num item também abre. Mais de 5: abre a lista nativa do CRM, como antes.',
+        'Se a contagem não puder ser feita (o CRM não respondeu em 8 segundos, sessão expirada, resposta diferente do esperado), a busca cai na lista nativa do CRM: nunca fica pior que antes. A caixa agora fica no centro da tela, e o texto digitado não vai para o console.',
+        'Organização interna: a busca rápida saiu do Módulo 4 para um módulo novo, o 24 (Busca Rápida). Se o Tampermonkey atualizar o script pela metade e ele faltar, o aviso vermelho diz qual módulo falta.',
+      ],
+    },
+    {
       versao: '1.65.0', data: '30/09/2026',
       mudancas: [
         'Relatório (Alt+A e Alt+R): o arquivo .png não é mais baixado quando a imagem foi copiada para a área de transferência (a cópia já basta para colar no WhatsApp). O aviso passa a dizer só "Imagem copiada.".',

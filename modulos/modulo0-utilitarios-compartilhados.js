@@ -676,6 +676,7 @@
     'Envio e Cópia',
     'Carteira: Dados',
     'Carteira: Histórico',
+    'Busca Rápida',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

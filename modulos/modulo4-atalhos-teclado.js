@@ -27,13 +27,15 @@
   window.__smartTableUtil?.registrarModuloCarregado?.('Atalhos de Teclado');
 
   // Módulos que precisam estar carregados ANTES deste no @require do wrapper:
-  // 19 (texto da mensagem), 20 (DOM dos atalhos) e 21 (envio e cópia). Sem
+  // 19 (texto da mensagem), 20 (DOM dos atalhos), 21 (envio e cópia) e 24 (busca
+  // rápida do Alt+B). Sem
   // eles, nenhum atalho funciona: avisa alto em vez de quebrar em silêncio no
   // meio do Alt+A.
   const modulosFaltando = [
     ['__mensagensCobranca', 'Módulo 19 (Mensagens de Cobrança)'],
     ['__atalhosDom', 'Módulo 20 (DOM dos Atalhos)'],
     ['__envioCopia', 'Módulo 21 (Envio e Cópia)'],
+    ['__buscaRapida', 'Módulo 24 (Busca Rápida)'],
   ].filter(([global]) => !window[global]).map(([, nome]) => nome);
   if (modulosFaltando.length > 0) {
     console.error(`[Atalhos] Faltam módulos que deveriam carregar antes deste: ${modulosFaltando.join('; ')}. Atualize o script no Tampermonkey.`);
@@ -87,6 +89,7 @@
     definirCnpjDoUltimoRelatorio,
     CONFIG_ENVIO,
   } = window.__envioCopia;
+  const { abrirBuscaRapida, fecharBuscaRapida, estaBuscaRapidaAberta } = window.__buscaRapida;
 
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO
@@ -134,9 +137,6 @@
     // Id do botão de relatório, criado pelo Módulo 1. Buscar por ID (não por
     // texto) sobrevive à troca do rótulo pra "Gerando..." durante a geração.
     ID_BOTAO_RELATORIO: 'aviso-cobranca-botao',
-    // Id do overlay da busca rápida (Alt+B); estaDigitando() precisa
-    // conhecê-lo pra o próprio Alt+B conseguir fechar a busca.
-    ID_OVERLAY_BUSCA: 'smarttable-busca-rapida',
     // Última versão cujo log já foi lido (marca como NOVO o que veio depois).
     CHAVE_ULTIMA_VERSAO_VISTA: 'smarttable_ultima_versao_vista',
   };
@@ -649,114 +649,6 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3.2 BUSCA RÁPIDA (Alt+B) — pula direto pra um cliente por nome/CNPJ
-   * -----------------------------------------------------------------
-   * A URL da lista aceita ?search=... (confirmado: /crm/clientes?search=&
-   * negociador=...&filtroScpc=). Preserva os outros parâmetros da URL atual
-   * e só troca/adiciona o "search".
-   * --------------------------------------------------------------------- */
-  let overlayBuscaEl = null;
-
-  function buscarCliente(termo) {
-    const alvo = (termo || '').trim();
-    if (!alvo) return;
-
-    const params = new URLSearchParams(location.search);
-    params.set('search', alvo);
-
-    window.location.href = `${location.origin}/crm/clientes?${params.toString()}`;
-  }
-
-  function fecharBuscaRapida() {
-    if (overlayBuscaEl) {
-      overlayBuscaEl.remove();
-      overlayBuscaEl = null;
-    }
-  }
-
-  function abrirBuscaRapida() {
-    if (overlayBuscaEl) {
-      fecharBuscaRapida();
-      return;
-    }
-
-    overlayBuscaEl = document.createElement('div');
-    overlayBuscaEl.id = CONFIG_ATALHOS.ID_OVERLAY_BUSCA;
-    Object.assign(overlayBuscaEl.style, {
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      right: '0',
-      bottom: '0',
-      background: 'rgba(22, 35, 47, 0.35)',
-      zIndex: 9999999,
-      display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'center',
-      paddingTop: '15vh',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    });
-
-    const caixa = document.createElement('div');
-    Object.assign(caixa.style, {
-      background: '#fff',
-      borderRadius: '12px',
-      boxShadow: '0 8px 30px rgba(0,0,0,0.3)',
-      padding: '16px',
-      width: '420px',
-      maxWidth: '90vw',
-    });
-
-    const titulo = document.createElement('div');
-    titulo.textContent = 'Buscar cliente (nome ou CNPJ)';
-    Object.assign(titulo.style, {
-      fontSize: '12px',
-      fontWeight: '600',
-      color: '#667085',
-      marginBottom: '8px',
-      textTransform: 'uppercase',
-      letterSpacing: '.03em',
-    });
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Digite e aperte Enter...';
-    Object.assign(input.style, {
-      width: '100%',
-      boxSizing: 'border-box',
-      padding: '10px 12px',
-      fontSize: '15px',
-      border: '1px solid #d0d5dd',
-      borderRadius: '8px',
-      outline: 'none',
-    });
-
-    input.addEventListener('keydown', (e) => {
-      // Não deixa Enter/Escape vazarem pro listener global de atalhos.
-      e.stopPropagation();
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        buscarCliente(input.value);
-        fecharBuscaRapida();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        fecharBuscaRapida();
-      }
-    });
-
-    overlayBuscaEl.addEventListener('mousedown', (e) => {
-      if (e.target === overlayBuscaEl) fecharBuscaRapida(); // clicar fora fecha
-    });
-
-    caixa.appendChild(titulo);
-    caixa.appendChild(input);
-    overlayBuscaEl.appendChild(caixa);
-    document.body.appendChild(overlayBuscaEl);
-
-    input.focus();
-  }
-
-  /* ---------------------------------------------------------------------
    * 3.3a LOG DE ATUALIZAÇÃO (Alt+L)
    * -----------------------------------------------------------------
    * A LISTA mora no Módulo 18 (modulo18-log-atualizacoes.js); aqui fica só o
@@ -1089,7 +981,7 @@
       // estaDigitando() barraria o próprio toggle. Qualquer outro Alt+letra
       // segue bloqueado enquanto digita (um Alt+S no meio da pesquisa
       // registraria e enviaria a cobrança).
-      if (e.code === CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA && overlayBuscaEl) {
+      if (e.code === CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA && estaBuscaRapidaAberta()) {
         e.preventDefault();
         fecharBuscaRapida();
         return;
@@ -1253,6 +1145,6 @@
     CONFIG_ATALHOS,
     abrirBuscaRapida,
     fecharBuscaRapida,
-    estaBuscaRapidaAberta: () => overlayBuscaEl !== null,
+    estaBuscaRapidaAberta,
   };
 })();
