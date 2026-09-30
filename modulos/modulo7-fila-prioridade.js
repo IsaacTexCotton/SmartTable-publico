@@ -1,171 +1,121 @@
 /* =========================================================================
- * MÓDULO 7: FILA POR PRIORIDADE — CRM TexCotton
+ * MÓDULO 7: FILA POR PRIORIDADE (Alt+U) — CRM TexCotton
  * -------------------------------------------------------------------------
- * O que faz: monta uma fila de atendimento (mesmo formato/mecanismo do
- * Módulo 3 -- navegação, painel, Alt+P/Alt+V, "continuar fila anterior")
- * mas ORDENADA por uma régua de prioridade de negócio, em vez de só por
- * dias de atraso. Atalho separado (Alt+U) -- o Alt+I original continua
- * exatamente como está, sem nenhuma mudança de comportamento.
+ * Monta uma fila de atendimento (mesmo formato e mecanismo do Módulo 3:
+ * navegação, painel, Alt+P/Alt+V, "continuar fila anterior") ORDENADA por uma
+ * régua de prioridade de negócio, não só por dias de atraso. O Alt+I original
+ * não muda.
  *
- * REGRA DE PRIORIDADE (CONFIRMADA com o usuário -- 3ª revisão, 23/09/2026;
- * faixas 12 a 15 na 4ª, 28/09/2026 -- régua v3; SCPC antes do aviso subiu
- * para a faixa 10 no mesmo dia -- régua v4; régua v5, 29/09/2026: a faixa 9
- * passou de 30 para 14 dias e o atraso inicial subiu para a 10, com os dois
- * SCPC abaixo dele -- ver CONFIG.VERSAO_REGUA),
- * em ordem -- cada cliente entra na
- * PRIMEIRA faixa que se aplicar a ele:
+ * Expõe window.filaPrioridadeDebug (iniciar, determinarPrioridade,
+ * compararPelaRegua, cache e snapshot do dia, modo sombra...). O atalho Alt+U
+ * fica no Módulo 4, que chama window.filaPrioridadeDebug.iniciar().
+ * Depende do Módulo 0 (window.__smartTableUtil: toast, normalizarData,
+ * escolherTituloRepresentativo) e do Módulo 3 (window.filaDebug:
+ * construirFilaAPartirDaPagina, salvarFila, obterFila, CONFIG); precisa vir
+ * DEPOIS deles no @require.
+ *
+ * RÉGUA DE PRIORIDADE (confirmada com o usuário; ver CONFIG.VERSAO_REGUA).
+ * Cada cliente entra na PRIMEIRA faixa que se aplicar:
  *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
- *   2. Cluster "Novo" -- vale em QUALQUER situação de título, inclusive já
- *      em cartório, e por isso é a ÚNICA faixa isenta do teto de
- *      DIAS_ATRASO_MAX no filtro da lista (ver filtrarPorRegrasDaLista):
- *      PEDIDO DO USUÁRIO -- um cliente novo com título em cartório precisa
- *      continuar aparecendo na fila porque a cobrança é quem bloqueia o
- *      faturamento desse cliente.
- *   3. Segundo dia de atraso (situação EM_ATRASO, dia 2 exato, e NENHUM
- *      título do cliente com mais dias, cartório incluído -- v1.47.1)
- *   4. Sem nenhum contato -- a aba Contatos do cliente está VAZIA: ninguém,
- *      de nenhum usuário, nunca registrou contato (CONFIRMADO com o usuário:
- *      "nenhum contato, de ninguém" -- é o semContatoAnterior do Módulo 6,
- *      o mesmo dado que faz o Alt+A se apresentar)
- *   5. Dia da promessa de pagamento (o cliente combinou pagar HOJE e o
- *      título continua em aberto -- ver DIA_DA_PROMESSA no Módulo 6)
- *   6. Promessa não cumprida (promessa vencida sem pagamento identificado
- *      e ainda sem nenhum contato registrado depois do vencimento -- ver
- *      QUEBRADA/PARCIAL no Módulo 6)
- *   7. Aviso final antes da suspensão (situação NEGATIVADO_SCPC, dia 19
- *      exato -- mesmo limiar usado pelo Módulo 4 pra mensagem)
- *   8. Antes do aviso final (situação NEGATIVADO_SCPC, dias 16 a 18 -- o
- *      resto da janela de aviso de suspensão)
- *   9. Sem contato OU sem movimentação há 14 dias ou mais (duas semanas
- *      corridas -- cliente "esquecido"). Entra se QUALQUER um dos dois
- *      chegar a 14 dias: o contato mais recente da aba Contatos (de qualquer
- *      pessoa) ou a última movimentação da conta (lista de clientes).
- *      Régua v5 (29/09/2026), pedido do usuário: era "mais de um mês" (30
- *      dias, v1.39.0 ampliou pra incluir o contato); agora é ">= 14".
- *   10. Atraso inicial, 3º ao 4º dia (situação EM_ATRASO, dias 3-4) -- E
- *      NENHUM título do cliente com mais dias de atraso, inclusive os já em
- *      cartório (CONFIRMADO com o usuário: "também conta"). Dia 1 NÃO conta
- *      como dia de cobrança, fica de fora da lista; dia 2 tem faixa própria.
- *      Régua v5: subiu da 12 para a 10, ACIMA dos dois SCPC abaixo -- decisão
- *      do usuário (29/09/2026), mantida depois de avisado que o SCPC último
- *      dia fica no fim da fila.
- *   11. SCPC negativado antes do aviso de suspensão (NEGATIVADO_SCPC, abaixo
- *      do 16º dia). Dentro dela, quem está mais perto do 16º dia vem primeiro.
- *   12. SCPC -- último dia (situação ULTIMO_DIA, fluxo SCPC). Era a faixa 6
- *      na régua v1, a 10 até a v3 e a 11 na v4; a descida foi decisão do
- *      usuário.
- *   13. Título em cartório + outro vencido fora do cartório (ainda há
- *      título que dá pra evitar) -- régua v3, 28/09/2026. Medido na fila
- *      real: 8 dos 34 "Demais dias", mais os de 2º dia com cartório.
- *   14. 5º dia de atraso (situação EM_ATRASO, dia 5 -- amanhã vira "último
- *      dia") -- régua v3. Era "Demais dias" de propósito até a v2; 12 dos 34.
- *   15. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *   2. Cluster "Novo" -- vale em QUALQUER situação de título, inclusive já em
+ *      cartório, e por isso é a ÚNICA faixa isenta do teto DIAS_ATRASO_MAX em
+ *      filtrarPorRegrasDaLista. Decisão do usuário: cliente novo com título em
+ *      cartório tem que aparecer, porque a cobrança bloqueia o faturamento dele.
+ *   3. Segundo dia de atraso (EM_ATRASO, dia 2 exato, e NENHUM título do
+ *      cliente com mais dias, cartório incluído)
+ *   4. Sem nenhum contato -- a aba Contatos está VAZIA: ninguém, de nenhum
+ *      usuário, nunca registrou contato (confirmado com o usuário; é o
+ *      semContatoAnterior do Módulo 6, o mesmo dado que faz o Alt+A se apresentar)
+ *   5. Dia da promessa de pagamento (prometeu pagar HOJE e o título continua
+ *      em aberto -- DIA_DA_PROMESSA, Módulo 6)
+ *   6. Promessa não cumprida (vencida sem pagamento identificado e sem contato
+ *      depois do vencimento -- QUEBRADA/PARCIAL, Módulo 6)
+ *   7. Aviso final antes da suspensão (NEGATIVADO_SCPC, dia 19 exato -- mesmo
+ *      limiar do Módulo 4)
+ *   8. Antes do aviso final (NEGATIVADO_SCPC, dias 16 a 18)
+ *   9. Sem contato OU sem movimentação há 14 dias ou mais (corridos; cliente
+ *      "esquecido"). Entra se QUALQUER um chegar a 14: o contato mais recente
+ *      da aba Contatos (de qualquer pessoa) ou a última movimentação da conta
+ *      (lista de clientes).
+ *  10. Atraso inicial, 3º ao 4º dia (EM_ATRASO) E NENHUM título do cliente com
+ *      mais dias, cartório incluído (confirmado com o usuário: "também conta").
+ *      Dia 1 NÃO é dia de cobrança (fica fora da lista); dia 2 tem faixa
+ *      própria. Fica ACIMA dos dois SCPC abaixo (decisão do usuário, mantida
+ *      depois de avisado que o SCPC último dia fica no fim da fila).
+ *  11. SCPC negativado antes do aviso de suspensão (NEGATIVADO_SCPC, abaixo do
+ *      16º dia). Dentro dela, quem está mais perto do 16º dia vem primeiro.
+ *  12. SCPC -- último dia (ULTIMO_DIA, fluxo SCPC); posição decidida pelo usuário.
+ *  13. Título em cartório + outro vencido fora do cartório (ainda há título
+ *      que dá pra evitar)
+ *  14. 5º dia de atraso (EM_ATRASO, dia 5 -- amanhã vira "último dia")
+ *  15. Demais dias (tudo que não caiu acima)
  *
- * DENTRO DA MESMA FAIXA (CONFIRMADO com o usuário na régua v2; valor na v3):
- * do contato mais ANTIGO pro mais recente -- quem está há mais tempo sem ser
- * procurado vem primeiro; quem nunca teve contato vem antes de todos. Empate:
- * maior valor vencido primeiro (v3), depois mais dias de atraso. Na faixa 11,
- * antes de tudo, mais dias (mais perto do 16º). Ver compararPelaRegua.
+ * DENTRO DA MESMA FAIXA (confirmado com o usuário): do contato mais ANTIGO pro
+ * mais recente -- quem está há mais tempo sem ser procurado vem primeiro; quem
+ * nunca teve contato vem antes de todos. Empate: maior valor vencido, depois
+ * mais dias de atraso. Na faixa 11, antes de tudo, mais dias. Ver compararPelaRegua.
  *
- * ANTES de qualquer faixa, um cliente pode ser suprimido de vez desta fila:
- * o botão "Alerta" na página do cliente (Módulo 12) marca "não cobrar" por
- * um número de dias escolhido pelo operador (padrão 1). Enquanto ativo, o
- * cliente nem entra em filtrarPorRegrasDaLista -- é decisão humana
- * explícita, vence até a isenção do Cluster Novo. Ver Módulo 12 pro
- * porquê e pro formulário.
+ * ANTES de qualquer faixa, o botão "Alerta" da página do cliente (Módulo 12)
+ * pode suprimir o cliente por N dias (padrão 1): ele nem entra em
+ * filtrarPorRegrasDaLista. É decisão humana explícita e vence até a isenção do
+ * Cluster Novo.
  *
  * POR QUE AS FAIXAS 4 E 5 FICAM ACIMA DE SCPC-ÚLTIMO-DIA E DO AVISO DE
- * SUSPENSÃO (decisão explicada pro usuário): são os clientes que JÁ SE
- * COMPROMETERAM -- quem prometeu pagar hoje só converte se for lembrado
- * hoje (janela de um dia só), e quem quebrou a promessa é o contato de
- * maior conversão da carteira. O dado vem de
- * window.__contextoAdicional.promessa, que o Módulo 6 já calcula na mesma
- * visita em aba de fundo -- custo zero de tempo.
+ * SUSPENSÃO (decisão explicada ao usuário): são clientes que JÁ SE
+ * COMPROMETERAM -- quem prometeu pagar hoje só converte se for lembrado hoje
+ * (janela de um dia), e quem quebrou a promessa é o contato de maior conversão.
+ * O dado vem de window.__contextoAdicional.promessa, que o Módulo 6 já calcula
+ * na mesma visita em aba de fundo.
  *
- * A metade "movimentação" da faixa 9 usa o mesmo campo
- * movimentacaoDataIso já lido da lista (window.CLIENTES) pra excluir quem
- * mexeu HOJE -- aqui serve o propósito oposto, achar quem está PARADO há
- * muito tempo (14 dias corridos ou mais, régua v5), pra não deixar conta esquecida se
- * perder entre as de rotina.
+ * A metade "movimentação" da faixa 9 usa movimentacaoDataIso (window.CLIENTES),
+ * o mesmo campo que exclui quem mexeu HOJE; aqui acha quem está PARADO.
  *
- * EXCLUSÕES (nunca entram na lista, em nenhuma faixa):
+ * EXCLUSÕES (nunca entram, em nenhuma faixa):
  *   - Mais de 19 dias de atraso
- *   - Dia 1 de atraso (não é considerado dia de cobrança ainda)
- *   - Última movimentação (a data mais recente mostrada na linha da
- *     lista) é HOJE
- *   - Existe alguma promessa (qualquer status) com data prometida DEPOIS
- *     de hoje
- *   - Qualquer título do cliente dispara alerta de "não cobrar" no Módulo 1
- *     (posição NAO COBRAR/CARTEIRA, ou todos os títulos já em cartório --
- *     mesmo critério do banner avisarSeNaoCobrar) -- exclui o CLIENTE
- *     inteiro, não só o título específico.
- *   - CONFIRMADO com o usuário: quando 2+ clientes do MESMO grupo econômico
- *     (confirmado via window.__alertaGrupo, lido pelo Módulo 5 na aba
- *     "Grupo" de verdade de cada cliente -- NÃO é o grupoId da lista, que é
- *     outro campo sem relação com grupo econômico) têm título em aberto, só
- *     a representante MAIS URGENTE do grupo entra na fila -- as demais já
- *     serão cobradas por tabela a partir dessa visita (ver
- *     filtrarPorGrupoEconomico).
+ *   - Dia 1 de atraso
+ *   - Última movimentação é HOJE
+ *   - Alguma promessa (qualquer status) com data prometida DEPOIS de hoje
+ *   - Qualquer título dispara "não cobrar" no Módulo 1 (NAO COBRAR/CARTEIRA, ou
+ *     todos em cartório -- critério do banner avisarSeNaoCobrar): exclui o
+ *     CLIENTE inteiro, não só o título.
+ *   - Confirmado com o usuário: quando 2+ clientes do MESMO grupo econômico
+ *     têm título em aberto, só a representante MAIS URGENTE entra; as demais
+ *     são cobradas por tabela a partir dessa visita (filtrarPorGrupoEconomico).
+ *     O grupo vem de window.__alertaGrupo (Módulo 5, aba "Grupo" de verdade),
+ *     NÃO do grupoId da lista, que é outro campo sem relação com grupo econômico.
  *
- * POR QUE PRECISA VISITAR CADA CLIENTE: a lista de clientes (página de
- * lista) só mostra dias de atraso, cluster e a data da última movimentação
- * -- NÃO mostra a situação real do título (ULTIMO_DIA/NEGATIVADO_SCPC) nem
- * o fluxo (Cartório/SCPC), porque esses dois só existem depois de rodar a
- * classificação de verdade (Módulo 1), que por sua vez depende de um campo
- * ("SCPC:") que só aparece na PÁGINA DE DETALHE de cada cliente. Promessas
- * também só existem na aba "Promessas" da página de detalhe. Por isso este
- * módulo visita cada candidato em aba de fundo e só monta a fila depois de
- * classificar todo mundo.
+ * POR QUE VISITAR CADA CLIENTE: a lista só mostra dias de atraso, cluster e
+ * data da última movimentação. A situação real do título (ULTIMO_DIA/
+ * NEGATIVADO_SCPC) e o fluxo (Cartório/SCPC) só existem depois da classificação
+ * do Módulo 1, que depende do campo "SCPC:" da PÁGINA DE DETALHE. Promessas
+ * também só existem lá. Por isso cada candidato é visitado em aba de fundo e a
+ * fila só é montada depois de classificar todos.
  *
- * POR QUE ABA, e não algo melhor -- três alternativas testadas AO VIVO com o
- * usuário em 18/09/2026, todas derrubadas por dado real:
+ * POR QUE ABA -- alternativas testadas ao vivo com o usuário, derrubadas por dado real:
+ *   - API de cliente: NÃO EXISTE (só /api/notificacoes/contagem e /api/perfil/foto).
+ *   - iframe oculto: o CRM responde X-Frame-Options: deny.
+ *   - fetch + DOMParser: o HTML baixado não traz a tabela de títulos nem
+ *     SCPC/promessa/grupo prontos, mas os dados vêm embutidos em <script>
+ *     (__TITULOS_ABERTOS__ e companhia). Isso alimenta o MODO SOMBRA, mais
+ *     abaixo; a fila continua montada pelas abas, e a página baixada roda
+ *     junto só para comparar.
  *
- *   - API de cliente: NÃO EXISTE. Um reload completo com Preserve log no
- *     DevTools mostrou dois endpoints, /api/notificacoes/contagem e
- *     /api/perfil/foto. Nada de títulos, promessa ou grupo.
- *   - iframe oculto (seria invisível, paralelo, e não encostaria no Módulo 1
- *     protegido, já que nossos módulos são injetados em frames): o CRM
- *     responde X-Frame-Options: deny.
- *   - fetch + DOMParser (X-Frame-Options não se aplica a fetch): o HTML
- *     baixado vem SEM a tabela de títulos, sem o parágrafo do SCPC, sem
- *     promessa e sem grupo NO HTML. A hipótese levantada então -- a página
- *     montar o conteúdo no navegador a partir de dados embutidos num
- *     <script>, como a lista já faz com window.CLIENTES -- foi perseguida
- *     depois e funcionou: ver MODO SOMBRA (v1.45.0), mais abaixo, que lê
- *     __TITULOS_ABERTOS__ e companhia da página baixada. A fila continua
- *     sendo montada pelas abas; a página baixada roda junto só para
- *     comparar.
+ * CONCORRÊNCIA: CONFIG.CONCORRENCIA_CLASSIFICACAO (4) abas ao mesmo tempo; o
+ * teto é conservador de propósito (~92 cargas de página contra o CRM).
  *
- * CONCORRÊNCIA: as abas abrem de CONFIG.CONCORRENCIA_CLASSIFICACAO em
- * CONCORRENCIA_CLASSIFICACAO (4), não mais uma de cada vez -- com ~92
- * candidatos, sequencial custava 3 a 5 minutos. O teto é conservador de
- * propósito: são ~92 cargas de página contra o CRM da empresa.
+ * POP-UP: os `window.open` a partir do segundo não estão mais no gesto de
+ * teclado. Se o navegador bloquear, o cliente fica de fora (sem travar o
+ * resto), e um disjuntor (3 bloqueios sem nenhum sucesso) para tudo e avisa. A
+ * varredura AQUECE sequencialmente até o primeiro sucesso antes de paralelizar
+ * (senão o disjuntor afrouxa: no 3º bloqueio já há outras abas em voo). A
+ * correção é permitir pop-ups pra este site (ação única).
  *
- * SOBRE POPUP: os `window.open` a partir do segundo já não estão dentro do
- * gesto original de teclado. SE o navegador bloquear, o cliente fica de fora
- * (sem travar o resto), e há um disjuntor: 3 bloqueios sem nenhum sucesso
- * param tudo e avisam. Por isso a varredura AQUECE sequencialmente até o
- * primeiro sucesso antes de paralelizar -- sem isso o disjuntor afrouxa,
- * porque quando o 3º bloqueio é contabilizado já há outras abas em voo. A
- * correção, quando acontece, é permitir pop-ups pra este site (ação única).
- *
- * CACHE DO DIA: a classificação é gravada em
- * CONFIG.CHAVE_CACHE_CLASSIFICACAO e o Alt+U a reaproveita, então ela roda
- * UMA vez por dia (Shift+Alt+U força outra). DECISÃO DO USUÁRIO, registrada
- * porque é tentador "melhorar" isto depois: NÃO existe disparo automático de
- * manhã. Chegou a ser desenhado e foi recusado quando ficaram claras as duas
- * limitações -- userscript não roda com o navegador fechado (o horário vira
- * "primeira carga de página a partir dele") e a classificação só funciona na
- * página da LISTA, de onde lê os candidatos. Um Shift+Alt+U ao chegar
- * resolve o mesmo, sem trava entre abas nem abas abrindo sozinhas.
- *
- * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 0
- * (Utilitários Compartilhados -- usa window.__smartTableUtil.toast/
- * normalizarData/escolherTituloRepresentativo) e do Módulo 3 (Fila de
- * Atendimento) -- usa window.filaDebug.construirFilaAPartirDaPagina,
- * .salvarFila, .obterFila e .CONFIG. O atalho de teclado (Alt+U) em si fica
- * no Módulo 4, que chama window.filaPrioridadeDebug.iniciar() -- mesmo
- * padrão usado pro Alt+I chamar window.filaDebug.iniciarFila().
+ * CACHE DO DIA: a classificação é gravada em CONFIG.CHAVE_CACHE_CLASSIFICACAO e
+ * o Alt+U a reaproveita: roda UMA vez por dia (Shift+Alt+U força outra).
+ * DECISÃO DO USUÁRIO, e é tentador "melhorar" isto: NÃO existe disparo
+ * automático de manhã. Foi desenhado e recusado -- userscript não roda com o
+ * navegador fechado e a classificação só funciona na página da LISTA, de onde
+ * lê os candidatos. Um Shift+Alt+U ao chegar resolve o mesmo.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -174,9 +124,7 @@
   window.__filaPrioridadeCarregada = true;
   window.__smartTableUtil?.registrarModuloCarregado?.('Fila por Prioridade');
 
-  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
-  // deste arquivo no @require do wrapper.
-  // `esperar` saiu daqui: estava importado e nunca usado (achado pelo ESLint).
+  // Módulo 0: precisa estar carregado ANTES deste arquivo no @require.
   const { toast, normalizarData, escolherTituloRepresentativo } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
@@ -193,73 +141,46 @@
     DIA_PRIORIDADE_SEGUNDO_DIA: 2,
     // Prioridade 10: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
     //
-    // O 5º DIA FICA DE FORA DESTA FAIXA DE PROPÓSITO -- CONFIRMADO com o usuário
-    // depois de conferir uma fila real, onde 14 dos 92 clientes eram justamente
-    // dia 5. Na régua v3 ele ganhou faixa própria (14 na v4), ABAIXO desta. NÃO é lacuna esquecida entre o dia 2 e os
-    // dias 3-4: é a régua como ela foi desenhada. Quem for "consertar" isso
-    // acrescentando o 5 aqui vai derrubar o teste
-    // "EM_ATRASO dia 5 NÃO é atraso inicial" em tests/fila-prioridade.test.js,
-    // e deve trazer a mudança pro usuário em vez de tratar como bug.
+    // O 5º dia fica de fora de propósito (confirmado com o usuário): tem faixa
+    // própria (14), abaixo desta. Não é lacuna esquecida. Acrescentar o 5 aqui
+    // derruba o teste "EM_ATRASO dia 5 NÃO é atraso inicial" em
+    // tests/fila-prioridade.test.js; mudança assim vai ao usuário, não é bug.
     DIAS_PRIORIDADE_ATRASO_INICIAL: [3, 4],
-    // Prioridade 14 (régua v3, 28/09/2026, pedido do usuário depois de medir
-    // a faixa "Demais dias" numa fila real): o 5º dia ganhou faixa PRÓPRIA,
-    // abaixo do atraso inicial -- continua fora da faixa 10, como decidido.
+    // Prioridade 14: o 5º dia tem faixa PRÓPRIA, abaixo do atraso inicial.
     DIA_PRIORIDADE_QUINTO_DIA: 5,
-    // Versão da régua de faixas. Sobe toda vez que a NUMERAÇÃO das faixas
-    // muda: vai gravada em cada cliente da fila (versaoRegua) e em cada
-    // registro do diário (campo r), pra que uma fila ou um histórico montado
-    // com a numeração antiga nunca seja lido com os nomes da nova -- a faixa
-    // "5" da v1 (Promessa não cumprida) é outra coisa na v2 (Dia da promessa).
+    // Sobe toda vez que a NUMERAÇÃO das faixas muda. Vai gravada em cada cliente
+    // da fila (versaoRegua) e em cada registro do diário (campo r), pra fila ou
+    // histórico com a numeração antiga nunca ser lido com os nomes da nova.
     VERSAO_REGUA: 6,
-    // Prioridade 9: última movimentação OU último contato há tantos dias
-    // corridos OU MAIS (régua v5, 29/09/2026, pedido do usuário: "duas
-    // semanas", e ">= 14"). Era 30 e "mais de" (> 30) até a v4. A Carteira
-    // (Módulo 14) tem o seu próprio limite de 30 e NÃO acompanha.
+    // Prioridade 9: última movimentação OU último contato há tantos dias corridos
+    // OU MAIS (>=). A Carteira (Módulo 14) tem limite próprio (30) e não acompanha.
     DIAS_MOVIMENTACAO_ANTIGA: 14,
-    // Prioridade 5 e escolha do título representativo: mesmos limiares do
-    // aviso de suspensão de cadastro SCPC usados em todo o resto do sistema
-    // -- vêm do Módulo 0 (window.__smartTableUtil), não são mais uma cópia
-    // local. MANTER SINCRONIZADO manualmente só se um dia o Módulo 2
-    // (protegido, ainda com sua própria cópia) divergir.
+    // Limiares do aviso de suspensão SCPC, vindos do Módulo 0. O Módulo 2
+    // (protegido) ainda tem cópia própria: manter sincronizado se divergir.
     DIA_ULTIMO_DIA_SUSPENSAO_SCPC: window.__smartTableUtil.DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
     DIA_INICIO_AVISO_SUSPENSAO_SCPC: window.__smartTableUtil.DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     // Tempo esperando cada aba de fundo ficar pronta pra ler (Módulo 1 +
     // Módulo 6 carregados) -- mesma ordem de grandeza do Alt+A.
     TIMEOUT_CLASSIFICACAO_MS: 8000,
     INTERVALO_POLL_MS: 200,
-    // Quantas abas de fundo abrem AO MESMO TEMPO.
-    //
-    // Era 1 (estritamente sequencial). Com ~92 sobreviventes e 1-3s por
-    // página, isso dava 3 a 5 minutos -- e a única forma de ver a fila era
-    // pagar esse preço inteiro.
-    //
-    // 4 é conservador de propósito: são 92 cargas de página contra o CRM da
-    // empresa, e acelerar demais transforma uma automação de cobrança em
-    // algo que o servidor pode legitimamente achar abusivo. Subir isso é
-    // decisão de operação, não de código.
+    // Abas de fundo abertas AO MESMO TEMPO. Conservador de propósito: são ~92
+    // cargas de página contra o CRM da empresa. Subir é decisão de operação, não de código.
     CONCORRENCIA_CLASSIFICACAO: 4,
-    // Cache da classificação do dia. SEPARADO da fila de propósito: gravar
-    // por cima da fila destruiria a posição em que você parou -- o mesmo bug
-    // que a v1.16.0 acabou de consertar.
+    // Cache da classificação do dia. SEPARADO da fila de propósito: gravar por
+    // cima dela destruiria a posição em que o operador parou.
     CHAVE_CACHE_CLASSIFICACAO: 'smarttable_classificacao_v2',
-    // PEDIDO DO USUÁRIO: o painel de progresso (Módulo 11) precisa mostrar
-    // sempre o resultado da PRIMEIRA fila por prioridade do dia -- não a
-    // fila "ao vivo", que encolhe conforme clientes são atendidos/removidos
-    // (Shift+Alt+U reclassifica, retomarFilaDeHoje tira quem já mexeu hoje).
-    // Esse snapshot é gravado uma vez só por dia (ver
-    // gravarSnapshotProgressoSeForOPrimeiroDoDia) e só é substituído quando
-    // o dia muda -- exatamente como o cache acima, mas nunca reescrito
-    // dentro do mesmo dia, nem pelo Shift+Alt+U.
+    // Snapshot da PRIMEIRA fila por prioridade do dia, que o painel de progresso
+    // (Módulo 11) mostra (pedido do usuário). Gravado uma vez por dia e nunca
+    // reescrito no mesmo dia, nem pelo Shift+Alt+U: a fila ao vivo encolhe
+    // conforme se atende. Ver gravarSnapshotProgressoSeForOPrimeiroDoDia.
     CHAVE_SNAPSHOT_PROGRESSO: 'smarttable_progresso_dia_v2',
-    // MODO SOMBRA (v1.45.0): o Alt+U continua abrindo abas; a classificação
-    // pela página BAIXADA roda junto e o resultado é comparado. Só troca de
-    // caminho quando a comparação der zero diferença nos dias reais.
+    // MODO SOMBRA: a classificação pela página baixada roda junto com as abas e
+    // é comparada. Só troca de caminho com zero diferença nos dias reais.
     CHAVE_SOMBRA_ULTIMA: 'smarttable_sombra_alt_u_v1',
     CHAVE_SOMBRA_HISTORICO: 'smarttable_sombra_alt_u_historico_v1',
     SOMBRA_CONCORRENCIA: 4,
     SOMBRA_TIMEOUT_PAGINA_MS: 15000,
-    // Depois que as abas terminam, espera a sombra no máximo isto antes de
-    // montar a fila -- a fila NUNCA atrasa por causa da sombra além disso.
+    // Espera máxima pela sombra antes de montar a fila: a fila nunca atrasa além disso.
     SOMBRA_ESPERA_MAXIMA_MS: 20000,
     SOMBRA_DIAS_HISTORICO: 30,
   };
@@ -286,28 +207,17 @@
   // do 16º dia, quando começa o aviso de suspensão) -- ver compararPelaRegua.
   const FAIXA_SCPC_ANTES_DO_AVISO = 11;
 
-  // Cor de cada faixa: borda do aviso de troca de prioridade (ver
-  // toastTrocaPrioridade abaixo) e barra/ponto do painel de progresso
-  // (Módulo 11). Paleta v1.48.1, aprovada pelo usuário em 28/09, escolhida
-  // por critério e não por gosto:
-  //  - contraste de pelo menos 3:1 sobre o branco do painel (WCAG 2.1,
-  //    critério 1.4.11, contraste de elementos gráficos);
-  //  - todos os tons da escala publicada do Untitled UI (derivada do
-  //    Tailwind), nenhum inventado;
-  //  - escolhidos por otimização para maximizar a menor diferença
-  //    perceptível (CIEDE2000) entre duas faixas quaisquer: 14,2 com visão
-  //    normal e 4,8 simulando deuteranopia (antes: 0, faixas 1 e 10 iguais);
-  //    na régua v4 (mesmo dia) cada cor seguiu o NOME da faixa que mudou de
-  //    posição -- nenhuma cor nova, então as medidas continuam valendo; o mesmo
-  //    na v5 (29/09/2026);
-  //  - uma família por significado: vermelho = último dia (1 e 12), roxo =
-  //    Cluster Novo, ciano/verde-azulado = contato (3 e 4), verde = promessa
-  //    no dia, rosa = promessa quebrada, índigo = janela SCPC (7, 8, 11),
-  //    musgo = conta esquecida, laranja/âmbar/ocre = atraso e cartório
-  //    (10, 13, 14), cinza = demais dias.
-  // A cor nunca é o único sinal: a faixa sempre aparece com número e nome
-  // (WCAG 1.4.1). tests/fila-prioridade.test.js confere contraste e que
-  // nenhuma cor se repete.
+  // Cor de cada faixa: borda do aviso de troca de prioridade e barra/ponto do
+  // painel de progresso (Módulo 11). Critérios: contraste >= 3:1 sobre o branco
+  // (WCAG 1.4.11); só tons da escala do Untitled UI; maximiza a menor diferença
+  // CIEDE2000 entre faixas (14,2 visão normal, 4,8 deuteranopia). Quando uma
+  // faixa muda de posição a cor segue o NOME dela. Famílias: vermelho = último
+  // dia (1, 12), roxo = Cluster Novo, ciano/verde-azulado = contato (3, 4),
+  // verde = promessa no dia, rosa = promessa quebrada, índigo = janela SCPC
+  // (7, 8, 11), musgo = conta esquecida, laranja/âmbar/ocre = atraso e
+  // cartório (10, 13, 14), cinza = demais dias.
+  // A cor nunca é o único sinal (WCAG 1.4.1): a faixa sempre tem número e nome.
+  // tests/fila-prioridade.test.js confere contraste e que nenhuma cor se repete.
   const CORES_PRIORIDADE = {
     1: '#D92D20',
     2: '#9F1AB1',
@@ -364,9 +274,7 @@
         fontFamily: 'system-ui, -apple-system, sans-serif',
         maxWidth: '360px',
       });
-      // Na pilha de avisos (Módulo 0, v1.38.0) -- antes nascia no mesmo
-      // ponto dos avisos e ficava por cima/por baixo deles. "fixo": fica até
-      // a classificação acabar, nunca sai pra dar lugar a um aviso novo.
+      // "fixo": fica até a classificação acabar, nunca sai pra dar lugar a aviso novo.
       colocarNaPilha(indicadorEl, { fixo: true });
     }
     indicadorEl.textContent = texto;
@@ -379,13 +287,9 @@
     }
   }
 
-  // PEDIDO DO USUÁRIO: aviso de troca de prioridade mais aparente, sem
-  // destoar do resto do app -- mesma base visual do toast genérico (fundo
-  // escuro, cantos arredondados, mesma fonte, mesma posição), só que com
-  // borda de destaque colorida por prioridade (ver CORES_PRIORIDADE),
-  // texto em duas linhas (rótulo pequeno + nome em negrito, maior que o
-  // toast normal) e uma leve animação de entrada -- deixa mais chamativo
-  // sem virar um elemento estranho ao resto da interface.
+  // Aviso de troca de prioridade (pedido do usuário): mesma base visual do toast
+  // genérico, com borda colorida por faixa (CORES_PRIORIDADE), rótulo pequeno +
+  // nome em negrito e animação leve de entrada.
   function toastTrocaPrioridade(prefixo, prioridadeTier, prioridadeNome, duracaoMs) {
     duracaoMs = duracaoMs || 5000;
     const cor = CORES_PRIORIDADE[prioridadeTier] || '#16232F';
@@ -441,26 +345,14 @@
   /* ---------------------------------------------------------------------
    * 4. LEITURA DA LISTA (fase 1 -- síncrona, reaproveitando o Módulo 3)
    * --------------------------------------------------------------------- */
-  // Reaproveita construirFilaAPartirDaPagina (já cuida de deduplicar
-  // matriz/filial mantendo o mais atrasado, e de pular quem já foi
-  // atendido hoje) e enriquece cada candidato com cluster + data da última
-  // movimentação.
+  // Reaproveita construirFilaAPartirDaPagina (Módulo 3: deduplica matriz/filial
+  // mantendo o mais atrasado e pula quem já foi atendido hoje) e enriquece cada
+  // candidato com cluster, data da última movimentação e diasAtraso.
   //
-  // CORRIGIDO (bug real, achado ao vivo): a primeira versão tentava adivinhar
-  // esses dois campos lendo texto renderizado (span.pbi-meta pro cluster, a
-  // "última data visível" na linha pra movimentação) -- as duas suposições
-  // eram erradas. pbi-meta é na verdade situacaoCobrancaDescricao, e a
-  // "última data" só coincidia por sorte com a real na maioria dos casos,
-  // mas não dava pra confiar (67 de 133 clientes bateram "hoje", muitos
-  // deles claramente por coincidência de posição, não pela data certa).
-  //
-  // A CORREÇÃO: window.CLIENTES é um array com os dados brutos do cliente
-  // que a própria página já usa pra renderizar a tabela (confirmado via
-  // HTML/JS real -- var CLIENTES = [...] dentro de um <script> da página).
-  // Como o script roda com @grant none, temos acesso direto a esse array --
-  // ler os campos ali (cluster, dataUltimaMovimentacao) é muito mais
-  // confiável do que tentar re-derivar a mesma informação a partir do HTML
-  // já renderizado.
+  // A fonte confiável é window.CLIENTES (var CLIENTES = [...] num <script> da
+  // página, confirmado no HTML real; com @grant none o acesso é direto). NÃO
+  // ler do texto renderizado: span.pbi-meta é situacaoCobrancaDescricao, não o
+  // cluster, e a "última data visível" da linha não é a movimentação real.
   function obterMapaClientes() {
     if (!Array.isArray(window.CLIENTES)) return null;
     const mapa = new Map();
@@ -493,30 +385,20 @@
       if (mapaClientes && !dadosCliente) semCorrespondenciaNoMapa++;
       return Object.assign({}, cliente, {
         cluster: dadosCliente ? (dadosCliente.cluster || '') : '',
-        // Formato ISO ("2026-09-11T08:00:11.523327") -- comparamos só a
-        // parte "AAAA-MM-DD" por string, mesmo padrão que o próprio script
-        // da página usa (ver isBeforeOrToday/isBeforeToday no HTML real) --
-        // evita qualquer pegadinha de fuso horário na conversão pra Date.
+        // ISO ("2026-09-11T08:00:11.523327"): compara-se só "AAAA-MM-DD" por
+        // string, como o script da página, evitando fuso na conversão pra Date.
         movimentacaoDataIso: dadosCliente ? (dadosCliente.dataUltimaMovimentacao || null) : null,
-        // BUG REAL (relatado pelo usuário, achado ao vivo): o diasAtraso que
-        // vem de construirFilaAPartirDaPagina() é extraído por regex do
-        // texto INTEIRO da linha (primeira ocorrência de "N dias") -- a
-        // linha tem MAIS de um número seguido de "dias" (ex.: diasAtraso e
-        // diasAtrasoMedio são campos separados em window.CLIENTES, e nada
-        // garante que o regex pega o certo). Isso inflou a exclusão de
-        // ">19 dias" bem além do real (62 de 65 candidatos, número que o
-        // usuário confirmou não bater com a carteira de verdade).
-        // window.CLIENTES[].diasAtraso é o valor estruturado e correto --
-        // sobrescreve o valor extraído por regex sempre que disponível.
+        // O diasAtraso de construirFilaAPartirDaPagina vem de regex no texto da
+        // linha, que tem mais de um "N dias" (diasAtraso e diasAtrasoMedio são
+        // campos separados) e inflava a exclusão ">19 dias". O valor estruturado
+        // de window.CLIENTES sobrescreve o da regex sempre que existe.
         diasAtraso:
           dadosCliente && typeof dadosCliente.diasAtraso === 'number' ? dadosCliente.diasAtraso : cliente.diasAtraso,
       });
     });
 
-    // Se window.CLIENTES existe mas algum CNPJ específico não bate com
-    // nada nele, esses candidatos caem de volta no valor extraído por
-    // regex (mesmo bug antigo) sem avisar nada -- isso deixaria passar em
-    // silêncio a mesma classe de problema que acabamos de corrigir.
+    // CNPJ que não bate com window.CLIENTES cai no valor da regex (menos
+    // confiável); avisa pra isso não passar em silêncio.
     if (semCorrespondenciaNoMapa > 0) {
       console.warn(
         `[Fila Prioridade] ${semCorrespondenciaNoMapa} candidato(s) não bateram com nenhum CNPJ em window.CLIENTES -- ` +
@@ -537,12 +419,9 @@
     return dataStr === hojeStr;
   }
 
-  // Converte a parte "AAAA-MM-DD" de movimentacaoDataIso num Date normalizado
-  // (meio-dia, mesma convenção de normalizarData do Módulo 0) -- construído
-  // via new Date(ano, mes-1, dia) e NÃO via new Date("AAAA-MM-DD") de
-  // propósito: essa segunda forma é interpretada como UTC meia-noite pelo
-  // motor JS, podendo virar o dia errado dependendo do fuso do navegador
-  // (mesma pegadinha já evitada em converterDataBr no Módulo 6).
+  // "AAAA-MM-DD" de movimentacaoDataIso -> Date normalizado (meio-dia). Usa
+  // new Date(ano, mes-1, dia), NÃO new Date("AAAA-MM-DD"): esta é UTC meia-noite
+  // e pode virar o dia errado conforme o fuso (mesmo cuidado de converterDataBr, Módulo 6).
   function dataDaMovimentacao(movimentacaoDataIso) {
     if (!movimentacaoDataIso) return null;
     const dataStr = String(movimentacaoDataIso).split('T')[0];
@@ -551,11 +430,8 @@
     return normalizarData(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   }
 
-  // Prioridade 9 (pedido do usuário): data (movimentação ou contato) que já
-  // tem CONFIG.DIAS_MOVIMENTACAO_ANTIGA dias corridos OU MAIS (>=, v5) --
-  // conta "esquecida", sem nenhum toque recente. hoje já vem normalizado
-  // (normalizarData) de quem chama, pra bater com a mesma meia-noite/
-  // meio-dia usados no resto do sistema.
+  // Prioridade 9: data (movimentação ou contato) com DIAS_MOVIMENTACAO_ANTIGA
+  // dias corridos OU MAIS (>=). hoje já vem normalizado de quem chama.
   function semMovimentoHaDuasSemanas(movimentacaoDataIso, hoje) {
     const data = dataDaMovimentacao(movimentacaoDataIso);
     if (!data || !hoje) return false;
@@ -563,37 +439,25 @@
     return diasCorridos >= CONFIG.DIAS_MOVIMENTACAO_ANTIGA;
   }
 
-  // Extraído pra não duplicar a mesma normalização (trim + minúsculas) que
-  // determinarPrioridade já fazia inline -- é exatamente o tipo de regra
-  // copiada em dois lugares que este projeto paga caro quando um dos dois
-  // fica pra trás (ver Módulo 2/Módulo 4, título representativo).
+  // Regra única (trim + minúsculas) de cluster novo, pra não existir em dois lugares.
   function ehClusterNovo(cluster) {
     return (cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO;
   }
 
-  // Exclusões que já dá pra decidir só com o que a lista mostra -- não
-  // precisa visitar ninguém pra isso.
+  // Exclusões decidíveis só com o que a lista mostra, sem visitar ninguém.
   //
-  // EXCEÇÃO PEDIDA PELO USUÁRIO (Cluster Novo não é cortado pelo teto de
-  // dias): um cliente Cluster Novo com título já em cartório passa dos 19
-  // dias de sobra e seria excluído aqui -- mas ele PRECISA aparecer na fila,
-  // porque a cobrança é quem bloqueia o faturamento pra esse cliente. Cluster
-  // Novo já vira prioridade 2 em QUALQUER situação de título
-  // (determinarPrioridade não olha o código da situação pra essa faixa), e
-  // como este filtro roda ANTES de visitar o cliente e descobrir se o título
-  // está mesmo em cartório, a exceção precisa valer pro cluster inteiro --
-  // não dá pra saber "é cartório?" sem visitar, e visitar é exatamente o que
-  // este filtro existe pra evitar fazer em quem não vai entrar na fila mesmo.
+  // Exceção (decisão do usuário): Cluster Novo NÃO é cortado pelo teto de dias.
+  // Cliente novo com título em cartório passa dos 19 dias e precisa aparecer,
+  // pois a cobrança bloqueia o faturamento dele. Saber "é cartório?" exigiria
+  // visitar, então a isenção vale para o cluster inteiro.
   function filtrarPorRegrasDaLista(candidatos) {
     const sobreviventes = [];
     const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0, naoCobrarTemporario: 0 };
 
     candidatos.forEach((c) => {
-      // PEDIDO DO USUÁRIO (Módulo 12, botão "Alerta" na página do cliente):
-      // "não cobrar" marcado ali é uma decisão HUMANA explícita, e vence
-      // qualquer regra automática desta fila -- inclusive a isenção do
-      // Cluster Novo logo abaixo. Optional chaining: sem o Módulo 12
-      // carregado, ninguém é suprimido por isso (degrada, não quebra).
+      // "Não cobrar" do botão Alerta (Módulo 12) é decisão humana e vence toda
+      // regra automática, inclusive a isenção do Cluster Novo. Sem o Módulo 12
+      // carregado, ninguém é suprimido (degrada, não quebra).
       if (window.__alertaCliente?.estaSuprimidoDaPrioridade?.(c.cnpj)) {
         excluidos.naoCobrarTemporario++;
         return;
@@ -623,16 +487,11 @@
   /* ---------------------------------------------------------------------
    * 5. CLASSIFICAÇÃO REAL (fase 2 -- visita cada candidato em aba de fundo)
    * --------------------------------------------------------------------- */
-  // Mesma regra do Módulo 4 -- agora centralizada no Módulo 0
-  // (window.__smartTableUtil.escolherTituloRepresentativo). ULTIMO_DIA
-  // sempre vence, senão a janela de aviso de suspensão SCPC (16-19 dias),
-  // senão o título de maior atraso real. Ver histórico completo do bug de
-  // priorização no Módulo 0.
+  // Título representativo: escolherTituloRepresentativo (Módulo 0, mesma regra do
+  // Módulo 4). ULTIMO_DIA vence, depois a janela SCPC 16-19, depois o maior atraso real.
 
-  // Espera a aba de fundo carregar os módulos necessários pra classificar
-  // (Módulo 1 pronto pra simular() + Módulo 6 já com __contextoAdicional
-  // calculado, mesmo que tenha caído no fallback de erro -- o que importa
-  // é não ler pela metade).
+  // Espera a aba de fundo ter o Módulo 1 pronto pra simular() e o Módulo 6 com
+  // __contextoAdicional calculado (mesmo que no fallback de erro): nunca ler pela metade.
   function esperarAbaPronta(janela, timeoutMs, intervaloMs) {
     return new Promise((resolve) => {
       const prazoFinal = Date.now() + timeoutMs;
@@ -645,9 +504,8 @@
             typeof janela.__avisoCobranca.simular === 'function' &&
             janela.__contextoAdicional &&
             janela.__alertaGrupo &&
-            // Acordos (Módulo 16, v1.41.0): o simular() só separa os títulos
-            // em acordo depois que a leitura dos acordos terminou. Sem o
-            // módulo na aba (cache antigo), não espera nada.
+            // Acordos (Módulo 16): simular() só separa os títulos em acordo depois
+            // que a leitura dos acordos termina. Sem o módulo na aba, não espera.
             (janela.__negociacoesCarregado !== true || janela.__negociacoes?.estaPronto?.() === true)
           );
         } catch (erro) {
@@ -660,32 +518,23 @@
     });
   }
 
-  // Primeira faixa que se aplicar vence -- por isso a ordem de checagem
-  // aqui segue exatamente a numeração das prioridades (1 a 15, régua v3).
+  // Primeira faixa que se aplicar vence: a ordem das checagens segue a numeração (1 a 15).
   //
-  // contextoPromessa é o window.__contextoAdicional.promessa da aba de
-  // fundo (Módulo 6): { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL',
-  // promessa } ou null. Vem null quando não há promessa ativa -- inclusive
-  // quando o Módulo 6 já considerou a promessa resolvida (título pago) ou
-  // quando já houve contato depois do vencimento, que é exatamente quando
-  // ela deixa de ser o assunto mais urgente do cliente.
+  // contextoPromessa é window.__contextoAdicional.promessa da aba (Módulo 6):
+  // { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL', promessa } ou null.
+  // null inclui promessa já resolvida (título pago) ou com contato depois do
+  // vencimento.
   //
-  // movimentacaoDataIso e hoje são opcionais (testes antigos chamam esta
-  // função sem eles) -- sem os dois, a faixa 9 simplesmente nunca casa,
-  // caindo nas faixas seguintes normalmente (semMovimentoHaDuasSemanas já
-  // trata ausência de qualquer um dos dois como "não aplica").
+  // movimentacaoDataIso e hoje são opcionais; sem eles a faixa 9 não casa.
   //
-  // extras (régua v2, também opcional):
-  //   - semContato: a aba Contatos está vazia (faixa 4). Ausente = false.
-  //   - maiorAtrasoDoCliente: maior diasAtrasoReal entre TODOS os títulos
-  //     do cliente, cartório incluído (faixas 3 e 10). Ausente = o do próprio
-  //     título escolhido, ou seja, não bloqueia a faixa.
-  //   - ultimoContatoIso: data (AAAA-MM-DD) do contato mais recente, de
-  //     qualquer pessoa (faixa 9). Ausente = só a movimentação decide.
-  //   - temTituloEmCartorio: o cliente tem título EM_CARTORIO entre os em
-  //     cobrança (faixa 13, régua v3/v4). Ausente = false.
-  //   - temNegativadoNoDiaDaSuspensao: o cliente tem título NEGATIVADO_SCPC
-  //     exatamente no 19º dia (faixa 7, régua v6). Ausente = false.
+  // extras (opcional):
+  //   - semContato: aba Contatos vazia (faixa 4). Ausente = false.
+  //   - maiorAtrasoDoCliente: maior diasAtrasoReal entre TODOS os títulos,
+  //     cartório incluído (faixas 3 e 10). Ausente = o do título escolhido.
+  //   - ultimoContatoIso: AAAA-MM-DD do contato mais recente, de qualquer
+  //     pessoa (faixa 9). Ausente = só a movimentação decide.
+  //   - temTituloEmCartorio: há título EM_CARTORIO entre os em cobrança (faixa 13).
+  //   - temNegativadoNoDiaDaSuspensao: há título NEGATIVADO_SCPC no 19º dia (faixa 7).
   function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje, extras = {}) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
     const { situacaoKey, diasAtrasoReal } = escolhido;
@@ -693,11 +542,9 @@
 
     if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
     if (ehClusterNovo(cluster)) return 2;
-    // CORRIGIDO (v1.47.1, relatado pelo usuário: "nesta prioridade é apenas
-    // títulos em segundo dia de atraso"): o título escolhido deixa o cartório
-    // de fora (regra da mensagem), então um cliente com título de 2 dias +
-    // outro em cartório há semanas entrava aqui. Agora exige, como a faixa
-    // 10, que NENHUM título do cliente tenha mais dias (cartório conta).
+    // Faixa 3 exige que NENHUM título do cliente tenha mais dias (cartório
+    // conta): o título escolhido deixa o cartório de fora, e sem isso um cliente
+    // com título de 2 dias + outro em cartório há semanas entraria aqui.
     if (
       situacaoKey === 'EM_ATRASO' &&
       diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA &&
@@ -709,12 +556,10 @@
     if (tipoPromessa === 'DIA_DA_PROMESSA') return 5;
     if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 6;
     if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC) return 7;
-    // Régua v6 (29/09/2026, decisão do usuário): último dia + outro título
-    // negativado no 19º dia. O título escolhido é o de último dia (Módulo 0),
-    // mas a mensagem do Alt+A já fala da suspensão de hoje (Módulo 4,
-    // tituloNegativadoQueManda); a fila passa a tratar como o dia 19 (faixa 7)
-    // em vez da 12. Os negativados de 16 a 18 e de 1 a 15 ficaram de fora
-    // (não decididos pelo usuário).
+    // Último dia + outro título negativado no 19º dia (decisão do usuário): o
+    // escolhido é o de último dia (Módulo 0), mas a mensagem do Alt+A já fala da
+    // suspensão de hoje (Módulo 4, tituloNegativadoQueManda), então a fila trata
+    // como faixa 7, não 12. Negativados de 1 a 18 dias ficam de fora (não decididos).
     if (situacaoKey === 'ULTIMO_DIA' && extras.temNegativadoNoDiaDaSuspensao === true) return 7;
     if (
       situacaoKey === 'NEGATIVADO_SCPC' &&
@@ -723,14 +568,12 @@
     ) {
       return 8;
     }
-    // Mesma régua de 14 dias corridos (ou mais) pras duas datas (as duas chegam como
-    // AAAA-MM-DD). Contato ausente (null) nunca casa sozinho: quem nunca
-    // teve contato já ficou na faixa 4.
+    // Mesma régua (>= 14 dias corridos) pras duas datas (AAAA-MM-DD). Contato
+    // ausente nunca casa sozinho: quem nunca teve contato já ficou na faixa 4.
     if (semMovimentoHaDuasSemanas(movimentacaoDataIso, hoje) || semMovimentoHaDuasSemanas(extras.ultimoContatoIso, hoje)) return 9;
-    // Régua v5 (29/09/2026, pedido do usuário): o atraso inicial vem ANTES
-    // dos dois SCPC. As três situações são exclusivas entre si (cada uma é a
-    // situação do MESMO título escolhido), então a ordem destas checagens não
-    // muda quem cai onde; o que ordena é o número devolvido.
+    // O atraso inicial vem ANTES dos dois SCPC (decisão do usuário). As três
+    // situações são exclusivas (cada uma é a do MESMO título escolhido): o que
+    // ordena é o número devolvido, não a ordem destas checagens.
     if (
       situacaoKey === 'EM_ATRASO' &&
       CONFIG.DIAS_PRIORIDADE_ATRASO_INICIAL.includes(diasAtrasoReal) &&
@@ -738,12 +581,10 @@
     ) {
       return 10;
     }
-    // Régua v4 (28/09/2026): o SCPC antes do aviso de suspensão vem ANTES do
-    // SCPC último dia -- e, como a checagem é feita aqui, também antes de
-    // "cartório e outro vencido" (faixa 13), que na v3 ficava na frente dele.
+    // SCPC antes do aviso vem ANTES do SCPC último dia e de "cartório e outro vencido" (13).
     if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal < CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC) return FAIXA_SCPC_ANTES_DO_AVISO;
     if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 12;
-    // Régua v3 (28/09/2026): o que era "Demais dias", separado pela fila real.
+    // Faixas 13 e 14: subdivisão do que seria "Demais dias".
     if (extras.temTituloEmCartorio === true && situacaoKey !== 'EM_CARTORIO') return 13;
     if (situacaoKey === 'EM_ATRASO' && diasAtrasoReal === CONFIG.DIA_PRIORIDADE_QUINTO_DIA) return 14;
     return 15;
@@ -807,11 +648,10 @@
   }
 
   /**
-   * A classificação em si, a partir de uma aba PRONTA -- a de verdade
-   * (classificarCliente) ou a "aba virtual" montada da página baixada
-   * (v1.45.0, modo sombra: montarAbaVirtual). Uma função só pros dois
-   * caminhos: a única diferença possível entre eles fica nos DADOS, que é
-   * exatamente o que o modo sombra mede.
+   * A classificação em si, a partir de uma aba PRONTA: a de verdade
+   * (classificarCliente) ou a "aba virtual" da página baixada (montarAbaVirtual,
+   * modo sombra). Função única pros dois caminhos: a diferença possível fica só
+   * nos DADOS, que é o que o modo sombra mede.
    */
   function classificarAPartirDaAba(cliente, aba) {
     let dadosTitulos;
@@ -822,21 +662,17 @@
       return { cliente, erro: 'falha-titulos' };
     }
 
-    // CONFIRMADO com o usuário: cliente com QUALQUER título em "não
-    // cobrar" (NAO COBRAR/CARTEIRA no CRM, ou todos os títulos já em
-    // cartório -- ver POSICOES_EXCLUIDAS_DE_COBRANCA e o banner
-    // avisarSeNaoCobrar no Módulo 1) fica de fora da fila inteira, não só
-    // o título específico -- precisa de atenção manual, não de uma
-    // automação de urgência. dadosTitulos.naoCobrar já vem pronto do
-    // Módulo 1 na mesma simulação, sem custo extra de visita.
+    // Confirmado com o usuário: cliente com QUALQUER título em "não cobrar"
+    // (NAO COBRAR/CARTEIRA, ou todos em cartório -- ver POSICOES_EXCLUIDAS_DE_COBRANCA
+    // e avisarSeNaoCobrar, Módulo 1) fica fora da fila inteira, não só o título.
+    // dadosTitulos.naoCobrar já vem da mesma simulação, sem custo de visita.
     if (dadosTitulos.naoCobrar && dadosTitulos.naoCobrar.length > 0) {
       return { cliente, excluidoPorNaoCobrar: true };
     }
 
-    // ACORDOS (v1.41.0, decisão do usuário): todos os títulos vencidos em
-    // acordo ATIVA/CONCLUIDA -> fora da fila se as parcelas estão em dia
-    // (não há o que cobrar); parcela atrasada -> faixa 6, a mesma de
-    // "promessa não cumprida". Caso misto: régua normal pelos demais.
+    // Acordos (decisão do usuário): todos os títulos vencidos em acordo
+    // ATIVA/CONCLUIDA -> fora da fila se as parcelas estão em dia; parcela
+    // atrasada -> faixa 6 (a de "promessa não cumprida"). Misto: régua normal pelos demais.
     let prioridadeForcada = null;
     let registrosParaEscolha = dadosTitulos;
     if ((dadosTitulos.registros?.length ?? 0) === 0 && (dadosTitulos.emAcordo?.length ?? 0) > 0) {
@@ -868,11 +704,8 @@
       return { cliente, excluidoPorPromessaFutura: true };
     }
 
-    // Promessa ATIVA calculada pelo Módulo 6 nesta mesma aba de fundo
-    // (já esperada por esperarAbaPronta) -- é o que decide as faixas 4 e
-    // 5 da régua. Diferente de `promessas` acima (leitura crua, usada só
-    // pra excluir quem tem promessa com data futura), aqui já vem a
-    // decisão pronta e cruzada com os títulos ainda em aberto.
+    // Promessa ATIVA calculada pelo Módulo 6 nesta aba (decide as faixas 5 e 6).
+    // Diferente de `promessas` (leitura crua, usada só pra excluir promessa futura).
     const contextoPromessa = (aba.__contextoAdicional && aba.__contextoAdicional.promessa) || null;
 
     const ultimoContatoIso = lerUltimoContatoIso(aba);
@@ -894,47 +727,37 @@
       }
     );
 
-    // CONFIRMADO com o usuário: se outra empresa do mesmo grupo econômico
-    // também tem título vencido, só UMA representante do grupo deve
-    // entrar na fila (a mais urgente) -- as outras já serão cobradas por
-    // tabela via essa mesma visita (ver Alt+A/Alt+G, Módulo 4/5). O
-    // Módulo 5 já lê a aba "Grupo" de verdade em toda visita à página do
-    // cliente (não é o grupoId da lista, que é outro campo, confirmado
-    // via diagnóstico ao vivo) -- window.__alertaGrupo já está disponível
-    // de graça nesta mesma aba de fundo, sem custo extra de visita.
+    // Confirmado com o usuário: se outra empresa do mesmo grupo econômico também
+    // tem título vencido, só a representante mais urgente entra na fila (as
+    // outras são cobradas por tabela via essa visita; Alt+A/Alt+G, Módulos 4/5).
+    // O Módulo 5 lê a aba "Grupo" de verdade (não o grupoId da lista) em toda
+    // visita, então window.__alertaGrupo já está disponível nesta aba.
     const empresasComVencido = (aba.__alertaGrupo && aba.__alertaGrupo.empresasComVencido) || [];
 
     const valorVencido = valorVencidoEntre(dadosTitulos.registros);
     return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade, empresasComVencido, ultimoContatoIso, valorVencido };
   }
 
-  // Só os dígitos -- mesmo padrão usado em outros pontos do sistema pra
-  // comparar CNPJ entre fontes com formatação diferente (o da URL do
-  // candidato vem com barra/traço, o lido da tabela "Clientes do grupo"
-  // pode vir só com pontuação, etc.).
+  // Só dígitos: compara CNPJ entre fontes com formatação diferente.
   function normalizarCnpj(cnpj) {
     return (cnpj || '').replace(/\D/g, '');
   }
 
-  // Mais urgente = quem vem primeiro na régua (compararPelaRegua) -- o
-  // MESMO critério da ordenação final da fila, pra "representante do grupo"
-  // e "posição na fila" nunca discordarem. Empate total: fica o primeiro.
+  // Mais urgente = quem vem primeiro em compararPelaRegua, o MESMO critério da
+  // ordenação final: representante do grupo e posição na fila nunca discordam.
+  // Empate total: fica o primeiro.
   function maisUrgente(a, b) {
     return compararPelaRegua(a, b) <= 0 ? a : b;
   }
 
-  // CONFIRMADO com o usuário: quando 2+ clientes do MESMO grupo econômico
-  // têm título em aberto, só a representante mais urgente do grupo entra
-  // na fila -- as demais já serão cobradas por tabela ao atender essa
-  // primeira (Alt+G/Alt+A já cobrem "outras razões do grupo" a partir dela).
-  // Só dá pra saber quem é do mesmo grupo DEPOIS de classificar cada um
-  // (ver empresasComVencido em classificarCliente), por isso roda aqui,
-  // depois do laço de classificação, nunca antes.
+  // Confirmado com o usuário: quando 2+ clientes do MESMO grupo econômico têm
+  // título em aberto, só a representante mais urgente entra na fila. Só dá pra
+  // saber quem é do grupo DEPOIS de classificar (empresasComVencido), por isso
+  // roda depois do laço de classificação.
   //
-  // Agrupamento via união por CNPJ cruzado: dois resultados entram no mesmo
-  // cluster se o CNPJ de QUALQUER um aparece na lista empresasComVencido do
-  // outro (união também nas duas mãos, pra tolerar o caso da tabela do
-  // grupo não listar os dois lados de forma simétrica).
+  // Agrupamento por união de CNPJ cruzado: dois resultados entram no mesmo
+  // cluster se o CNPJ de QUALQUER um aparece em empresasComVencido do outro
+  // (tolera a tabela do grupo não listar os dois lados de forma simétrica).
   function filtrarPorGrupoEconomico(resultados) {
     const indicePorCnpj = new Map();
     resultados.forEach((r, i) => {
@@ -942,8 +765,7 @@
       if (cnpj) indicePorCnpj.set(cnpj, i);
     });
 
-    // Union-Find simples (path compression) -- número de candidatos por
-    // rodada é pequeno (dezenas), não precisa de nada mais sofisticado.
+    // Union-Find simples (path compression); são dezenas de candidatos por rodada.
     const pai = resultados.map((_, i) => i);
     function encontrar(i) {
       while (pai[i] !== i) {
@@ -992,14 +814,12 @@
    * 6. ORQUESTRAÇÃO (Alt+U)
    * --------------------------------------------------------------------- */
   /**
-   * Ordena pela régua: faixa 1 primeiro; dentro da faixa, do contato mais
-   * ANTIGO pro mais recente (CONFIRMADO com o usuário, régua v2), com quem
-   * nunca teve contato na frente de todos; empate, MAIOR VALOR VENCIDO
-   * primeiro (régua v3), depois mais dias de atraso. Na faixa 11 (SCPC antes
-   * do aviso), mais dias vem ANTES de tudo -- mais perto do 16º dia.
+   * Ordena pela régua: faixa 1 primeiro; dentro da faixa, contato mais ANTIGO
+   * primeiro (quem nunca teve contato na frente de todos); empate, MAIOR VALOR
+   * VENCIDO, depois mais dias de atraso (confirmado com o usuário). Na faixa 11,
+   * mais dias vem ANTES de tudo (mais perto do 16º dia).
    *
-   * ultimoContatoIso é AAAA-MM-DD, então comparar como texto já é comparar
-   * como data.
+   * ultimoContatoIso é AAAA-MM-DD, então comparar como texto é comparar como data.
    */
   function compararPelaRegua(a, b) {
     if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
@@ -1016,14 +836,9 @@
   /**
    * A fila salva foi montada por ESTE módulo?
    *
-   * Módulo 3 (Alt+I) e Módulo 7 (Alt+U) gravam na MESMA chave do
-   * localStorage -- uma sobrescreve a outra. O que distingue é o
-   * prioridadeTier, que só a fila por prioridade carrega (mesmo critério já
-   * usado em avisarSeTrocouDePrioridade).
-   *
-   * Sem esta checagem, o Alt+U "retomaria" uma fila do Alt+I e chamaria de
-   * fila por prioridade -- os clientes até existiriam, mas a ordem não seria
-   * a da régua, e nada na tela diria isso.
+   * Módulos 3 (Alt+I) e 7 (Alt+U) gravam na MESMA chave do localStorage; o que
+   * distingue é o prioridadeTier, só presente na fila por prioridade. Sem a
+   * checagem, o Alt+U "retomaria" uma fila do Alt+I cuja ordem não é a da régua.
    *
    * @param {object|null} fila
    * @returns {boolean}
@@ -1035,10 +850,8 @@
   /**
    * A fila por prioridade salva foi montada com a régua ATUAL?
    *
-   * Uma fila da régua anterior (montada antes da atualização chegar, no
-   * mesmo dia) tem os números de faixa da numeração velha -- retomá-la
-   * mostraria "faixa 5" com o nome da faixa 5 nova. Não serve pra retomar:
-   * o Alt+U monta uma nova.
+   * Fila de régua anterior tem números de faixa da numeração velha; retomá-la
+   * mostraria a faixa com o nome da nova. Nesse caso o Alt+U monta outra.
    *
    * @param {object|null} fila
    * @returns {boolean}
@@ -1049,30 +862,10 @@
   }
 
   /**
-   * Tenta continuar a fila por prioridade de HOJE em vez de refazer tudo.
-   *
-   * POR QUE EXISTE (pedido do usuário): iniciar() sempre reconstruía, e
-   * reconstruir custa abrir ~140 abas de fundo, com até 8s de espera cada.
-   * Apertar Alt+U às 14h só pra voltar pra fila refazia a varredura inteira
-   * E sobrescrevia a fila da manhã, perdendo a posição onde você estava.
-   *
-   * A fila JÁ ficava salva o dia todo (Módulo 3 só descarta no dia
-   * seguinte). Nunca houve decisão de "sempre reconstruir" -- o caminho de
-   * continuar simplesmente não existia.
-   *
-   * NÃO usa o botão "Continuar fila anterior" do Módulo 3: CONFIRMADO com o
-   * usuário que aquele botão é do Alt+I e continua sendo só dele.
-   *
-   * @returns {boolean} true se retomou (e quem chamou não deve reconstruir).
-   */
-  /**
-   * A DECISÃO de retomar, sem efeito colateral nenhum.
-   *
-   * Separada de retomarFilaDeHoje() porque navegar não é testável fora do
-   * navegador (o jsdom não implementa navegação), e sem essa separação a
-   * regra -- que fila serve, onde continuar, quantos faltam -- ficaria sem
-   * cobertura. Mesmo padrão já usado em construirUrlProtocoloWhatsApp
-   * (Módulo 2) e montarExportacao (Módulo 8).
+   * A DECISÃO de retomar, sem efeito colateral. Separada de retomarFilaDeHoje()
+   * porque navegar não é testável no jsdom; assim a regra (que fila serve, onde
+   * continuar, quantos faltam) fica coberta. Mesmo padrão de
+   * construirUrlProtocoloWhatsApp (Módulo 2) e montarExportacao (Módulo 8).
    *
    * @returns {{url: string, cnpj: string, restantes: number, total: number,
    *   jaEstouNele: boolean}|null} null quando não há o que retomar.
@@ -1092,9 +885,8 @@
     const alvo = fila.clientes[indice];
     if (!alvo || !alvo.url) return null;
 
-    // Se você JÁ está no cliente onde parou, navegar seria só um reload que
-    // apaga o que estiver na tela -- inclusive uma observação digitada pela
-    // metade.
+    // Se já está no cliente onde parou, navegar seria um reload que apaga o que
+    // estiver na tela (inclusive observação digitada pela metade).
     const cnpjAtual = window.filaDebug.extrairCnpjDaUrl(location.href);
 
     return {
@@ -1107,17 +899,13 @@
   }
 
   /**
-   * PEDIDO DO USUÁRIO: poder "atualizar" a fila retomada a qualquer momento
-   * (sem precisar de um Shift+Alt+U completo, que reabre ~140 abas) -- tira
-   * da fila, a partir da posição atual, quem já teve movimentação HOJE
-   * segundo window.CLIENTES (ex.: foi contatado por fora do SmartTable,
-   * direto no CRM, ou por outro negociador). Só mexe no que ainda falta; o
-   * histórico (clientes[0..indiceAtual-1], já contado em totalAtendidos/
-   * totalPulados) fica intacto.
+   * Atualiza a fila retomada sem um Shift+Alt+U completo (pedido do usuário):
+   * tira, a partir da posição atual, quem já teve movimentação HOJE segundo
+   * window.CLIENTES (contatado por fora do SmartTable, por exemplo). O
+   * histórico (clientes[0..indiceAtual-1]) fica intacto.
    *
-   * Puro (não grava em localStorage) de propósito -- mesmo padrão de
-   * alvoDeRetomada(), pra dar pra testar sem depender de navegação. Quem
-   * chama decide se salva.
+   * Puro (não grava em localStorage), como alvoDeRetomada(); quem chama decide
+   * se salva.
    *
    * @param {object} fila
    * @param {Map<string, object>|null} mapaClientes window.CLIENTES por cnpj
@@ -1147,25 +935,22 @@
     };
   }
 
+  /**
+   * Tenta continuar a fila por prioridade de HOJE em vez de refazer tudo
+   * (pedido do usuário): reconstruir custa abrir ~140 abas e sobrescreveria a
+   * fila da manhã, perdendo a posição. NÃO usa o botão "Continuar fila
+   * anterior" do Módulo 3: confirmado com o usuário que ele é só do Alt+I.
+   *
+   * @returns {boolean} true se retomou (quem chamou não deve reconstruir).
+   */
   function retomarFilaDeHoje() {
     if (window.filaDebug && typeof window.filaDebug.obterFila === 'function') {
       const filaAtual = window.filaDebug.obterFila();
       if (filaAtual && ehDaReguaAtual(filaAtual)) {
-        // BUG REAL (relatado pelo usuário: "o progresso da barra não está
-        // contando"): gravarSnapshotProgressoSeForOPrimeiroDoDia() só era
-        // chamada dentro de finalizarFila() -- mas RETOMAR uma fila já em
-        // andamento nunca passa por ali. Qualquer fila por prioridade que
-        // exista hoje sem ter passado por finalizarFila NESTA sessão (ex.:
-        // foi montada antes desta versão do script chegar, ou qualquer
-        // outro caminho que a gente não previu) deixava o painel de
-        // progresso preso em "indisponível" o dia inteiro, porque nenhum
-        // snapshot nunca era criado. Reforça aqui também: se ainda não
-        // existe snapshot de hoje, usa a própria fila retomada como base --
-        // é a melhor aproximação disponível de "a primeira fila do dia".
-        // EXCETO fila de lista filtrada (revisão geral, 29/09/2026): o caminho
-        // filtrado não grava a referência de propósito, e esta retomada a
-        // gravava mesmo assim -- o progresso do dia passava a medir só os
-        // clientes do filtro até a meia-noite.
+        // Retomar não passa por finalizarFila, então o snapshot do progresso é
+        // garantido aqui: sem ele o painel (Módulo 11) ficaria "indisponível" o
+        // dia todo. A fila retomada é a melhor aproximação da primeira do dia.
+        // Fila de lista filtrada fica de fora: não grava referência de propósito.
         if (filaAtual.filtrada !== true) gravarSnapshotProgressoSeForOPrimeiroDoDia(filaAtual.clientes);
 
         const { fila: filaAtualizada, removidos } = removerAtendidosHojeDaFila(filaAtual, obterMapaClientes());
@@ -1191,18 +976,15 @@
   /**
    * Classifica vários clientes com N abas abertas ao mesmo tempo.
    *
-   * A ordem do RESULTADO acompanha a ordem da ENTRADA, não a de chegada --
-   * `resultados[i]` corresponde a `clientes[i]`. Isso não é detalhe: a fila
-   * final é ordenada pela régua logo depois, e uma ordem de entrada instável
-   * faria duas execuções do mesmo dia produzirem filas diferentes entre
-   * empates, contaminando o diário.
+   * A ordem do RESULTADO acompanha a da ENTRADA (resultados[i] = clientes[i]),
+   * não a de chegada: a fila é ordenada pela régua logo depois, e ordem
+   * instável entre empates faria execuções do mesmo dia gerarem filas diferentes.
    *
    * @param {object[]} clientes
    * @param {(feitos: number, total: number) => void} aoProgredir
    * @param {(cliente: object) => Promise<object>} [classificar] Costura de
-   *   teste: a concorrência e o disjuntor são o ponto desta função, e sem
-   *   poder substituir o classificador eles ficariam sem cobertura -- abrir
-   *   aba de verdade não acontece no jsdom. Em produção nunca é passado.
+   *   teste (abrir aba não acontece no jsdom): permite cobrir a concorrência e o
+   *   disjuntor. Em produção nunca é passado.
    * @returns {Promise<{resultados: object[], abortouPorPopup: boolean}>}
    */
   async function classificarEmLote(clientes, aoProgredir, classificar) {
@@ -1214,11 +996,9 @@
     let sucessos = 0;
     let abortouPorPopup = false;
 
-    // DISJUNTOR DE POP-UP, adaptado do laço sequencial. Lá a regra era "3
-    // bloqueios SEGUIDOS"; em paralelo "seguidos" perde o sentido, porque a
-    // ordem de chegada é indeterminada. A regra equivalente e sem ambiguidade
-    // é: 3 bloqueios e NENHUM sucesso -- o que caracteriza bloqueio
-    // sistemático, que é o que o disjuntor existe pra detectar cedo.
+    // DISJUNTOR DE POP-UP: em paralelo "3 seguidos" perde o sentido (a ordem de
+    // chegada é indeterminada); a regra equivalente é 3 bloqueios e NENHUM
+    // sucesso, que caracteriza bloqueio sistemático.
     const LIMITE_BLOQUEIOS = 3;
 
     async function umCliente() {
@@ -1253,15 +1033,10 @@
     }
     trabalhador.chamadaUnica = umCliente;
 
-    // AQUECIMENTO SEQUENCIAL, até o primeiro sucesso.
-    //
-    // Sem isto, o disjuntor afrouxa: com 4 trabalhadores, quando o 3º bloqueio
-    // é contabilizado já há outras abas em voo, e o laço tenta ~6 antes de
-    // desistir -- foi exatamente o que o teste do disjuntor pegou.
-    //
-    // Abrir UMA aba primeiro também é mais educado com o servidor e mais
-    // honesto com o navegador: prova que pop-up está liberado antes de pedir
-    // quatro de uma vez. Custa uma carga de página no caminho feliz.
+    // AQUECIMENTO SEQUENCIAL até o primeiro sucesso: sem ele o disjuntor afrouxa
+    // (com 4 trabalhadores, no 3º bloqueio já há outras abas em voo; o teste do
+    // disjuntor pega isso). Também prova que pop-up está liberado antes de pedir
+    // quatro abas de uma vez.
     while (sucessos === 0 && !abortouPorPopup && proximo < clientes.length) {
       await trabalhador.chamadaUnica();
     }
@@ -1278,9 +1053,8 @@
 
   /**
    * O cache guarda só os campos que o pipeline DEPOIS da classificação
-   * consome. Guardar o resultado inteiro seria mais fácil e pior: ele tem
-   * Date, que não sobrevive ao JSON, e campos que ninguém lê -- convidando
-   * o caminho do cache a divergir do caminho fresco sem ninguém perceber.
+   * consome. O resultado inteiro tem Date (não sobrevive ao JSON) e campos que
+   * ninguém lê, o que faria o caminho do cache divergir do fresco.
    *
    * Há teste travando que os dois caminhos produzem a MESMA fila.
    *
@@ -1306,9 +1080,7 @@
       localStorage.setItem(CONFIG.CHAVE_CACHE_CLASSIFICACAO, JSON.stringify({
         dia: window.__smartTableUtil.dataIso(new Date()),
         geradoEm: Date.now(),
-        // As faixas do cache só valem na régua em que foram calculadas: com a
-        // numeração nova, reclassifica (senão "12" antiga e "12" nova se
-        // misturariam na mesma fila).
+        // As faixas do cache só valem na régua em que foram calculadas.
         versaoRegua: CONFIG.VERSAO_REGUA,
         resultados: resultados.map(paraOCache),
       }));
@@ -1362,10 +1134,9 @@
   }
 
   /**
-   * Lê o snapshot de progresso do dia (ver CHAVE_SNAPSHOT_PROGRESSO) --
-   * devolve null se não existir, for de outro dia, ou estiver corrompido.
-   * Mesmo padrão de dia (dataIso) do cache de classificação acima, de
-   * propósito -- um único jeito de "o que é hoje" no módulo inteiro.
+   * Lê o snapshot de progresso do dia (ver CHAVE_SNAPSHOT_PROGRESSO); null se
+   * não existir, for de outro dia ou estiver corrompido. Mesmo critério de dia
+   * (dataIso) do cache de classificação.
    *
    * @returns {{dia: string, geradoEm: number,
    *   clientes: {cnpj: string, prioridadeTier: number, prioridadeNome: string}[]}|null}
@@ -1394,14 +1165,10 @@
   }
 
   /**
-   * Grava o snapshot de progresso SÓ SE ainda não existir um de hoje --
-   * PEDIDO DO USUÁRIO: o painel de progresso (Módulo 11) tem que mostrar
-   * sempre o resultado da PRIMEIRA fila por prioridade do dia, e continuar
-   * assim até a primeira fila do dia SEGUINTE, sem mudar no meio do
-   * caminho. Por isso nunca sobrescreve um snapshot já existente de hoje --
-   * nem o Shift+Alt+U, que reclassifica tudo, mexe nele. Só quando o dia
-   * vira (lerSnapshotProgresso passa a devolver null pra um snapshot de
-   * ontem) é que a próxima fila gerada grava um novo, naturalmente.
+   * Grava o snapshot de progresso SÓ SE ainda não existir um de hoje (pedido do
+   * usuário): o painel (Módulo 11) mostra sempre a PRIMEIRA fila por prioridade
+   * do dia. Nunca sobrescreve o de hoje, nem no Shift+Alt+U; só quando o dia
+   * vira a próxima fila grava um novo.
    *
    * @param {object[]} clientesDaFila Mesmo array salvo em fila.clientes
    *   (já com prioridadeTier/prioridadeNome resolvidos).
@@ -1413,8 +1180,7 @@
       localStorage.setItem(CONFIG.CHAVE_SNAPSHOT_PROGRESSO, JSON.stringify({
         dia: window.__smartTableUtil.dataIso(new Date()),
         geradoEm: Date.now(),
-        // Com a versão da régua, o painel (Módulo 11) sabe se os números das
-        // faixas deste snapshot ainda querem dizer o mesmo (régua v3, 28/09).
+        // Com a versão da régua, o painel (Módulo 11) sabe se as faixas ainda valem.
         versaoRegua: CONFIG.VERSAO_REGUA,
         clientes: clientesDaFila.map((c) => ({
           cnpj: c.cnpj,
@@ -1428,22 +1194,20 @@
   }
 
   /* ---------------------------------------------------------------------
-   * MODO SOMBRA -- Alt+U SEM ABRIR ABA (v1.45.0)
+   * MODO SOMBRA -- Alt+U SEM ABRIR ABA
    * -----------------------------------------------------------------
-   * DIAGNÓSTICO (25/09/2026, confirmado ao vivo): a página do cliente
-   * baixada por fetch (~0,13 s, sem aba, sem pop-up) traz os títulos em
-   * __TITULOS_ABERTOS__, o parágrafo "SCPC:", Promessas/Contatos e a aba
-   * Negociações; o grupo econômico vem de GET /api/crm/negociacoes/
-   * grupo-outros-com-divida?cliente=<CNPJ>. A "aba virtual" junta isso com a
-   * MESMA interface de uma aba de verdade, e classificarAPartirDaAba() -- a
-   * mesma função da aba -- classifica. Cada fonte tem teste de equivalência
+   * A página do cliente baixada por fetch (~0,13 s, sem aba nem pop-up,
+   * confirmado ao vivo) traz os títulos em __TITULOS_ABERTOS__, o parágrafo
+   * "SCPC:", Promessas/Contatos e a aba Negociações; o grupo econômico vem de
+   * GET /api/crm/negociacoes/grupo-outros-com-divida?cliente=<CNPJ>. A "aba
+   * virtual" junta isso com a MESMA interface de uma aba de verdade, e
+   * classificarAPartirDaAba() classifica. Cada fonte tem teste de equivalência
    * contra a leitura da tela (titulos-da-pagina, pagina-baixada-contexto,
-   * negociacoes, grupo-api); o que sobra de risco é dado real diferente, e
-   * é isso que a comparação daqui mede, cliente a cliente.
+   * negociacoes, grupo-api); o risco que sobra é dado real diferente, que a
+   * comparação daqui mede cliente a cliente.
    * --------------------------------------------------------------------- */
 
-  // Leitor de variável de script: mora no Módulo 0 (v1.47.0) -- o Módulo 12
-  // também lê __TITULOS_PAGOS__ com ele.
+  // Leitor de variável de script: mora no Módulo 0 (o Módulo 12 também o usa).
   const lerVariavelDoScript = (doc, nome) => window.__smartTableUtil.lerVariavelDoScript(doc, nome);
 
   /** SCPC da página baixada -- a MESMA leitura do Módulo 1 (obterValorScpc). */
@@ -1478,8 +1242,7 @@
     if (!Array.isArray(titulos)) throw new Error('página sem __TITULOS_ABERTOS__');
 
     const acordos = window.__negociacoes?.acordosDaPaginaBaixada ? await window.__negociacoes.acordosDaPaginaBaixada(doc) : null;
-    // Títulos em cartório marcados "fora do relatório" (Módulo 12, v1.47.0):
-    // a mesma marcação que a aba de verdade usa, pelo CNPJ deste cliente.
+    // Títulos em cartório "fora do relatório" (Módulo 12): mesma marcação da aba de verdade, pelo CNPJ.
     const tituloForaDoRelatorio = window.__alertaCliente?.predicadoForaDoRelatorio?.(cliente.cnpj);
     const dados = window.__avisoCobranca.simularTitulos({ titulos, scpc: lerScpcDaPagina(doc), tituloEmAcordo: acordos?.tituloEmAcordo, tituloForaDoRelatorio }, hoje);
     const contexto = window.__contextoAdicionalDebug.contextoDaPaginaBaixada(doc, dados.registros, hoje);
@@ -1568,8 +1331,7 @@
       let historico = [];
       try { historico = JSON.parse(localStorage.getItem(CONFIG.CHAVE_SOMBRA_HISTORICO) || '[]'); } catch (erro) { historico = []; }
       if (!Array.isArray(historico)) historico = [];
-      // UMA entrada por dia (v1.46.0): a mesma data substitui a anterior, e
-      // o limite de SOMBRA_DIAS_HISTORICO passa a ser de DIAS, não de rodadas.
+      // UMA entrada por dia: a mesma data substitui a anterior; o limite é de DIAS, não de rodadas.
       historico = historico.filter((h) => h?.dia !== dia);
       historico.push({ dia, comparados: relatorio.comparados, diferencas: relatorio.diferencas.length, errosDaPagina: relatorio.errosDaPagina });
       localStorage.setItem(CONFIG.CHAVE_SOMBRA_HISTORICO, JSON.stringify(historico.slice(-CONFIG.SOMBRA_DIAS_HISTORICO)));
@@ -1579,10 +1341,8 @@
   }
 
   /**
-   * O modo sombra roda UMA vez por dia (v1.46.0, revisão de código): cada
-   * rodada baixa a página de todos os clientes elegíveis, e uma comparação
-   * por dia basta pra medir. Só conta rodada que gravou relatório -- a que
-   * não terminou a tempo não impede a próxima.
+   * O modo sombra roda UMA vez por dia: cada rodada baixa a página de todos os
+   * clientes elegíveis. Só conta rodada que gravou relatório.
    */
   function sombraJaRodouHoje(hoje = new Date()) {
     try {
@@ -1629,15 +1389,13 @@
   }
 
   /**
-   * "USAR A FILA ATUAL" (pedido do usuário, v1.43.0 -- botão no painel de
-   * progresso): quando a PRIMEIRA fila do dia saiu errada (lista filtrada,
-   * por exemplo), o progresso ficaria errado o dia todo, porque a
-   * referência nunca muda sozinha. Isto troca a referência pela fila por
-   * prioridade que está valendo agora.
+   * "USAR A FILA ATUAL" (pedido do usuário, botão no painel de progresso): se
+   * a PRIMEIRA fila do dia saiu errada (lista filtrada, por exemplo), o
+   * progresso ficaria errado o dia todo, pois a referência não muda sozinha.
+   * Troca a referência pela fila por prioridade que está valendo agora.
    *
-   * Quem já foi cobrado hoje CONTINUA contando, na faixa que tinha: um
-   * Shift+Alt+U tira os já atendidos da fila nova, e copiar só ela faria os
-   * cobrados sumirem da conta.
+   * Quem já foi cobrado hoje CONTINUA contando, na faixa que tinha: o
+   * Shift+Alt+U tira os atendidos da fila nova, e copiar só ela os faria sumir da conta.
    *
    * @param {{gravar?: boolean}} [opcoes] gravar: false só calcula (a prévia
    *   da confirmação); true grava.
@@ -1660,10 +1418,9 @@
         porCnpj.set(c.cnpj, { cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome });
       }
     });
-    // Referência antiga de OUTRA régua (revisão geral, 29/09/2026): o número
-    // da faixa dela quer dizer outra coisa. O cobrado mantido vai para a faixa
-    // atual de MESMO NOME; sem faixa com esse nome, sai da conta (misturar
-    // números de duas réguas punha o cliente na faixa errada, sem aviso).
+    // Referência antiga de OUTRA régua: o número da faixa quer dizer outra coisa.
+    // O cobrado mantido vai pra faixa atual de MESMO NOME; sem faixa com esse
+    // nome, sai da conta (misturar números de duas réguas errava a faixa em silêncio).
     const mesmaRegua = antigo?.versaoRegua === CONFIG.VERSAO_REGUA;
     const faixaPorNome = new Map(Object.entries(NOMES_PRIORIDADE).map(([faixa, nome]) => [nome, Number(faixa)]));
     faixaPorNome.set('Sem contato ou movimentação há mais de um mês', 9); // nome da faixa 9 até a régua v4
@@ -1715,38 +1472,24 @@
       return;
     }
 
-    // Continuar é o caso comum; refazer é o raro. Quem refaz pede
-    // explicitamente.
-    //
-    // Reconstruir também é o que APLICA de novo o filtro de "já contatado
-    // hoje": ele vem de graça do construirFilaAPartirDaPagina() do Módulo 3,
-    // que pula quem está em atendidosHoje. Não existe filtro duplicado aqui.
+    // Continuar é o caso comum; refazer é o raro e vem pedido explicitamente.
+    // Reconstruir reaplica o filtro de "já contatado hoje", que vem do
+    // construirFilaAPartirDaPagina() do Módulo 3 (pula atendidosHoje).
     if (!opcoes?.reconstruir && retomarFilaDeHoje()) return;
 
-    // SEGUNDO atalho, antes de gastar as ~92 visitas: a classificação de hoje
-    // já pode estar pronta. Monta a fila do cache e pronto -- instantâneo.
-    //
-    // A ordem importa: fila em andamento > cache do dia > classificar agora.
-    // Pular direto pro cache descartaria a posição em que você parou.
+    // Segundo atalho, antes das ~92 visitas: a classificação de hoje pode estar
+    // no cache. Ordem: fila em andamento > cache do dia > classificar agora; ir
+    // direto ao cache descartaria a posição em que o operador parou.
     if (!opcoes?.reconstruir) {
       const cache = lerCacheClassificacao();
       if (cache) {
-        // DEFEITO REAL, achado em revisão antes de chegar no seu dia: o
-        // caminho do cache montava a fila com os resultados COMO ESTAVAM na
-        // classificação da manhã. Como a fila se apaga sozinha ao terminar
-        // (limparFila no Módulo 3), a sequência normal do dia era: classifica
-        // 92, atende os 92, a fila some, você aperta Alt+U -- e o cache
-        // reentregava os MESMOS 92, incluindo todo mundo que você acabou de
-        // cobrar.
-        //
-        // O caminho fresco nunca teve esse problema porque
-        // construirFilaAPartirDaPagina (Módulo 3) já exclui atendidosHoje. O
-        // do cache precisa reaplicar, porque o cache é um retrato de um
-        // momento em que quase ninguém tinha sido atendido ainda.
-        // Pelo mesmo motivo, reaplica as duas exclusões da lista que mudam
-        // durante o dia: "não cobrar" marcado no botão Alerta (Módulo 12)
-        // depois da classificação -- decisão humana que vence qualquer regra
-        // da fila -- e movimentação de hoje por fora do SmartTable.
+        // O cache é um retrato da manhã, quando quase ninguém tinha sido atendido.
+        // A fila some ao terminar (limparFila, Módulo 3), então sem reaplicar as
+        // exclusões o cache reentregaria quem acabou de ser cobrado. O caminho
+        // fresco não tem o problema: construirFilaAPartirDaPagina já exclui
+        // atendidosHoje. Reaplica também as exclusões da lista que mudam durante
+        // o dia: "não cobrar" do botão Alerta (Módulo 12, decisão humana que vence
+        // a régua) e movimentação de hoje por fora do SmartTable.
         const atendidos = window.filaDebug.obterAtendidosHoje();
         const mapaClientes = obterMapaClientes();
         const aindaAbertos = cache.resultados.filter((r) => {
@@ -1762,9 +1505,8 @@
           return;
         }
 
-        // Um toast só: o resumo do finalizarFila vem logo atrás e cobria este
-        // antes de dar tempo de ler. O que interessa (de quando é a
-        // classificação) entra no console, que é onde se investiga.
+        // Um toast só: o resumo do finalizarFila vem logo atrás e cobria este.
+        // A idade da classificação vai pro console.
         const minutos = Math.round((Date.now() - cache.geradoEm) / 60000);
         console.log(
           `[Fila Prioridade] Fila montada do cache de hoje (${minutos} min atrás): ` +
@@ -1783,14 +1525,9 @@
     }
 
     const { sobreviventes, excluidos } = filtrarPorRegrasDaLista(candidatos);
-    // Log detalhado (achado real: sem isso, um resultado final baixo não
-    // dá pra saber SE é esperado -- ex.: maioria já mexida hoje de verdade
-    // -- ou SE é algum filtro errado excluindo demais, sem precisar pedir
-    // mais um diagnóstico manual toda vez).
-    // JSON.stringify de propósito, não o objeto cru -- achado real: o
-    // Chrome mostra objeto cru como só "Object" quando o console é copiado
-    // como texto (precisa expandir clicando ali mesmo, o que não sobrevive
-    // a um copiar/colar). Como string, o conteúdo aparece direto.
+    // Logs em JSON.stringify de propósito: o Chrome mostra objeto cru como só
+    // "Object" quando o console é copiado como texto. O detalhamento permite
+    // saber se um resultado baixo é esperado ou se algum filtro exclui demais.
     console.log('[Fila Prioridade] Candidatos após construirFilaAPartirDaPagina:', candidatos.length);
     console.log('[Fila Prioridade] Detalhamento dos filtros da lista:', JSON.stringify({
       sobreviventes: sobreviventes.length,
@@ -1805,15 +1542,12 @@
     }
 
     classificandoEmAndamento = true;
-    // A trava vale até o FIM (revisão geral, 29/09/2026): antes ela era solta
-    // logo depois das abas, e durante a espera da sombra (até 20 s) não havia
-    // fila nem cache gravados -- um segundo Alt+U começava outra
-    // classificação inteira, com o dobro de abas contra o CRM.
+    // A trava vale até o FIM: durante a espera da sombra (até 20 s) ainda não há
+    // fila nem cache gravados, e um segundo Alt+U começaria outra classificação inteira.
     try {
       atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
 
-      // MODO SOMBRA (v1.45.0): a classificação pela página baixada corre JUNTO
-      // com as abas e é comparada no fim. Não entra na fila.
+      // MODO SOMBRA: corre JUNTO com as abas e é comparada no fim. Não entra na fila.
       const sombra = window.__avisoCobranca?.simularTitulos && window.__grupoEconomico && window.__contextoAdicionalDebug?.contextoDaPaginaBaixada && !sombraJaRodouHoje()
         ? rodarSombra(sobreviventes)
         : null;
@@ -1826,9 +1560,8 @@
           (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`)
         );
       } catch (erro) {
-        // Sem isto, uma exceção inesperada deixava a trava ligada e o
-        // indicador na tela até recarregar: todo Alt+U seguinte respondia
-        // "já tem uma classificação em andamento".
+        // Sem isto uma exceção deixava a trava e o indicador ligados até recarregar
+        // ("já tem uma classificação em andamento").
         console.error('[Fila Prioridade] Erro inesperado na classificação -- abortando esta rodada.', erro);
         toast('Erro ao classificar a fila (veja o console). Tente Shift+Alt+U de novo.', 6000);
         return;
@@ -1872,11 +1605,10 @@
       todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar && !r.excluidoPorAcordo)
         .forEach((r) => resultados.push(r));
 
-      // LISTA FILTRADA (v1.43.0, decisão do usuário): com um filtro do CRM
-      // ligado, os candidatos são só os do filtro. A fila vale pra agora, mas
-      // NÃO vira a classificação do dia (o cache seria reaproveitado pelos
-      // próximos Alt+U, já sem filtro, entregando só parte da carteira), nem a
-      // referência do progresso (Módulo 11), nem a atribuição do diário.
+      // Lista filtrada (decisão do usuário): a fila vale pra agora, mas NÃO vira
+      // a classificação do dia (o cache seria reaproveitado sem filtro e
+      // entregaria só parte da carteira), nem a referência do progresso
+      // (Módulo 11), nem a atribuição do diário.
       const filtrosNaLista = filtrosAtivosNaListaAtual();
       if (filtrosNaLista) {
         console.warn(`[Fila Prioridade] Lista com filtro (${filtrosNaLista.join(', ')}) -- fila montada só com esses clientes; cache do dia, progresso e diário NÃO gravados.`);
@@ -1897,9 +1629,9 @@
 
   /**
    * Filtros do CRM ligados na lista (Módulo 0; mesma regra da Carteira), ou
-   * null. FALHA FECHADA (v1.46.0): sem o detector, trata como filtrada -- a
-   * fila sai igual, só não grava o cache do dia, o progresso nem o diário
-   * (gravar uma lista parcial como "o dia" é o erro caro).
+   * null. FALHA FECHADA: sem o detector, trata como filtrada (a fila sai igual,
+   * mas sem gravar cache do dia, progresso nem diário; gravar lista parcial
+   * como "o dia" é o erro caro).
    */
   function filtrosAtivosNaListaAtual() {
     const detectar = window.__smartTableUtil?.filtrosAtivosNaListaDeClientes;
@@ -1911,11 +1643,8 @@
    * Tudo que acontece DEPOIS da classificação: dedupe de grupo econômico,
    * ordenação pela régua, diário, gravação da fila e navegação.
    *
-   * Extraída de iniciar() porque agora tem DOIS caminhos de entrada -- o
-   * fresco (abas de fundo) e o do cache do dia. Se cada um montasse a fila
-   * do seu jeito, eles divergiriam em silêncio, e "a fila do cache" deixaria
-   * de ser a mesma fila. Há teste travando que os dois produzem saída
-   * idêntica.
+   * Tem DOIS caminhos de entrada (fresco e cache do dia); fica num só lugar pra
+   * eles não divergirem em silêncio. Há teste travando saída idêntica.
    *
    * @param {object[]} resultados Classificados com sucesso.
    * @param {object} contadores Para o resumo na tela (zeros vindo do cache).
@@ -1955,14 +1684,9 @@
       return;
     }
 
-    // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade, pelo
-    // desempate da régua v3/v4 (faixa 11: mais dias; demais: contato mais
-    // antigo, maior valor vencido, mais dias) -- ver compararPelaRegua.
-    //
-    // A fila sai 100% na ordem da régua. O grupo de controle (1 em cada 5
-    // com posição sorteada, para o Diário medir o efeito da ordem) foi
-    // REMOVIDO a pedido do usuário em 28/09/2026 -- estava desligado desde a
-    // decisão anterior e ele não quer o mecanismo no código.
+    // Ordena pela régua (faixa 1 primeiro; desempates em compararPelaRegua). A
+    // fila sai 100% na ordem da régua: o grupo de controle com posição sorteada
+    // foi REMOVIDO a pedido do usuário, que não quer o mecanismo no código.
     resultadosSemDuplicataDeGrupo = resultadosSemDuplicataDeGrupo.slice().sort(compararPelaRegua);
     const diario = window.__diario;
 
@@ -1972,27 +1696,22 @@
       prioridadeNome: NOMES_PRIORIDADE[r.prioridade],
       versaoRegua: CONFIG.VERSAO_REGUA,
       ultimoContatoIso: r.ultimoContatoIso ?? null,
-      // v1.49.2: gravado pra autoconferência do Diário (Módulo 8) conseguir
-      // conferir o desempate por valor da régua v3. Fica só no localStorage.
+      // Gravado pra autoconferência do Diário (Módulo 8) do desempate por valor.
+      // Fica só no localStorage.
       valorVencido: r.valorVencido ?? 0,
     }));
 
-    // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
-    // um acesso ao localStorage -- gravar 150 vezes seguidas durante o Alt+U
-    // seria desperdício. Se o diário não estiver carregado, segue sem ele.
+    // Registra a ATRIBUIÇÃO do dia (faixa, posição final e grupo) num lote só,
+    // com um acesso ao localStorage. Sem o diário carregado, segue sem ele.
     //
-    // SÓ NA PRIMEIRA VEZ DO DIA. finalizarFila passou a ter DOIS chamadores
-    // (a classificação fresca e a remontagem a partir do cache), e sem esta
-    // guarda a remontagem gravava uma segunda atribuição do mesmo dia para os
-    // mesmos clientes -- o mesmo defeito corrigido na v1.9.2, por um caminho
-    // novo. A análise sobreviveria (analisar() deduplica por (cnpj, dia) e
-    // mantém a primeira), mas o contador atribuicoesRepetidas existe
-    // justamente pra denunciar isso: fazê-lo disparar todo dia é aposentar o
-    // alarme.
+    // SÓ NA PRIMEIRA VEZ DO DIA: finalizarFila tem dois chamadores (fresco e
+    // cache), e sem a guarda a remontagem gravaria uma segunda atribuição do
+    // mesmo dia. analisar() deduplica por (cnpj, dia), mas o contador
+    // atribuicoesRepetidas existe pra denunciar isso; dispará-lo todo dia
+    // aposenta o alarme.
     //
-    // O padrão é NÃO registrar: chamador novo que precise registrar tem que
-    // pedir. Dado faltando é recuperável; dado duplicado contamina em
-    // silêncio.
+    // O padrão é NÃO registrar: chamador novo que precise tem que pedir. Dado
+    // faltando é recuperável; dado duplicado contamina em silêncio.
     if (diario && opcoesDaFila?.registrarAtribuicao) {
       diario.registrarLote(
         'fila',
@@ -2020,10 +1739,8 @@
     if (opcoesDaFila?.gravarReferenciaDoProgresso === false) fila.filtrada = true;
     window.filaDebug.salvarFila(fila);
 
-    // PEDIDO DO USUÁRIO: o painel de progresso (Módulo 11) fica preso ao
-    // resultado desta fila SE for a primeira do dia -- não sobrescreve se
-    // já existir uma (ver gravarSnapshotProgressoSeForOPrimeiroDoDia). Fila
-    // de lista filtrada nunca vira referência (v1.43.0).
+    // Painel de progresso (Módulo 11) preso ao resultado desta fila SE for a
+    // primeira do dia (pedido do usuário). Fila de lista filtrada nunca vira referência.
     if (opcoesDaFila?.gravarReferenciaDoProgresso !== false) gravarSnapshotProgressoSeForOPrimeiroDoDia(clientesDaFila);
 
     const resumoPartes = [`▶ Fila por prioridade: ${clientesDaFila.length} cliente(s)`];
@@ -2046,10 +1763,7 @@
       JSON.stringify(clientesDaFila.map((c) => ({ id: window.__smartTableUtil.apelidoParaLog(c.cnpj), diasAtraso: c.diasAtraso, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome })))
     );
 
-    // CORRIGIDO (bug real: o resumo acima mal dava tempo de aparecer antes
-    // da navegação apagar a página) -- espera o toast terminar de verdade
-    // antes de navegar, em vez dos 400ms que bastavam só pro "fila
-    // iniciada" simples do Alt+I (sem nada crítico pra ler ali).
+    // Espera o toast terminar antes de navegar: o resumo tem informação que precisa ser lida.
     setTimeout(() => {
       window.location.href = clientesDaFila[0].url;
     }, duracaoResumoMs);
@@ -2058,14 +1772,10 @@
   /* ---------------------------------------------------------------------
    * 7. AVISO DE TROCA DE PRIORIDADE (roda em toda página, como o Módulo 3)
    * --------------------------------------------------------------------- */
-  // Só reage a filas montadas por ESTE módulo (clientes com prioridadeTier
-  // definido) -- uma fila comum do Alt+I nunca tem esse campo, então isso
-  // nunca dispara pra ela. Compara o cliente atual com o anterior na fila;
-  // se a prioridade mudou (pra qualquer direção -- avançando ou voltando),
-  // avisa. Depende do Módulo 3 já ter rodado sincronizarPosicao() nesta
-  // mesma carga de página (é o que atualiza fila.indiceAtual pra bater com
-  // a URL atual) -- por isso este módulo precisa vir DEPOIS do Módulo 3 no
-  // @require.
+  // Só reage a filas deste módulo (clientes com prioridadeTier); fila do Alt+I
+  // nunca dispara. Avisa se a prioridade mudou em relação ao cliente anterior,
+  // avançando ou voltando. Depende do Módulo 3 já ter rodado sincronizarPosicao()
+  // nesta carga (atualiza fila.indiceAtual), por isso vem DEPOIS dele no @require.
   function avisarSeTrocouDePrioridade() {
     if (!window.filaDebug || typeof window.filaDebug.obterFila !== 'function') return;
     const fila = window.filaDebug.obterFila();
@@ -2089,10 +1799,8 @@
    * 8. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   function aoCarregar() {
-    // Dá tempo do Módulo 3 rodar sincronizarPosicao() primeiro (mesmo
-    // documento, ordem de @require já garante isso na prática, mas o
-    // setTimeout(0) é uma rede de segurança barata contra reordenação
-    // futura por engano).
+    // Dá tempo do Módulo 3 rodar sincronizarPosicao() primeiro; o @require já
+    // garante a ordem, o setTimeout(0) é rede de segurança.
     setTimeout(() => {
       try {
         avisarSeTrocouDePrioridade();
