@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.63.1', data: '30/09/2026',
+      mudancas: [
+        'Organização interna, sem mudança no que você vê: a cópia da mensagem para a área de transferência (Win+V, imagem no Ctrl+V), o Alt+S, o envio para "números diferentes" e o aviso do clique manual em "Registrar e Enviar" saíram do Módulo 4 para um módulo novo, o 21 (Envio e Cópia). As ferramentas de DOM dos atalhos (achar botão por texto, clicar como o React espera, esperar condição em outra aba) foram para o Módulo 20. O código foi movido como estava e os testes de cópia, Alt+S e números diferentes passam sem alteração.',
+        'Se o Tampermonkey atualizar o script pela metade e faltar qualquer um dos módulos novos (19, 20 ou 21), o aviso vermelho diz quais faltam e pede para atualizar o script.',
+      ],
+    },
+    {
       versao: '1.63.0', data: '30/09/2026',
       mudancas: [
         'Organização interna, sem mudança no que você vê: o texto da mensagem do Alt+A (frases, promessa, acordo, grupo, pergunta final, variáveis) saiu do Módulo 4 para um módulo novo, o 19 (Mensagens de Cobrança). O código foi movido como estava; os testes de mensagens continuam os mesmos e passam.',

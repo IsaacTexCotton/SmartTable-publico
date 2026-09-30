@@ -672,6 +672,8 @@
     'Negociações',
     'Promessa Rápida',
     'Mensagens de Cobrança',
+    'DOM dos Atalhos',
+    'Envio e Cópia',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
