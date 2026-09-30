@@ -1,75 +1,52 @@
 /* =========================================================================
  * MÓDULO 17: PROMESSA RÁPIDA (Alt+N) — CRM TexCotton
  * -------------------------------------------------------------------------
- * PEDIDO DO USUÁRIO (v1.42.0): "registrar uma promessa de uma maneira mais
- * fácil". O que incomodava era a junção de três coisas no modal do CRM:
- * abrir o contato, achar os títulos na lista e escolher a data.
+ * Painel central para registrar promessa de pagamento: escolhe títulos e data,
+ * preenche o modal "Registrar Contato" do CRM e salva pelo botão dele.
+ * Expõe window.__promessaRapida. Lê do Módulo 1 (window.__avisoCobranca.simular),
+ * do Módulo 6 (__contextoAdicionalDebug.lerPromessas, __contextoAdicional) e do
+ * util (__smartTableUtil). Sem eles, degrada sem quebrar.
  *
- * DECISÕES (desafiadas antes de escrever -- red team com o usuário):
- *   - O CRM continua sendo quem grava. O painel só ESCOLHE; quem registra é
- *     o próprio modal "Registrar Contato", preenchido como um operador faria
- *     e salvo pelo botão "Salvar Contato" dele. Assim o CRM segue ligando os
- *     títulos à promessa, calculando juros e multa (o "Valor calculado") e
- *     validando -- nada disso é copiado aqui. Gravar direto pela API foi
- *     descartado: uma promessa aceita SEM títulos some da fila em silêncio
- *     (o Módulo 6 só considera promessa com título ainda aberto).
- *   - Nenhum título vem marcado, a não ser quando só existe UM vencido
- *     ("se ele tem um, com certeza é só ele"). Na maioria das vezes o
- *     cliente promete um ou alguns, e marcar todos por padrão viraria
- *     cobrança de "pagamento parcial" pra quem pagou o que combinou.
- *   - A data não tem padrão escondido: H (hoje), A (amanhã) ou outra. Sem
- *     data, não registra.
- *   - Título já em outra promessa: o CRM avisa ("encerrar a anterior e
- *     registrar esta"). O atalho PARA ali e devolve o modal pra você
- *     decidir -- nunca encerra promessa de ninguém sozinho. Idem com
- *     títulos de mais de uma razão (uma promessa por razão, cada uma com
- *     seu valor) e com qualquer "Confirmar ação" do CRM.
- *   - Depois de salvar, CONFERE: a promessa nova tem que aparecer na aba
- *     Promessas com a data e os títulos. Aparecendo, aviso verde; não
- *     aparecendo (ou o CRM mostrando "Promessa não criada"), aviso vermelho
- *     -- nunca silêncio. Se a página recarregar, a conferência continua
- *     depois do reload (ponte em localStorage, só com CNPJ, títulos e data).
+ * DECISÕES DO USUÁRIO (não mude sem perguntar):
+ *   - O CRM continua sendo quem grava: liga títulos à promessa, calcula juros e
+ *     multa e valida. Gravar direto pela API foi descartado: promessa aceita SEM
+ *     títulos some da fila em silêncio (o Módulo 6 só considera promessa com
+ *     título ainda aberto).
+ *   - Nenhum título vem marcado, salvo quando só existe UM vencido. Marcar todos
+ *     por padrão viraria cobrança de "pagamento parcial" pra quem pagou o combinado.
+ *   - Sem data padrão: H (hoje), A (amanhã) ou outra. Sem data, não registra.
+ *   - Conflito com outra promessa, títulos de mais de uma razão (uma promessa por
+ *     razão) ou qualquer "Confirmar ação" do CRM: o atalho PARA e devolve o modal
+ *     ao operador. Nunca encerra promessa de ninguém sozinho.
+ *   - Depois de salvar, CONFERE na aba Promessas (data e títulos): aviso verde se
+ *     apareceu, vermelho se não (ou se o CRM mostrar "Promessa não criada"). Nunca
+ *     silêncio. Se a página recarregar, a conferência continua via ponte em
+ *     localStorage (só CNPJ, títulos e data).
+ *   - Não conta como cobrança enviada no progresso da fila (o Módulo 3 conta o
+ *     Registrar e Enviar, não o "Salvar Contato").
  *
- * TELA (confirmada na captura em lote do CRM real, 25/09/2026):
- *   - A lista de títulos da promessa já vem pronta no HTML, com o modal
- *     fechado: #lista-titulos-promessa > .titulo-item-promessa, cada uma com
- *     input.titulo-checkbox-contato-promessa[value="915249/2"][data-atraso]
- *     [data-vencimento][data-cnpj][data-razao]. Títulos de outras razões do
- *     grupo têm .titulo-outra-razao e ficam escondidos até marcar
- *     #check-grupo-contato-promessa.
- *   - #btn-resultado-PROMESSA_PAGAMENTO abre #secao-promessa;
- *     #input-data-promessa (onchange recalcula) e #input-valor-promessa
- *     (preenchido pelo CRM); #select-forma-pagamento-contato (BOLETO por
- *     padrão); #conflitos-promessa-aviso; #valores-por-razao-wrap/-erro;
- *     #btn-salvar-contato (type=submit do form POST /crm/contatos).
- *   - Falha do CRM: #modal-aviso-promessa ("Promessa não criada", com a
- *     mensagem em #modal-aviso-promessa-mensagem).
+ * REGRA DO CARTÓRIO (texto e visual aprovados pelo usuário): não registra promessa
+ * para título que, NA DATA ESCOLHIDA, já estará em cartório: data >= dataEncaminhamento
+ * (Módulo 1) ou título já em cartório. Aviso vermelho com a data máxima E botão
+ * travado. Não vale para cliente SCPC nem para posição "NAO PROTESTAR". Só cobre
+ * este painel: o campo de data do CRM e os botões do Módulo 2 ficam de fora.
  *
- * TELA (v1.59.0, visual aprovado pelo usuário em 29/09/2026): diálogo no CENTRO
- * da tela, com fundo escurecido que cobre só a área abaixo do cabeçalho do CRM
- * (o cabeçalho, z-50, e o menu lateral, z-40, ficam acima do nosso z-30). Uma
- * linha por título em colunas (atalho, título, dias, situação, valor sem quebra),
- * situação legível (Cobrança, Último dia, Em cartório, Negativado, Não protestar,
- * vinda do Módulo 1; sem ele, só os valores confirmados do CRM), teclas H, A, D,
- * T, Enter e Esc visíveis, total do valor em aberto dos marcados (sem juros e
- * multa: o CRM calcula o final) e o sinal de cartório em cada título e em cada
- * data. Clique fora, X, Esc e Cancelar fecham. O Tab fica preso no painel e, se o
- * foco for parar no body, o painel reassume: as teclas 1, A e Enter não morrem.
- * A sequência Alt+N, 1, A, Enter continua igual.
+ * TELA DO CRM (confirmada no HTML real):
+ *   - Lista pronta com o modal fechado: #lista-titulos-promessa > .titulo-item-promessa,
+ *     com input.titulo-checkbox-contato-promessa[value="915249/2"][data-atraso]
+ *     [data-vencimento][data-cnpj][data-razao]. Títulos de outras razões do grupo têm
+ *     .titulo-outra-razao e ficam escondidos até marcar #check-grupo-contato-promessa.
+ *   - #btn-resultado-PROMESSA_PAGAMENTO abre #secao-promessa; #input-data-promessa
+ *     (onchange recalcula) e #input-valor-promessa (preenchido pelo CRM);
+ *     #select-forma-pagamento-contato (BOLETO por padrão); #conflitos-promessa-aviso;
+ *     #valores-por-razao-wrap/-erro; #btn-salvar-contato (submit do POST /crm/contatos).
+ *   - Falha: #modal-aviso-promessa ("Promessa não criada"; texto em
+ *     #modal-aviso-promessa-mensagem).
  *
- * REGRA DO CARTÓRIO (v1.58.0, pedido do usuário, texto e visual aprovados em
- * 29/09/2026): não deixa registrar promessa para um título que, NA DATA
- * ESCOLHIDA, já estará em cartório. "Estará em cartório" = a data escolhida é
- * o dia seguinte ao último dia para pagamento (dataEncaminhamento, do Módulo
- * 1) ou depois; título que JÁ está em cartório também não agenda. Aviso
- * vermelho no painel (com a data máxima) E botão travado. NÃO vale para
- * cliente SCPC (fluxo SCPC) nem para título com posição "NAO PROTESTAR", que
- * nunca vai a cartório. Só cobre este painel: o campo de data do próprio CRM
- * (que não valida nada) e os botões do Módulo 2 (data de hoje) ficam de fora.
- *
- * NÃO conta como cobrança enviada no progresso da fila -- do mesmo jeito
- * que o "Salvar Contato" manual nunca contou (o Módulo 3 conta o Registrar e
- * Enviar, que é a cobrança saindo pelo WhatsApp).
+ * PAINEL (visual aprovado pelo usuário): diálogo central; o fundo cobre só a área
+ * abaixo do cabeçalho do CRM (header z-50 e menu lateral z-40 ficam acima do z-30
+ * daqui). Teclas: 1-9, H, A, D, T, Enter, Esc. O Tab fica preso no painel e, se o
+ * foco cair no body, o painel reassume (senão 1, A e Enter morrem).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -81,7 +58,7 @@
   const CONFIG_PROMESSA = {
     ID_PAINEL: 'smarttable-painel-promessa',
     ID_FUNDO: 'smarttable-fundo-promessa',
-    // Cabeçalho do CRM (fato confirmado em 23/09/2026: header#sit-header, fixo, ~80px, z-50).
+    // Cabeçalho do CRM (confirmado): header#sit-header, fixo, ~80px, z-50.
     ID_CABECALHO: 'sit-header',
     ALTURA_CABECALHO_PADRAO: 80,
     LARGURA_PAINEL: 560,
@@ -89,8 +66,7 @@
     CHAVE_PONTE: 'smarttable_promessa_pendente_v1',
     VALIDADE_PONTE_MS: 3 * 60 * 1000,
     Z_INDEX: 30,
-    // Esperas pelo CRM: o modal abrir, a seção de promessa aparecer, o
-    // valor ser calculado, e o resultado do "Salvar Contato".
+    // Esperas pelo CRM: modal, seção de promessa, valor calculado, resultado do salvar.
     TIMEOUT_MODAL_MS: 5000,
     TIMEOUT_VALOR_MS: 5000,
     TIMEOUT_RESULTADO_MS: 12000,
@@ -260,8 +236,7 @@
    * 2. LEITURA DA LISTA DO CRM (sem abrir o modal)
    * --------------------------------------------------------------------- */
   function titulosDaPromessaPendente() {
-    // Títulos que já estão numa promessa PENDENTE (Módulo 6). Só informativo:
-    // quem decide o conflito é o CRM, no modal.
+    // Títulos já em promessa PENDENTE (Módulo 6). Só informativo: o conflito é decidido pelo CRM.
     const mapa = new Map();
     try {
       const promessas = window.__contextoAdicionalDebug?.lerPromessas?.() || [];
@@ -349,7 +324,7 @@
       (razoes > 1 ? ` · ${razoes} razões (o CRM cria uma promessa por razão)` : '');
   }
 
-  /* ---- Peças visuais (v1.59.0: diálogo no centro, colunas, teclas visíveis) ---- */
+  /* ---- Peças visuais ---- */
   const ROTULO_POR_POSICAO = { COBRANCA: 'Cobrança', CARTORIO: 'Em cartório', 'NAO PROTESTAR': 'Não protestar' };
   const CHAVE_DA_SITUACAO = {
     EM_ATRASO: 'EM_ATRASO', PRAZO_FINAL: 'EM_ATRASO', ULTIMO_DIA: 'ULTIMO_DIA', EM_CARTORIO: 'EM_CARTORIO',
@@ -505,7 +480,7 @@
     datas.appendChild(rotuloOutra);
     corpo.appendChild(datas);
 
-    // Regra do cartório: aviso vermelho (o botão de registrar fica travado).
+    // Regra do cartório: aviso vermelho (o botão fica travado).
     if (estado.bloqueios.length) {
       const caixa = el('div', {}, {
         marginTop: '10px', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.4',
@@ -576,9 +551,8 @@
     const emCampo = alvo && (alvo.tagName === 'INPUT' && alvo.type !== 'checkbox' || alvo.tagName === 'SELECT');
     if (e.key === 'Escape') { e.preventDefault(); fecharPainel({ devolverFoco: true }); return; }
     if (e.key === 'Tab') {
-      // Foco preso, e conduzido por nós (o Tab nativo do Chromium às vezes passa por "nenhum elemento"
-      // entre dois foco-áveis, e aí 1, A e Enter morrem). Só o campo de data segue nativo: o Tab dele
-      // percorre dia, mês e ano.
+      // Tab conduzido por nós: o nativo do Chromium às vezes passa por "nenhum elemento" e 1, A e Enter morrem.
+      // Só o campo de data segue nativo (o Tab dele percorre dia, mês e ano).
       const focaveis = focaveisDoPainel();
       if (!focaveis.length) { e.preventDefault(); return; }
       const ativo = document.activeElement;
@@ -598,8 +572,7 @@
       return;
     }
     if (e.key === 'Enter') {
-      // Enter num BOTÃO (Cancelar, X, chip de data, Registrar) aciona o botão: sem isto, Tab até "Cancelar" + Enter
-      // registrava a promessa. Fora de botão (painel, caixa de título), Enter registra, como sempre.
+      // Enter num BOTÃO aciona o botão (senão Enter em "Cancelar" registraria). Fora de botão, Enter registra.
       if (alvo?.tagName === 'BUTTON') return;
       e.preventDefault();
       if (podeRegistrar()) registrar();
@@ -645,7 +618,7 @@
       avisar('Há um contato aberto: salve ou feche antes de registrar a promessa (Alt+N).', 'erro');
       return;
     }
-    // Quem tinha o foco antes de abrir (se o painel já estava aberto, continua sendo quem abriu da primeira vez).
+    // Quem tinha o foco antes de abrir (com o painel já aberto, vale o da primeira abertura).
     const quemAbriu = painelEl ? focoAnterior : (typeof document.activeElement?.focus === 'function' ? document.activeElement : null);
     window.__smartTableUtil?.fecharOutrosPaineis?.('promessaRapida');
     fecharPainel();
@@ -659,13 +632,12 @@
     estado.bloqueios = [];
     focoAnterior = quemAbriu;
 
-    // Fundo: cobre só a área abaixo do cabeçalho do CRM (o cabeçalho e o menu lateral têm z-index acima do nosso).
     fundoEl = el('div', { id: CONFIG_PROMESSA.ID_FUNDO }, {
       position: 'fixed', top: `${alturaDoCabecalho()}px`, left: '0', right: '0', bottom: '0', zIndex: CONFIG_PROMESSA.Z_INDEX,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: `16px 16px 16px ${folgaEsquerda()}px`, boxSizing: 'border-box',
       background: 'rgba(16, 24, 40, 0.35)',
     });
-    // Clique no fundo (fora do painel) fecha; a seleção se perde, como em qualquer Esc.
+    // Clique fora do painel fecha (a seleção se perde, como no Esc).
     fundoEl.addEventListener('mousedown', (e) => { if (e.target === fundoEl) fecharPainel({ devolverFoco: true }); });
 
     painelEl = el('div', { id: CONFIG_PROMESSA.ID_PAINEL, tabIndex: -1 }, {
@@ -677,7 +649,6 @@
     painelEl.setAttribute('aria-modal', 'true');
     painelEl.setAttribute('aria-label', 'Registrar promessa');
 
-    // Topo: título, cliente (a razão da própria página) e fechar.
     const topo = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', padding: '14px 18px 10px', borderBottom: `1px solid ${CORES.borda}` });
     const titulosTopo = el('div', {}, { minWidth: '0' });
     titulosTopo.appendChild(el('div', { textContent: '📅 Registrar promessa' }, { fontWeight: '700', fontSize: '16px', color: CORES.tinta }));
@@ -834,9 +805,7 @@
       else if (!cb.checked) cb.click();
     });
     if (faltando.length) return devolver(`Não achei no contato: ${faltando.join(', ')}. Nada foi salvo; confira o modal.`, 'erro');
-    // Revisão geral (29/09/2026): se o contato abrir com OUTRO título já
-    // marcado, ele entraria na promessa sem ninguém ter escolhido. Desmarca
-    // (o mesmo clique que marca) e confere; se não sair, não salva.
+    // Título já marcado que ninguém escolheu entraria na promessa: desmarca e confere; se não sair, não salva.
     const escolhidos = new Set(escolha.titulos.map((t) => t.valor));
     const sobrando = () => checks.filter((c) => c.checked && !escolhidos.has(c.value));
     sobrando().forEach((c) => c.click());
@@ -885,9 +854,7 @@
     const salvar = document.querySelector(SEL.SALVAR);
     if (!salvar || salvar.disabled) return devolver('O botão Salvar Contato está desabilitado. Confira o contato.', 'erro');
     const ponte = { cnpj: cnpjDaUrl(), titulos: escolha.titulos.map((t) => t.valor), data: escolha.data, criadoEm: Date.now() };
-    // Quantas promessas IGUAIS (mesma data, mesmos títulos) já existiam antes
-    // do clique: uma antiga (quebrada, cumprida) não pode passar por "a nova
-    // apareceu" antes de o CRM responder.
+    // Promessas IGUAIS já existentes: uma antiga (quebrada, cumprida) não pode passar por "a nova apareceu".
     ponte.jaExistiam = contarPromessasIguais(ponte) ?? 0;
     gravarPonte(ponte);
     salvar.click();

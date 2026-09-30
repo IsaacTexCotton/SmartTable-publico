@@ -1,36 +1,24 @@
 /* =========================================================================
- * MÓDULO 11: PROGRESSO DA FILA POR PRIORIDADE (botão discreto) — CRM TexCotton
- * -------------------------------------------------------------------------
- * Uma barra por faixa de prioridade (Módulo 7), mostrando quanto já foi
- * cobrado hoje dentro dela: "23/56" -- cobrados sobre o total da faixa.
+ * MÓDULO 11: PROGRESSO DA FILA POR PRIORIDADE — CRM TexCotton
+ * Uma barra por faixa de prioridade (Módulo 7): cobrados hoje / total da faixa.
  *
- * PEDIDO EXPLÍCITO DO USUÁRIO: um BOTÃO, não um atalho de teclado -- "muito
- * bem localizado e escondido". Por isso este módulo não entra no mapa de
- * teclas do Módulo 4: o gatilho é um elemento visual próprio, quase
- * invisível (opacidade baixa) numa borda da tela sem nada nosso hoje
- * (esquerda-inferior já tem o botão "Continuar fila" e os painéis;
- * direita-inferior já tem os toasts do Módulo 7). Fica na borda direita,
- * centralizado na vertical -- único ponto ainda livre.
+ * Gatilho é um BOTÃO discreto (decisão do usuário: "muito bem localizado e
+ * escondido"), não atalho de teclado; por isso não entra no mapa do Módulo 4.
+ * Fica na borda direita, centralizado na vertical: único ponto livre
+ * (esquerda-inferior tem "Continuar fila"; direita-inferior tem os toasts).
  *
- * DE ONDE VÊM OS NÚMEROS: o SNAPSHOT da primeira fila por prioridade do
- * dia (window.filaPrioridadeDebug.lerSnapshotProgresso(), gravado pelo
- * Módulo 7) -- NÃO a fila "ao vivo" do Módulo 3, que encolhe conforme os
- * clientes são atendidos (ver montarProgresso). Este módulo não calcula
- * prioridade nem confere resultado, só AGRUPA o snapshot por prioridadeTier
- * e cruza com quem já foi contatado hoje (window.filaDebug.obterAtendidosHoje()).
- * Nomes e cores das faixas vêm do Módulo 7 (NOMES_PRIORIDADE/CORES_PRIORIDADE)
- * -- não duplicados aqui, pra nunca divergir se uma faixa mudar de nome.
+ * Números: SNAPSHOT da primeira fila por prioridade do dia
+ * (window.filaPrioridadeDebug.lerSnapshotProgresso(), gravado pelo Módulo 7),
+ * NÃO a fila ao vivo do Módulo 3, que encolhe. O módulo só agrupa por
+ * prioridadeTier e cruza com window.filaDebug.obterAtendidosHoje(). Nomes e
+ * cores das faixas vêm do Módulo 7 (NOMES_PRIORIDADE/CORES_PRIORIDADE), sem
+ * duplicar aqui.
  *
- * NÃO É AO VIVO: assim como os outros painéis (Alt+O, Alt+D, Alt+H, Alt+L),
- * o número é calculado no momento em que o painel abre, não atualizado
- * sozinho enquanto fica na tela. Como cada cliente da fila é uma navegação
- * de página cheia (recarrega), não haveria como manter o painel aberto
- * durante o trabalho de qualquer forma -- reabrir é o próprio mecanismo de
- * atualização.
+ * Não é ao vivo: como os outros painéis (Alt+O/D/H/L), calcula ao abrir.
+ * Cada cliente é navegação de página cheia; reabrir é a atualização.
  *
- * ONDE COLAR: depois do Módulo 0 (registro de painéis, formatação), do
- * Módulo 3 (window.filaDebug) e do Módulo 7 (window.filaPrioridadeDebug,
- * NOMES_PRIORIDADE, CORES_PRIORIDADE) -- os três precisam já estar carregados.
+ * Carregar depois dos Módulos 0 (registro de painéis), 3 (window.filaDebug)
+ * e 7 (window.filaPrioridadeDebug, NOMES_PRIORIDADE, CORES_PRIORIDADE).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -42,8 +30,7 @@
   const CONFIG_PROGRESSO = {
     ID_BOTAO: 'smarttable-gatilho-progresso',
     ID_PAINEL: 'smarttable-painel-progresso',
-    // Mesmo z-index dos outros painéis nossos (Módulo 9/10): ABAIXO dos
-    // modais do CRM (z-50).
+    // Igual aos painéis dos Módulos 9/10: abaixo dos modais do CRM (z-50).
     Z_INDEX: 30,
   };
 
@@ -61,17 +48,14 @@
   let botaoEl = null;
 
   /**
-   * Agrupa o SNAPSHOT do dia (ver Módulo 7, CHAVE_SNAPSHOT_PROGRESSO) por
-   * prioridadeTier e cruza com quem já foi contatado hoje. Separado do DOM
-   * de propósito -- é aqui que mora a única aritmética do módulo, e é o que
-   * os testes exercitam sem navegador.
+   * Agrupa o SNAPSHOT do dia (Módulo 7, CHAVE_SNAPSHOT_PROGRESSO) por
+   * prioridadeTier e cruza com quem já foi contatado hoje. Sem DOM: é a única
+   * aritmética do módulo e os testes a exercitam sem navegador.
    *
-   * PEDIDO DO USUÁRIO (v1.25.0): o "total" de cada faixa vem do SNAPSHOT da
-   * PRIMEIRA fila por prioridade do dia, não da fila "ao vivo" -- que
-   * encolhe conforme clientes são atendidos/removidos (Shift+Alt+U
-   * reclassifica, retomarFilaDeHoje tira quem já mexeu hoje por fora do
-   * SmartTable). O snapshot fica fixo o dia inteiro; só "cobrados" muda,
-   * conforme atendidosHoje cresce.
+   * Decisão do usuário: o "total" da faixa vem do snapshot da PRIMEIRA fila
+   * do dia, fixo o dia inteiro (a fila ao vivo encolhe: Shift+Alt+U
+   * reclassifica, retomarFilaDeHoje tira quem já mexeu por fora). Só
+   * "cobrados" muda.
    *
    * @returns {{disponivel: boolean, motivo?: string, faixas?: object[],
    *            totalGeral?: number, cobradosGeral?: number,
@@ -87,9 +71,7 @@
 
     const snapshot = prioridadeDebug.lerSnapshotProgresso();
     if (!snapshot) {
-      // Ajuda extra: se já existe uma fila hoje mas ela é do Alt+I (sem
-      // prioridade), o motivo de não ter snapshot é outro -- avisa qual,
-      // em vez da mensagem genérica.
+      // Fila do Alt+I (sem prioridade) tem motivo próprio, não o genérico.
       const filaAoVivo = filaDebug.obterFila();
       if (filaAoVivo && !prioridadeDebug.ehFilaDePrioridade(filaAoVivo)) {
         return { disponivel: false, motivo: 'A fila de hoje foi montada pelo Alt+I (não por prioridade). Use Alt+U pra ver o progresso por faixa.' };
@@ -111,20 +93,16 @@
       if (c.cnpj && atendidos.has(c.cnpj)) registro.cobrados += 1;
     });
 
-    // Snapshot de OUTRA régua (ex.: o da manhã do dia em que a régua v3
-    // entrou, sem versão gravada): os NÚMEROS das faixas querem dizer outra
-    // coisa, então nome e cor saem pelo NOME gravado com ele. CORRIGIDO
-    // (relatado pelo usuário, "por que está cinza todas as cores?"): a 1ª
-    // versão deixava tudo cinza nesse caso, até as faixas que não mudaram.
+    // Snapshot de OUTRA régua (versão diferente ou sem versão gravada): os
+    // números das faixas significam outra coisa, então nome e cor saem pelo
+    // NOME gravado no snapshot (nunca tudo cinza, nem nas faixas inalteradas).
     const nomesAtuais = prioridadeDebug.NOMES_PRIORIDADE || {};
     const coresAtuais = prioridadeDebug.CORES_PRIORIDADE || {};
     const mesmaRegua = snapshot.versaoRegua != null && snapshot.versaoRegua === prioridadeDebug.CONFIG?.VERSAO_REGUA;
     const nomes = mesmaRegua ? nomesAtuais : {};
     const cores = mesmaRegua ? coresAtuais : {};
     const corPorNome = new Map(Object.entries(nomesAtuais).map(([faixa, nome]) => [nome, coresAtuais[faixa]]));
-    // Nome da faixa 9 até a régua v4 (na v5 virou "... há 14 dias ou mais"):
-    // um snapshot gravado com o nome antigo, no dia da atualização, mantém a
-    // cor da faixa em vez de cair no cinza.
+    // Nome antigo da faixa 9 (régua v4): snapshot gravado com ele mantém a cor.
     corPorNome.set('Sem contato ou movimentação há mais de um mês', coresAtuais[9]);
 
     const faixas = Array.from(porTier.entries())
@@ -137,10 +115,8 @@
       }))
       .sort((a, b) => a.tier - b.tier);
 
-    // PEDIDO DO USUÁRIO: mostrar em qual estágio (faixa de prioridade) está
-    // o cliente que você está cobrando AGORA -- cruza o CNPJ da página
-    // atual com o snapshot do dia (não a fila ao vivo: esse cliente pode já
-    // ter sido removido dela por movimentação hoje, mesmo estando na tela).
+    // Faixa do cliente da página atual: cruza o CNPJ com o snapshot, não com
+    // a fila ao vivo (o cliente pode já ter saído dela por movimentação hoje).
     let estagioAtual = null;
     const cnpjAtual = typeof filaDebug.extrairCnpjDaUrl === 'function' ? filaDebug.extrairCnpjDaUrl(location.href) : null;
     const clienteAtual = cnpjAtual ? snapshot.clientes.find((c) => c.cnpj === cnpjAtual) : null;
@@ -184,9 +160,7 @@
     return linha;
   }
 
-  // PEDIDO DO USUÁRIO: mostrar o estágio (faixa de prioridade) do cliente
-  // que está sendo cobrado agora -- uma linha de destaque logo no topo,
-  // antes do resumo geral, pra responder de cara "onde eu estou".
+  // Destaque no topo: em que faixa está o cliente cobrado agora.
   function criarEstagioAtual(estagio) {
     const linha = criarDiv('', {
       display: 'flex', alignItems: 'center', gap: '8px',
@@ -205,8 +179,7 @@
   function criarBarraFaixa(faixa, emAndamento) {
     const bloco = criarDiv('', {
       marginBottom: '10px',
-      // Destaca a faixa do cliente atual, sem precisar repetir o nome dela
-      // duas vezes na tela -- só um indício visual a mais.
+      // Destaque visual da faixa do cliente atual.
       paddingLeft: emAndamento ? '8px' : '0',
       borderLeft: emAndamento ? `3px solid ${faixa.cor}` : 'none',
     });
@@ -238,11 +211,10 @@
   const hora = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   /**
-   * "USAR A FILA ATUAL" (pedido do usuário, v1.43.0): a referência do
-   * progresso é a PRIMEIRA fila do dia e nunca muda sozinha. Se ela saiu
-   * errada (lista filtrada, por exemplo), este botão troca pela fila que
-   * está valendo agora -- sem perder quem já foi cobrado (Módulo 7,
-   * usarFilaAtualComoReferencia). Só aparece com fila por prioridade.
+   * "Usar a fila atual": a referência é a primeira fila do dia e nunca muda
+   * sozinha; se saiu errada (ex.: lista filtrada), o botão a troca sem perder
+   * quem já foi cobrado (Módulo 7, usarFilaAtualComoReferencia). Só aparece
+   * com fila por prioridade.
    */
   function criarSecaoTrocaDeReferencia() {
     const prioridadeDebug = window.filaPrioridadeDebug;
@@ -358,9 +330,8 @@
   }
 
   /**
-   * O gatilho: quase invisível em repouso, evidente ao passar o mouse ou
-   * focar por teclado (Tab). É um <button> de verdade -- Enter/Espaço
-   * ativam sozinhos, sem precisar reimplementar navegação por teclado.
+   * Gatilho quase invisível em repouso, evidente com mouse ou foco (Tab).
+   * <button> de verdade: Enter/Espaço funcionam sem código extra.
    */
   function criarBotaoGatilho() {
     const el = document.createElement('button');

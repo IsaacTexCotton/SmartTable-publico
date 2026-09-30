@@ -1,23 +1,17 @@
 /* =========================================================================
  * MÓDULO 9: PAINEL DE CONFIGURAÇÕES (Alt+O) — CRM TexCotton
  * -------------------------------------------------------------------------
- * Uma janelinha com interruptores, aberta e fechada pelo Alt+O.
+ * Janelinha com interruptores, aberta e fechada pelo Alt+O.
+ * Permite mudar comportamento por máquina/dia (ex.: canal do WhatsApp)
+ * sem editar módulo nem publicar versão.
  *
- * POR QUE EXISTE: até aqui, toda escolha de comportamento virava constante
- * no código -- pra trocar era preciso editar um módulo e publicar uma
- * versão. O primeiro caso concreto foi o canal do WhatsApp (app Desktop x
- * web.whatsapp.com), que precisa mudar por MÁQUINA e às vezes por DIA:
- * atender pela conta de outra pessoa sem desvincular a sua do app.
+ * Genérico, por decisão do usuário: não conhece nenhuma configuração. Lê
+ * `window.__smartTableUtil.config` e desenha o que estiver em DEFINICOES
+ * (Módulo 0). Interruptor novo = entrada nova lá; nada muda aqui.
  *
- * FEITO PRA SER REUTILIZADO, a pedido do usuário. Este arquivo não conhece
- * nenhuma configuração específica: ele lê `window.__smartTableUtil.config`
- * e desenha o que estiver declarado lá. Acrescentar um interruptor novo é
- * uma entrada em DEFINICOES no Módulo 0 -- nada aqui muda.
- *
- * ONDE COLAR: depois do Módulo 0 (de quem lê as definições) e antes ou
- * depois do Módulo 4 -- o atalho do Módulo 4 chama por
- * window.__painelConfiguracoes, checando existência, então a ordem entre os
- * dois não importa.
+ * Expõe window.__painelConfiguracoes. Depende do Módulo 0 (carregar depois).
+ * O atalho do Módulo 4 chama o painel checando existência, então a ordem
+ * entre os Módulos 4 e 9 não importa.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -28,11 +22,8 @@
 
   const CONFIG_PAINEL = {
     ID_PAINEL: 'smarttable-painel-config',
-    // Mesmo z-index do painel de novidades (Módulo 4): ABAIXO dos modais do
-    // CRM, que usam z-50. Já tivemos o bug de um elemento nosso cortando um
-    // modal do CRM ao meio; a regra é essa e não se abre exceção sem motivo.
-    // (O banner de grupo do Módulo 5, que seguia a mesma regra, saiu na
-    // v1.14.0.)
+    // Igual ao painel de novidades (Módulo 4): ABAIXO dos modais do CRM
+    // (z-50), senão nosso elemento corta o modal. Sem exceção.
     Z_INDEX: 30,
   };
 
@@ -51,10 +42,8 @@
 
   /**
    * A configuração compartilhada do Módulo 0.
-   *
-   * Lida na hora do uso, e não no carregamento: se o Módulo 0 falhar, o
-   * painel avisa na tela em vez de estourar um TypeError no meio da
-   * cobrança.
+   * Lida na hora do uso: se o Módulo 0 falhar, o painel avisa na tela em vez
+   * de estourar TypeError.
    *
    * @returns {object|null}
    */
@@ -147,10 +136,9 @@
     linha.setAttribute('aria-checked', String(ligadoAgora));
 
     const alternar = () => {
-      // O valor pintado é o que config.alternar DEVOLVE, não o que a gente
-      // imagina que ficou. Se o localStorage recusar a gravação (cota cheia,
-      // aba anônima), ele devolve o valor que continua em vigor -- e o
-      // interruptor não desliza. A tela nunca mente sobre o que está valendo.
+      // Pinta o que config.alternar DEVOLVE, não o que se supõe. Se o
+      // localStorage recusar a gravação, devolve o valor em vigor e o
+      // interruptor não desliza: a tela nunca mente.
       const agora = config.alternar(chave);
       interruptor.pintar(agora);
       linha.setAttribute('aria-checked', String(agora));
@@ -184,8 +172,7 @@
   }
 
   function abrirPainel() {
-    // Só um painel flutuante nosso na tela por vez (ver registrarPainel no
-    // Módulo 0 e o defeito que motivou isso).
+    // Só um painel flutuante nosso por vez (ver registrarPainel, Módulo 0).
     window.__smartTableUtil?.fecharOutrosPaineis?.('configuracoes');
 
     const config = obterConfig();
@@ -247,7 +234,7 @@
     painelEl.appendChild(dica);
 
     document.body.appendChild(painelEl);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fica fora do menu lateral do CRM e acompanha quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(painelEl);
   }
 
@@ -263,9 +250,8 @@
     abrirPainel();
   }
 
-  // Esc fecha. Registrado uma vez só, na carga do módulo, porque um listener
-  // por abertura vazaria a cada Alt+O -- e este script fica aberto o dia
-  // inteiro na mesma aba.
+  // Esc fecha. Registrado uma vez só: um listener por abertura vazaria, e a
+  // aba fica aberta o dia inteiro.
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && painelEl) fecharPainel();
   });

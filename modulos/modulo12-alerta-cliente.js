@@ -1,66 +1,41 @@
 /* =========================================================================
  * MÓDULO 12: ALERTA DO CLIENTE (botão, não atalho) — CRM TexCotton
  * -------------------------------------------------------------------------
- * Um botão na página do cliente ("Alerta") que abre um formulário com:
- *   - checkbox "Não cobrar" -- ao marcar, aparece um campo de intervalo em
- *     DIAS (padrão 1). Enquanto o intervalo não expira, este cliente é
- *     EXCLUÍDO da fila por prioridade (Módulo 7, Alt+U) -- só dela, o Alt+I
- *     original (Módulo 3) não foi mencionado no pedido e continua igual.
- *   - campo de observação (texto livre).
- *   - botão Confirmar.
+ * Botão "Alerta" na página do cliente. Abre um formulário com:
+ *   - checkbox "Não cobrar" + intervalo em DIAS (padrão 1). Enquanto não
+ *     expira, o cliente sai da fila por prioridade (Módulo 7, Alt+U). O Alt+I
+ *     original (Módulo 3) NÃO é afetado.
+ *   - observação (texto livre) e botão Confirmar.
+ *   - por título em cartório, uma caixinha "fora do relatório" (abaixo).
  *
- * PEDIDO EXPLÍCITO DO USUÁRIO: um BOTÃO, igual ao Módulo 11 -- mas ESTE não
- * é escondido (o Módulo 11 é; aqui nada foi pedido nesse sentido).
+ * Expõe window.__alertaCliente (API no fim do arquivo).
+ * Depende do Módulo 0 (registro de painéis) e do Módulo 1 (simular()).
  *
- * ONDE O BOTÃO FICA (v1.21.2, pedido do usuário com o HTML real do card do
- * cliente): DENTRO do card de informações do cliente, logo depois do botão
- * "Responsável financeiro" (`button[onclick="abrirModalResponsavel()"]`) --
- * mesmo container flex, herda as classes Tailwind já compiladas na página
- * (rounded-lg/border/text-[11px]/font-medium/etc., confirmadas ao vivo no
- * mesmo trecho de HTML) pra não depender de cor Tailwind que pode não estar
- * no CSS compilado da página; a cor em si é sempre inline. SE essa âncora
- * não existir na página (layout diferente, ainda não carregou), cai pro
- * botão flutuante fixo de antes (abaixo do cabeçalho -- ver próximo
- * parágrafo) em vez de simplesmente não aparecer.
+ * BOTÃO: fica no card do cliente, depois do "Responsável financeiro"
+ * (confirmado no HTML real), herdando as classes de layout da página. Sem essa
+ * âncora, cai pro botão flutuante abaixo do cabeçalho do CRM (ver
+ * CONFIG_ALERTA.TOPO_BOTAO). Não é escondido (o do Módulo 11 é).
  *
- * ACHADO AO VIVO na v1.21.0 (histórico -- só importa pro fallback acima): o
- * cabeçalho do CRM (`#sit-header`) cobre a largura inteira da tela do topo
- * até y=80px, com z-index 50 -- MESMO nível dos modais do CRM. `top:16px`
- * (canto superior esquerdo "de verdade") ficava embaixo dele por completo.
- * Ver CONFIG_ALERTA.TOPO_BOTAO/TOPO_PAINEL.
- *
- * O AVISO AUTOMÁTICO AO ABRIR A PÁGINA (v1.21.2, corrigido -- ANTES só
- * avisava com observação SEM "não cobrar" marcado, de propósito; relatado
- * pelo usuário como errado): agora avisa sempre que existir alerta ativo
- * pra este cliente, "não cobrar" ou observação ou os dois -- é exatamente
- * ao entrar num cliente marcado "não cobrar" que o aviso mais importa, pra
- * não ligar por hábito mesmo saindo da fila automática.
+ * AVISO AO ABRIR A PÁGINA: sempre que houver alerta ativo ("não cobrar",
+ * observação ou os dois). Decisão do usuário.
  *
  * ARMAZENAMENTO: um objeto por CNPJ em localStorage, sobrescrito inteiro a
- * cada "Confirmar" (não é um log -- é o estado ATUAL do alerta desse
- * cliente). Confirmar com o checkbox desmarcado e observação vazia REMOVE o
- * registro -- é assim que se limpa um alerta.
+ * cada Confirmar (estado ATUAL, não log). Confirmar sem checkbox e sem
+ * observação REMOVE o registro.
  *
- * "Não cobrar" usa timestamp corrido (Date.now() + dias*24h), não a
- * convenção de meio-dia do resto do projeto (normalizarData) -- de
- * propósito: normalizarData serve pra comparar DATAS DE CALENDÁRIO
- * (vencimento, promessa), e aqui o pedido é uma DURAÇÃO rolante ("por 1
- * dia a partir de agora"), não um dia específico do calendário.
+ * "Não cobrar" usa timestamp corrido (Date.now() + dias*24h), não o meio-dia
+ * de normalizarData: é uma DURAÇÃO rolante, não uma data de calendário.
  *
- * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO (v1.47.0, pedido do usuário, com as
- * decisões dele): no painel, uma caixinha por título em cartório. Marcado,
- * o título sai da cobrança INTEIRA -- relatório, mensagem do Alt+A, nota do
- * Alt+S e Alt+U (o Módulo 1 consulta tituloForaDoRelatorio no mesmo ponto em
- * que consulta os títulos em acordo). Fica marcado ATÉ CONSTAR COMO PAGO:
- * ao abrir a página do cliente, título que aparece em __TITULOS_PAGOS__ do
- * CRM é desmarcado sozinho. Se ele só sumir dos abertos (acordo, baixa) e
- * voltar depois, a marcação continua valendo. Guardado por CNPJ (só
- * dígitos) em smarttable_cartorio_fora_relatorio_v1, neste navegador.
+ * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO (decisão do usuário): marcado, o
+ * título sai da cobrança INTEIRA (relatório, mensagem do Alt+A, nota do Alt+S,
+ * Alt+U); o Módulo 1 consulta tituloForaDoRelatorio no mesmo ponto em que
+ * consulta os títulos em acordo. Fica marcado ATÉ CONSTAR COMO PAGO: ao abrir
+ * a página, título em __TITULOS_PAGOS__ é desmarcado. Se só sumir dos abertos
+ * (acordo, baixa) e voltar, a marcação continua. Guardado por CNPJ (só
+ * dígitos) em smarttable_cartorio_fora_relatorio_v1.
  *
- * ONDE COLAR: depois do Módulo 0 (config/registro de painéis) e ANTES do
- * Módulo 7 (que consulta estaSuprimidoDaPrioridade ao montar a fila -- se
- * este módulo não tiver carregado, o Módulo 7 degrada silenciosamente pra
- * "ninguém suprimido", nunca lança exceção).
+ * ONDE COLAR: depois do Módulo 0 e ANTES do Módulo 7 (que consulta
+ * estaSuprimidoDaPrioridade; sem este módulo, o 7 assume "ninguém suprimido").
  * ========================================================================= */
 (function () {
   'use strict';
@@ -77,26 +52,17 @@
     ID_BOTAO: 'smarttable-botao-alerta-cliente',
     ID_PAINEL: 'smarttable-painel-alerta-cliente',
     ID_AVISO: 'smarttable-aviso-observacao-cliente',
-    // Mesmo z-index dos outros painéis nossos (Módulo 9/10/11): ABAIXO dos
-    // modais do CRM (z-50).
+    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
     Z_INDEX: 30,
     INTERVALO_PADRAO_DIAS: 1,
-    // CONFIRMADO AO VIVO (relatado pelo usuário): o cabeçalho do CRM
-    // (`#sit-header`) cobre toda a largura da tela, do topo até y=80px, com
-    // z-index 50 -- MESMO nível dos modais do CRM. O canto superior
-    // esquerdo (top:16px, onde o botão nasceu) fica embaixo dele por
-    // completo; `document.elementFromPoint` naquele ponto devolvia o botão
-    // de recolher menu do próprio CRM (#sidebar-toggle-btn), nunca o nosso.
-    // Subir nosso z-index acima de 50 pra vencer resolveria isso, mas
-    // quebraria a regra que todo painel daqui segue: nunca competir com
-    // modal de verdade. A solução é geométrica, não de z-index: ficar
-    // inteiramente ABAIXO da faixa do cabeçalho (80px + folga).
+    // Confirmado ao vivo: o cabeçalho do CRM (#sit-header) cobre a largura
+    // toda até y=80px, com z-index 50 (o mesmo dos modais). Subir o nosso
+    // z-index quebraria a regra de nunca competir com modal, então o botão
+    // fica geometricamente ABAIXO da faixa do cabeçalho (80px + folga).
     TOPO_BOTAO: '96px',
     TOPO_PAINEL: '150px',
-    // Confirmado ao vivo com o usuário (HTML real do card do cliente): o
-    // onclick é o identificador mais estável desse botão -- não depende de
-    // classe Tailwind (que pode mudar em redesign visual) nem de texto
-    // (que pode ser traduzido/reformulado).
+    // Confirmado no HTML real do card: o onclick é o identificador mais
+    // estável do botão (classe Tailwind e texto podem mudar).
     SELETOR_ANCORA: 'button[onclick="abrirModalResponsavel()"]',
   };
 
@@ -173,8 +139,7 @@
     const todos = lerTodos();
 
     if (!naoCobrar && !observacaoLimpa) {
-      // Sem checkbox e sem observação não é um alerta -- é a forma de
-      // LIMPAR um alerta anterior.
+      // Sem checkbox e sem observação: é a forma de LIMPAR o alerta.
       delete todos[cnpj];
       return salvarTodos(todos);
     }
@@ -194,10 +159,9 @@
   }
 
   /**
-   * A pergunta que o Módulo 7 faz ao montar a fila por prioridade: este
-   * cliente está com "não cobrar" ativo agora? Nunca lança -- ausência de
-   * dado (deste módulo não carregado, cliente sem alerta, JSON corrompido)
-   * sempre significa "não suprimido", nunca "suprimido por engano".
+   * A pergunta do Módulo 7 ao montar a fila: este cliente está com "não
+   * cobrar" ativo agora? Nunca lança: ausência de dado (JSON corrompido,
+   * cliente sem alerta) significa "não suprimido", nunca o contrário.
    *
    * @param {string} cnpj
    * @param {number} [agora] Injetável pra teste.
@@ -210,7 +174,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO (v1.47.0)
+   * TÍTULOS EM CARTÓRIO FORA DO RELATÓRIO
    * --------------------------------------------------------------------- */
 
   const soDigitos = (cnpj) => String(cnpj ?? '').replace(/\D/g, '');
@@ -288,10 +252,9 @@
   }
 
   /**
-   * Lê __TITULOS_PAGOS__ da página aberta (mesmos campos de
-   * __TITULOS_ABERTOS__: numeroTitulo, sequencia -- diagnóstico de 25/09) e
-   * desmarca os pagos. Sem a lista (página sem ela, formato inesperado):
-   * não desmarca NADA -- nunca devolve à cobrança por engano.
+   * Lê __TITULOS_PAGOS__ da página (mesmos campos de __TITULOS_ABERTOS__:
+   * numeroTitulo, sequencia) e desmarca os pagos. Sem a lista ou com formato
+   * inesperado, não desmarca NADA: nunca devolve à cobrança por engano.
    */
   function desmarcarPagosDaPagina(cnpj) {
     let pagos;
@@ -308,7 +271,7 @@
   }
 
   /**
-   * Os títulos que a seção do painel mostra: os em cartório agora (marcados
+   * Títulos que a seção do painel mostra: os em cartório agora (marcados
    * ou não) e os já marcados que ainda estão em aberto.
    * @returns {{tituloCompleto: string, vencimentoTexto: string, fora: boolean}[]}
    */
@@ -368,9 +331,8 @@
     const alerta = obterAlerta(cnpj);
     const ativo = !!alerta;
     if (botaoInjetadoNoDom) {
-      // Aqui o botão herda classes Tailwind da página (layout) -- só a cor
-      // é nossa, e sempre inline (nunca uma classe de cor Tailwind que
-      // pode não estar no CSS compilado desta página).
+      // Layout vem das classes da página; a cor é sempre inline (classe de
+      // cor Tailwind pode não estar no CSS compilado).
       Object.assign(botaoEl.style, ativo
         ? { background: '#FEF3E2', borderColor: CORES.alerta, color: CORES.alerta }
         : { background: '#ffffff', borderColor: CORES.borda, color: CORES.texto });
@@ -447,11 +409,8 @@
   }
 
   /**
-   * Avisa SEMPRE que houver alerta ativo pra este cliente -- "não cobrar"
-   * ativo ou observação, os dois, ou só um. Antes da v1.21.2 só avisava com
-   * observação sem "não cobrar" (assimetria); relatado pelo usuário como
-   * errado: entrar num cliente marcado "não cobrar" é exatamente o momento
-   * em que o aviso mais importa, pra não ligar por hábito.
+   * Avisa sempre que houver alerta ativo ("não cobrar" ativo, observação, ou
+   * os dois): entrar num cliente "não cobrar" é quando o aviso mais importa.
    */
   function mostrarAvisoSeNecessario(cnpj) {
     const alerta = obterAlerta(cnpj);
@@ -538,8 +497,8 @@
     });
     painelEl.appendChild(textareaObservacao);
 
-    // Títulos em cartório fora do relatório (v1.47.0) -- só aparece se o
-    // cliente tiver algum título em cartório (ou já marcado).
+    // Títulos em cartório fora do relatório: só aparece se o cliente tiver
+    // algum em cartório (ou já marcado).
     const caixasForaDoRelatorio = [];
     const titulosCartorio = titulosDoPainelForaDoRelatorio();
     if (titulosCartorio.length > 0) {
@@ -578,9 +537,8 @@
       padding: '7px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '600', width: '100%',
     });
     botaoConfirmar.addEventListener('click', () => {
-      // Revisão geral (29/09/2026): mudar só a observação regravava o prazo
-      // como "agora + dias arredondados para cima" e esticava o "não cobrar"
-      // (2,1 dias restantes viravam 3). Sem mexer nos dias, o prazo fica.
+      // Sem mexer nos dias, o prazo existente é mantido (senão 2,1 dias
+      // restantes virariam 3 ao editar só a observação).
       const manterPrazo = naoCobrarAtivo && checkboxNaoCobrar.checked && inputDias.value === String(diasRestantes);
       const alertaGravado = salvarAlerta(cnpj, {
         naoCobrar: checkboxNaoCobrar.checked,
@@ -592,8 +550,8 @@
         .map((caixa) => marcarForaDoRelatorio(cnpj, caixa.dataset.titulo, caixa.checked))
         .every(Boolean);
       atualizarBadgeDoBotao(cnpj);
-      // Falha de gravação NÃO fecha o painel como se tivesse salvo: o
-      // operador acharia que o título saiu da cobrança e ele continuaria entrando.
+      // Falha de gravação NÃO fecha o painel: o operador acharia que o
+      // título saiu da cobrança e ele continuaria entrando.
       if (!alertaGravado || !titulosGravados) {
         window.__smartTableUtil?.toast?.('Não consegui salvar o alerta (o navegador recusou a gravação). Confira as marcações e confirme de novo.', 8000);
         return;
@@ -608,14 +566,13 @@
     }));
 
     document.body.appendChild(painelEl);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(painelEl);
   }
 
   /**
-   * Tenta encaixar o botão dentro do card do cliente, logo depois do botão
-   * "Responsável financeiro" -- mesmo container flex, mesma linha. Devolve
-   * true se conseguiu (o elemento já está no DOM nesse caso).
+   * Encaixa o botão no card do cliente, logo depois do "Responsável
+   * financeiro". Devolve true se conseguiu (o elemento já está no DOM).
    *
    * @param {HTMLElement} el
    * @returns {boolean}
@@ -636,15 +593,13 @@
     botaoInjetadoNoDom = inserirNoCardDoCliente(el);
 
     if (botaoInjetadoNoDom) {
-      // Classes de LAYOUT copiadas do botão vizinho (garantidas presentes
-      // no CSS compilado da página, porque ele mesmo já as usa). A cor
-      // nunca vem daqui -- ver atualizarBadgeDoBotao.
+      // Classes de LAYOUT copiadas do botão vizinho (já presentes no CSS
+      // compilado da página). A cor nunca vem daqui (ver atualizarBadgeDoBotao).
       el.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition';
       Object.assign(el.style, { cursor: 'pointer', fontFamily: 'inherit', borderStyle: 'solid', borderWidth: '1px' });
     } else {
-      // Sem a âncora nesta página (layout diferente, ou ainda não
-      // carregou) -- cai pro botão flutuante de antes, abaixo do
-      // cabeçalho do CRM (ver TOPO_BOTAO). Nunca fica sem opção nenhuma.
+      // Sem a âncora nesta página: cai pro botão flutuante, abaixo do
+      // cabeçalho do CRM (ver TOPO_BOTAO).
       Object.assign(el.style, {
         position: 'fixed',
         top: CONFIG_ALERTA.TOPO_BOTAO,

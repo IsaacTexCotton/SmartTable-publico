@@ -1,43 +1,24 @@
 /* =========================================================================
  * MÓDULO 13: CONSOLE DE DIAGNÓSTICO (Alt+K) — CRM TexCotton
  * -------------------------------------------------------------------------
- * Uma janela só, com as principais saídas de diagnóstico do sistema, sem
- * precisar abrir o DevTools nem rodar nada no console manualmente.
+ * Janela única com o resumo de diagnóstico (módulos, fila/progresso de hoje,
+ * avisos e erros recentes) e botões para a autoconferência (Módulo 8).
+ * A autoconferência só roda a pedido: rodar ao abrir poluiria o log recente
+ * com o próprio diagnóstico.
  *
- * PEDIDO DO USUÁRIO: "tudo que for importante e não atrapalhe a
- * compreensão" -- por isso o painel abre com um resumo enxuto (módulos,
- * fila/progresso de hoje, avisos e erros recentes) e deixa a
- * autoconferência completa (window.__conferir(), Módulo 8 -- mais
- * detalhada, e ela própria escreve no console) atrás de um botão, em vez
- * de rodar sozinha toda vez que o painel abre.
+ * Nada é recalculado aqui, tudo vem de outros módulos:
+ *   - módulos: window.__smartTableUtil.modulosCarregados()/modulosFaltando()
+ *     (Módulo 0);
+ *   - fila: window.filaDebug (Módulo 3); progresso: window.__progressoFila
+ *     .montarProgresso() (Módulo 11);
+ *   - avisos/erros: este módulo envolve console.warn/console.error ao
+ *     carregar (ring buffer, CONFIG_CONSOLE.LIMITE_LOG). Só cobre o que for
+ *     emitido DEPOIS do carregamento;
+ *   - autoconferência: window.__conferir() e window.__diag.* (Módulo 8).
  *
- * DE ONDE VÊM OS DADOS -- nada é recalculado aqui, tudo é lido de módulos
- * que já existem, pelo mesmo motivo de sempre (nunca duplicar regra de
- * negócio, ver Módulo 0):
- *   - Módulos carregados/faltando: window.__smartTableUtil.modulosCarregados()
- *     / .modulosFaltando() (registro central, Módulo 0).
- *   - Fila e progresso de hoje: window.filaDebug (Módulo 3) e
- *     window.__progressoFila.montarProgresso() (Módulo 11) -- a mesma
- *     aritmética que já alimenta o painel de progresso, só reaproveitada.
- *   - Avisos e erros recentes: este módulo envolve console.warn/console.error
- *     a partir do instante em que carrega (ring buffer -- ver
- *     CONFIG_CONSOLE.LIMITE_LOG) e guarda o que passar por eles. Não é
- *     histórico completo da página: só cobre erros/avisos emitidos DEPOIS
- *     deste módulo carregar. Como ele carrega perto do fim do @require,
- *     cobre a imensa maioria dos avisos reais (a maior parte acontece
- *     dentro de handler de clique/atalho, bem depois do carregamento da
- *     página, não durante ele).
- *   - Autoconferência completa: window.__conferir() (Módulo 8), chamada só
- *     quando o operador pede -- ela própria escreve tabelas no console,
- *     então rodar sozinha ao abrir o painel poluiria o log recente com o
- *     próprio diagnóstico do diagnóstico.
- *
- * ONDE COLAR: depois do Módulo 0 (config/registro de painéis), do Módulo 3
- * (window.filaDebug) e do Módulo 11 (window.__progressoFila) -- os três
- * precisam já estar carregados. Não depende do Módulo 4 (atalhos): o atalho
- * Alt+K vive lá, chamando window.__consoleDiagnostico.alternarPainel() do
- * mesmo jeito que os outros painéis (Alt+O, Alt+D) são acionados -- a ordem
- * entre os dois não importa, é checagem em tempo de uso.
+ * Expõe window.__consoleDiagnostico. Carregar depois dos Módulos 0, 3 e 11.
+ * O atalho Alt+K vive no Módulo 4 e chama __consoleDiagnostico.alternarPainel()
+ * em tempo de uso, então a ordem em relação ao Módulo 4 não importa.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -48,11 +29,9 @@
 
   const CONFIG_CONSOLE = {
     ID_PAINEL: 'smarttable-console-diagnostico',
-    // Mesmo z-index dos outros painéis nossos (Módulo 9/10/11/12): ABAIXO
-    // dos modais do CRM (z-50).
+    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
     Z_INDEX: 30,
-    // Quantos avisos/erros recentes ficam guardados -- um ring buffer, não
-    // um log ilimitado (isto fica só em memória, nunca em localStorage).
+    // Ring buffer só em memória, nunca em localStorage.
     LIMITE_LOG: 50,
   };
 
@@ -70,17 +49,13 @@
 
   let painelEl = null;
 
-  /* ---------------------------------------------------------------------
-   * CAPTURA DE AVISOS/ERROS -- envolve console.warn/console.error a partir
-   * de agora, sem nunca deixar de chamar o original (a saída no DevTools
-   * continua idêntica; isto só ESPELHA pra um buffer em memória).
-   * --------------------------------------------------------------------- */
+  /* CAPTURA DE AVISOS/ERROS: espelha console.warn/error num buffer, sempre
+   * chamando o original (a saída no DevTools não muda). */
   const logRecente = [];
 
-  // Campos que carregam dado de cliente quando um OBJETO vai pro console
-  // (ex.: o aviso de divergência do Módulo 1, protegido, loga {titulo, ...}).
-  // O regex do Módulo 8 só reconhece o FORMATO de CNPJ/CPF/telefone; número
-  // de título, nome e valor só dá pra reconhecer pelo nome do campo.
+  // Campos que carregam dado de cliente quando um OBJETO vai pro console (ex.:
+  // aviso do Módulo 1). O regex do Módulo 8 só reconhece o FORMATO de
+  // CNPJ/CPF/telefone; título, nome e valor só pelo nome do campo.
   const CAMPOS_SENSIVEIS = /^(titulo|tituloCompleto|titulos|cnpj|cpf|razaoSocial|nomeFantasia|label|cliente|nome|telefone|email|saldo|saldoTexto|valor|valorEmAberto|vencido)$/i;
 
   /** Serializa pro painel trocando o valor dos campos sensíveis por apelido. */
@@ -105,10 +80,10 @@
         }
       })
       .join(' ');
-    // Defesa em profundidade (privacidade): este painel mostra na TELA o que
-    // qualquer script escreveu no console. CNPJ/CPF/telefone viram apelido
-    // (Módulo 8) antes de guardar -- a origem continua sendo o lugar certo de
-    // não logar dado de cliente (tests/privacidade-logs.test.js).
+    // Privacidade: o painel mostra na tela o que qualquer script logou.
+    // CNPJ/CPF/telefone viram apelido (Módulo 8) antes de guardar; a origem
+    // continua sendo o lugar certo de não logar dado de cliente
+    // (tests/privacidade-logs.test.js).
     let censurada = mensagem;
     try {
       censurada = window.__diario?.censurarTexto?.(mensagem) ?? mensagem;
@@ -136,11 +111,8 @@
     };
   }
 
-  /* ---------------------------------------------------------------------
-   * MONTAGEM DOS DADOS -- separado do DOM de propósito (mesmo padrão dos
-   * Módulos 10/11): é aqui que mora a única lógica do módulo, e é o que os
-   * testes exercitam sem navegador.
-   * --------------------------------------------------------------------- */
+  /* MONTAGEM DOS DADOS: separada do DOM de propósito (padrão dos Módulos
+   * 10/11); é a única lógica do módulo e o que os testes exercitam. */
 
   /**
    * @returns {{disponivel: boolean, carregados?: string[], faltando?: string[], total?: number}}
@@ -173,8 +145,7 @@
 
     const fila = filaDebug.obterFila();
     const progressoFila = window.__progressoFila;
-    // Reaproveita a MESMA aritmética do painel de progresso (Módulo 11) --
-    // não recalculamos faixa por faixa aqui, só exibimos o resultado dela.
+    // Mesma aritmética do painel de progresso (Módulo 11); não recalcular aqui.
     const progresso = progressoFila && typeof progressoFila.montarProgresso === 'function'
       ? progressoFila.montarProgresso()
       : null;
@@ -203,8 +174,7 @@
   }
 
   /**
-   * Retrato completo pra diagnóstico -- usado tanto pelo painel quanto por
-   * quem quiser consultar via console sem abrir a tela.
+   * Retrato completo, usado pelo painel e por consulta via console.
    *
    * @returns {{modulos: object, filaEProgresso: object, log: object[]}}
    */
@@ -216,9 +186,7 @@
     };
   }
 
-  /* ---------------------------------------------------------------------
-   * DESENHO
-   * --------------------------------------------------------------------- */
+  /* DESENHO */
 
   function criarDiv(texto, estilo) {
     const el = document.createElement('div');
@@ -319,9 +287,7 @@
   }
 
   /**
-   * Roda window.__conferir() (Módulo 8) e mostra o resultado inline --
-   * a pedido, não sozinho (ver cabeçalho do arquivo). Substitui o próprio
-   * botão por um resumo, sem fechar o painel.
+   * Roda window.__conferir() (Módulo 8) e mostra o resultado inline, a pedido.
    *
    * @param {HTMLElement} areaResultado
    */
@@ -369,15 +335,10 @@
     return bloco;
   }
 
-  /* ---------------------------------------------------------------------
-   * Ritmo do operador (v1.54.2) -- os três diagnósticos do Módulo 8
-   * (window.__diag.qualidade / ritmo / filaDefasada) DENTRO do painel, a
-   * pedido do usuário: "esses testes importantes não eram pra ficar no
-   * Alt+K?". Nada é recalculado aqui: cada botão chama a função do Módulo 8
-   * e mostra (a) uma linha de leitura e (b) o JSON, que já sai do filtro de
-   * privacidade dele (só número, booleano e textos de uma lista fechada).
-   * O botão "Copiar" copia esse mesmo JSON: pode colar no chat sem censurar.
-   * --------------------------------------------------------------------- */
+  /* RITMO DO OPERADOR: cada botão chama um diagnóstico do Módulo 8
+   * (window.__diag.qualidade/ritmo/filaDefasada) e mostra uma linha de leitura
+   * mais o JSON, que já sai do filtro de privacidade dele (só número,
+   * booleano e textos de lista fechada). "Copiar" copia esse mesmo JSON. */
   const porcento = (x) => `${Math.round(x * 1000) / 10}%`;
 
   /** Uma linha de leitura por diagnóstico, sem esconder o JSON completo logo abaixo. */
@@ -530,7 +491,7 @@
     }));
 
     document.body.appendChild(painelEl);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(painelEl);
   }
 

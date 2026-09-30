@@ -1,116 +1,83 @@
 /* =========================================================================
  * MÓDULO 3: FILA DE ATENDIMENTO — CRM TexCotton
  * -------------------------------------------------------------------------
- * O que faz: mantém a lista de clientes a atender e sua posição nela. Ao
- * detectar que "Registrar e Enviar" (Módulo 2) teve sucesso (WhatsApp
- * abriu), marca o cliente atual como atendido -- mas NÃO navega sozinho
- * pro próximo. O avanço de fato é sempre uma decisão sua: Alt+P ou o botão
- * "Próximo →" no painel, quando você estiver pronto.
+ * O que faz: mantém a lista de clientes a atender e a posição nela. Quando
+ * "Registrar e Enviar" (Módulo 2) tem sucesso, marca o cliente como
+ * atendido, mas NÃO navega sozinho. O avanço é sempre decisão do operador:
+ * Alt+P ou botão "Próximo →". Alt+V ou "← Voltar" volta um cliente e
+ * desfaz a contagem daquele passo (ir e voltar não infla o resumo final).
+ * Ao acabar a fila, aparece um aviso e o painel some.
  *
- * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos
- * "Aviso de Cobrança" (v4) e "Registrar e Enviar". Não substitui nada.
+ * Depende de: Módulo 0 (window.__smartTableUtil: toast, montarUrlCliente),
+ * carregado ANTES deste no @require do wrapper. Módulo 8 (window.__diario)
+ * é opcional. Módulo 4 usa window.filaDebug (ver o fim do arquivo).
+ * Expõe também o evento 'smarttable:contato-registrado' (detail.cnpj).
  *
- * Como usar no dia a dia:
- *   1. Abra a página que lista os clientes que você vai atender.
- *   2. Clique no botão flutuante "▶ Iniciar Fila de Atendimento" (canto
- *      inferior esquerdo). Isso te leva direto pro primeiro cliente.
- *   3. Em cada cliente, use o fluxo normal (ver títulos, gerar relatório,
- *      "Registrar e Enviar"). Ao detectar que o WhatsApp abriu, o cliente
- *      fica marcado como atendido -- a página continua a mesma até você
- *      decidir ir pro próximo.
- *   4. Quando quiser seguir, aperte Alt+P (ou clique "Próximo →" no painel).
- *      Se o cliente atual já foi registrado, ele conta como "atendido" no
- *      resumo final; senão conta como "pulado".
- *   5. Avançou rápido demais ou quer revisitar o anterior? Alt+V (ou
- *      "← Voltar" no painel) volta um cliente, desfazendo a contagem
- *      daquele passo pra não inflar o resumo final se você for e voltar
- *      várias vezes.
- *   6. Quando a fila acabar, aparece um aviso e o painel some sozinho.
+ * Matriz e filial (mesma raiz de CNPJ, 8 primeiros dígitos) contam como UM
+ * cliente na fila -- confirmado com o usuário. Fica a entrada com mais dias
+ * de atraso.
  *
- * Matriz e filial da mesma empresa (mesma raiz de CNPJ, os 8 primeiros
- * dígitos) contam como UM cliente só na fila -- CONFIRMADO com o usuário
- * depois de reproduzir na prática (duas empresas apareceram duplicadas,
- * cada uma com CNPJs de matriz/filial diferentes). Mantém a entrada mais
- * urgente (mais dias de atraso) entre as duplicatas.
- *
- * IMPORTANTE — calibração inicial:
- *   A fila NÃO depende de <a href> (a lista real não usa links — a linha
- *   navega via JavaScript). Em vez disso, ela lê o texto
- *   "Controle: {grupoId}|{cnpj}" de cada linha e remonta a URL de destino
- *   (confirmado com exemplo real, CNPJ trocado por um fictício: Controle: 0|12345678/0001-99 ->
- *   /crm/clientes/grupo/0?cnpj=12345678%2F0001-99). Se o formato da lista
- *   mudar no futuro, ajuste CONFIG.REGEX_CONTROLE e/ou
- *   window.__smartTableUtil.montarUrlCliente (Módulo 0).
+ * A lista de clientes NÃO usa <a href> (a linha navega via JavaScript). A
+ * fila lê "Controle: {grupoId}|{cnpj}" de cada linha e remonta a URL
+ * (confirmado no CRM: Controle: 0|12345678/0001-99 ->
+ * /crm/clientes/grupo/0?cnpj=12345678%2F0001-99). Se o formato mudar,
+ * ajuste CONFIG.REGEX_CONTROLE e/ou __smartTableUtil.montarUrlCliente.
  * ========================================================================= */
 (function () {
   'use strict';
 
-  // Evita inicializar duas vezes se o arquivo for injetado/recarregado mais de uma vez.
+  // Evita inicializar duas vezes se o arquivo for injetado mais de uma vez.
   if (window.__filaAtendimentoCarregado) return;
   window.__filaAtendimentoCarregado = true;
   window.__smartTableUtil?.registrarModuloCarregado?.('Fila de Atendimento');
 
-  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
-  // deste arquivo no @require do wrapper.
   const { toast, montarUrlCliente } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
-   * 1. CONFIGURAÇÃO — únicos pontos que talvez precisem de ajuste.
+   * 1. CONFIGURAÇÃO
    * --------------------------------------------------------------------- */
   const CONFIG = {
-    // Seletor das linhas candidatas na página de LISTA de clientes.
     SELETOR_LINHA: 'table tbody tr',
-    // A lista não usa <a href>: a linha não é um link, o clique nela navega
-    // via JavaScript. Em compensação, cada linha traz o texto
-    // "Controle: {grupoId}|{cnpj}" — é esse padrão que usamos pra
-    // reconstruir a URL de destino sem precisar de link nenhum.
+    // Cada linha traz "Controle: {grupoId}|{cnpj}"; é daí que se remonta a
+    // URL de destino.
     REGEX_CONTROLE: /Controle:\s*(\d+)\|([\d.\/-]+)/,
-    // Texto usado para identificar o botão "Registrar e Enviar" (o script
-    // procura esse trecho, em minúsculas, dentro do texto de qualquer botão).
+    // Procurado, em minúsculas, dentro do texto de qualquer botão.
     TEXTO_BOTAO_REGISTRAR: 'registrar e enviar',
-    // Tempo máximo (ms) esperando o WhatsApp abrir (window.open) depois do
-    // clique, antes de desistir de considerar que deu certo.
+    // Tempo máximo (ms) esperando o WhatsApp abrir depois do clique.
     TIMEOUT_SUCESSO_MS: 1200,
-    // Intervalo (ms) da sondagem que reembrulha window.abrirWhatsAppCliente
-    // se a página redefinir -- ver instalarDeteccaoAbrirWhatsApp. Curto o
-    // bastante pra nunca perder um clique real (a folga entre a página
-    // redefinir a função e o operador clicar é sempre de vários segundos,
-    // não milissegundos), barato o bastante pra rodar o tempo todo sem
-    // custo perceptível (só uma comparação de flag booleana por tique).
+    // Intervalo da sondagem que reembrulha window.abrirWhatsAppCliente se a
+    // página redefinir (ver instalarDeteccaoAbrirWhatsApp). Custo: uma
+    // comparação de flag por tique.
     SONDAGEM_ABRIR_WHATSAPP_MS: 200,
-    // Regex pra extrair "X dias" do texto da linha, usado pra priorizar a
-    // fila por urgência (mais dias de atraso primeiro). Ajuste se a lista
-    // mostrar esse dado com outro texto (ex.: "15d" em vez de "15 dias").
+    // Extrai "X dias" do texto da linha, pra priorizar por urgência.
     REGEX_DIAS_ATRASO: /(\d+)\s*dias?/i,
-    // Chave usada no localStorage (não sessionStorage -- ver nota abaixo).
+    // localStorage, não sessionStorage.
     CHAVE_STORAGE: 'filaAtendimento_v1',
-    // Chave separada pra lembrar quem já foi atendido HOJE (evita cobrar o
-    // mesmo cliente duas vezes no mesmo dia, mesmo em filas diferentes).
+    // Quem já foi atendido HOJE (evita cobrar duas vezes no mesmo dia, mesmo
+    // em filas diferentes).
     CHAVE_ATENDIDOS_HOJE: 'filaAtendidosHoje_v1',
-    // Versão do formato salvo no localStorage. Se um dia o formato mudar,
-    // incremente isso -- qualquer fila salva com versão diferente é
-    // descartada automaticamente em vez de causar erro (ver validarFila).
+    // Se o formato salvo mudar, incremente: fila com versão diferente é
+    // descartada (ver validarFormatoDaFila).
     VERSAO_SCHEMA: 1,
   };
 
   /* ---------------------------------------------------------------------
    * 2. ESTADO DO MÓDULO
    * --------------------------------------------------------------------- */
-  let painelEl = null;      // referência ao painel flutuante "Fila: X/Y"
-  let paginaNaFila = false; // true se a página atual corresponde a uma posição conhecida da fila
-  let avancando = false;    // trava contra cliques duplicados enquanto aguardamos o WhatsApp abrir
-  // Trava contra dupla marcação do MESMO sucesso (ver marcarSucessoDoRegistro).
-  // SEPARADA de "avancando" de propósito -- ver BUG REAL no comentário de
-  // marcarSucessoDoRegistro logo abaixo.
+  let painelEl = null;      // painel "Fila: X/Y"
+  let paginaNaFila = false; // a página atual corresponde a uma posição conhecida da fila
+  let avancando = false;    // "clique em andamento": trava contra cliques duplicados
+  // "Este sucesso já foi processado". SEPARADA de "avancando" de propósito:
+  // o Alt+S arma "avancando" antes do sucesso, então usar a mesma variável
+  // fazia marcarSucessoDoRegistro sair sem processar nada.
   let sucessoJaProcessado = false;
 
   /* ---------------------------------------------------------------------
    * 3. UTILITÁRIOS
    * --------------------------------------------------------------------- */
   function extrairCnpjDaUrl(url) {
-    // O cnpj é o identificador real do cliente na URL (o grupoId pode se
-    // repetir entre clientes do mesmo grupo econômico, então não serve
-    // sozinho pra saber "em qual cliente da fila eu estou").
+    // O cnpj identifica o cliente; o grupoId se repete dentro do grupo
+    // econômico e não serve sozinho.
     try {
       const u = new URL(url, location.href);
       return u.searchParams.get('cnpj') || '';
@@ -119,12 +86,10 @@
     }
   }
 
+  // Defesa contra dado corrompido/antigo no localStorage. Um registro
+  // mal-formado lançaria exceção em sincronizarPosicao(), que roda em toda
+  // página, e travaria a automação antes do listener de clique.
   function validarFormatoDaFila(fila) {
-    // Defesa contra dado corrompido/desatualizado no localStorage (ex.: um
-    // formato antigo de uma versão anterior deste script). Sem isso, um
-    // único registro mal-formado pode lançar exceção em sincronizarPosicao()
-    // -- que roda em TODA página -- e travar a automação inteira da sessão
-    // ANTES do listener de clique ser registrado.
     if (!fila || typeof fila !== 'object') return false;
     if (fila.versao !== CONFIG.VERSAO_SCHEMA) return false;
     if (!Array.isArray(fila.clientes)) return false;
@@ -146,8 +111,7 @@
         return null;
       }
 
-      // Uma fila de um dia anterior é descartada automaticamente -- não faz
-      // sentido "continuar" uma fila de ontem sem avisar.
+      // Fila de um dia anterior é descartada.
       if (!mesmoDiaDeHoje(fila.iniciadoEm)) {
         limparFila();
         return null;
@@ -186,9 +150,8 @@
     );
   }
 
-  // "Atendidos hoje": persiste separado da fila (localStorage também), pra
-  // sobreviver mesmo depois de uma fila terminar ou ser trocada por outra.
-  // Reseta sozinho quando o dia vira -- não precisa de faxina manual.
+  // "Atendidos hoje" persiste separado da fila, pra sobreviver ao fim ou à
+  // troca da fila. Reseta sozinho quando o dia vira.
   function obterAtendidosHoje() {
     try {
       const raw = localStorage.getItem(CONFIG.CHAVE_ATENDIDOS_HOJE);
@@ -222,17 +185,12 @@
 
   /* ---------------------------------------------------------------------
    * 3.5. ANCORAGEM EM PONTOS NATURAIS DO LAYOUT
-   * Em vez de flutuar (position: fixed) por cima da tela, tenta encaixar
-   * os botões/painel da fila dentro de áreas que já existem no CRM --
-   * confirmado com HTML real da página de cliente e da lista (usuário
-   * forneceu). Se o seletor não bater (CRM mudou o layout), cada ponto de
-   * uso cai de volta pro position: fixed antigo -- nunca quebra, só fica
-   * menos integrado visualmente.
+   * Botões e painel encaixam em áreas que já existem no CRM (confirmado no
+   * HTML real da página de cliente e da lista). Se o seletor não bater, cada
+   * ponto de uso cai pro position: fixed -- nunca quebra.
    * --------------------------------------------------------------------- */
-  // Página de CLIENTE: a linha de ações (Contato / Negociação / Tarefa e,
-  // quando existe, o "Fluxo de Cobrança" nativo com Anterior/Próximo) --
-  // é o lugar mais natural pro painel de fila, que faz a mesma coisa
-  // (navegar por uma sequência de clientes).
+  // Página de CLIENTE: linha de ações (Contato / Negociação / Tarefa e, se
+  // existir, o "Fluxo de Cobrança" nativo).
   function ancoraAcoesCliente() {
     const btnContato = document.querySelector('[onclick^="openModalContato"]');
     if (btnContato?.parentElement) return btnContato.parentElement;
@@ -241,8 +199,7 @@
     return null;
   }
 
-  // Página de LISTA: a barra de filtros (onde já vivem "Filtros avançados"
-  // e "Limpar") ou, faltando ela, a toolbar da própria tabela de clientes.
+  // Página de LISTA: barra de filtros ou, faltando ela, a toolbar da tabela.
   function ancoraToolbarLista() {
     return document.querySelector('.pbi-filters-row')
       || document.querySelector('.pbi-filters-bar')
@@ -251,7 +208,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 4. PAINEL FLUTUANTE (mostra "Fila: X/Y" enquanto está ativa)
+   * 4. PAINEL (mostra "Fila: X/Y" enquanto está ativa)
    * --------------------------------------------------------------------- */
   function removerPainel() {
     if (painelEl) {
@@ -284,11 +241,10 @@
         });
         ancora.appendChild(painelEl);
       } else {
-        // Fallback: seletor de ancoragem não encontrado -- volta pro
-        // comportamento antigo (flutuante) em vez de não mostrar nada.
+        // Fallback flutuante.
         Object.assign(painelEl.style, {
           position: 'fixed',
-          // Abaixo do cabeçalho fixo do CRM (80px), não por cima dele (v1.38.0).
+          // Abaixo do cabeçalho fixo do CRM, não por cima dele.
           top: `${(window.__smartTableUtil?.alturaCabecalho?.() ?? 0) + 16}px`,
           right: '16px',
           background: '#ffffff',
@@ -361,27 +317,18 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 5. CONSTRUÇÃO DA FILA (rodado na página de LISTA de clientes)
+   * 5. CONSTRUÇÃO DA FILA (página de LISTA de clientes)
    * --------------------------------------------------------------------- */
-  // Raiz do CNPJ (8 primeiros dígitos) -- comum entre matriz e TODAS as
-  // filiais da mesma empresa (só o número de ordem e o dígito verificador
-  // depois da barra mudam). Ignora pontuação, pra não depender de como o
-  // CRM formata em cada linha.
+  // Raiz do CNPJ (8 primeiros dígitos), comum a matriz e filiais. Ignora
+  // pontuação pra não depender de como o CRM formata a linha.
   function extrairRaizCnpj(cnpj) {
     return (cnpj || '').replace(/\D/g, '').slice(0, 8);
   }
 
-  // BUG REAL (relatado pelo usuário): o botão "▶ Iniciar Fila de Atendimento"
-  // era criado incondicionalmente em toda página do CRM (iniciar() chamava
-  // criarBotaoIniciarFila() sem checar nada antes) -- aparecia até em telas
-  // onde não faz sentido nenhum e clicar nele só mostrava "nenhum cliente
-  // encontrado". Confirmado com o usuário que a navegação aqui é
-  // multi-página (recarrega de verdade a cada tela), então um único check
-  // síncrono na carga da página já resolve -- sem precisar de
-  // MutationObserver nem detectar troca de rota. Usa exatamente o mesmo
-  // critério que construirFilaAPartirDaPagina() usa de verdade (linha com
-  // "Controle: X|Y" reconhecível), pra nunca divergir do que a fila
-  // realmente consegue montar.
+  // O botão "Iniciar Fila" só aparece onde a fila consegue montar algo. Usa
+  // o mesmo critério de construirFilaAPartirDaPagina (linha com
+  // "Controle: X|Y"). A navegação do CRM é multi-página (confirmado com o
+  // usuário), então um check síncrono na carga basta, sem MutationObserver.
   function paginaTemClientesParaFila() {
     const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
     for (const linha of linhas) {
@@ -392,14 +339,11 @@
 
   function construirFilaAPartirDaPagina() {
     const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
-    // Chave = raiz do CNPJ, valor = melhor candidato encontrado até agora
-    // pra essa empresa. CONFIRMADO com o usuário (reproduzido na fila real:
-    // "CORREA CALÇADOS INFANTIS LTDA" e "ZIGGI COMERCIO DE ITENS INFANTIS
-    // LTDA" apareceram duas vezes cada, matriz e filial com CNPJs
-    // diferentes mas mesma raiz) -- matriz/filial contam como UM cliente só
-    // na fila, mantendo a entrada com mais dias de atraso entre elas.
+    // Chave = raiz do CNPJ, valor = melhor candidato da empresa. Matriz e
+    // filial (CNPJs diferentes, mesma raiz) contam como um cliente só,
+    // confirmado com o usuário na fila real; fica quem tem mais dias de atraso.
     const porRaizCnpj = new Map();
-    const vistos = new Set(); // defesa extra contra a MESMA linha aparecer 2x no DOM
+    const vistos = new Set(); // defesa contra a MESMA linha aparecer 2x no DOM
     const atendidosHoje = obterAtendidosHoje();
     let pulosPorJaAtendido = 0;
     let unificadosPorMatrizFilial = 0;
@@ -439,8 +383,7 @@
 
     const clientes = Array.from(porRaizCnpj.values());
 
-    // Prioriza por urgência: mais dias de atraso primeiro. Quem não tem
-    // "X dias" reconhecível fica com diasAtraso=0, então vai pro final.
+    // Mais dias de atraso primeiro. Sem "X dias" reconhecível vale 0, vai pro final.
     clientes.sort((a, b) => b.diasAtraso - a.diasAtraso);
 
     if (pulosPorJaAtendido > 0) {
@@ -490,9 +433,8 @@
 
     const ancora = ancoraToolbarLista();
     if (ancora) {
-      // Reaproveita a classe dos botões nativos da barra de filtros
-      // (mesmo visual de "Filtros avançados"), só trocando a cor de fundo
-      // pra destacar que é uma ação, não um filtro.
+      // Classe dos botões nativos da barra; só o fundo muda, pra destacar
+      // que é uma ação e não um filtro.
       btn.className = 'pbi-btn pbi-btn-quiet';
       Object.assign(btn.style, {
         background: '#16232F',
@@ -503,8 +445,7 @@
       return;
     }
 
-    // Fallback: seletor de ancoragem não encontrado -- volta pro
-    // comportamento antigo (flutuante).
+    // Fallback flutuante.
     Object.assign(btn.style, {
       position: 'fixed',
       bottom: '16px',
@@ -521,7 +462,7 @@
       fontFamily: 'system-ui, -apple-system, sans-serif',
     });
     document.body.appendChild(btn);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(btn);
   }
 
@@ -533,15 +474,9 @@
   function criarBotaoRetomar(fila) {
     if (document.getElementById('fila-btn-retomar')) return;
 
-    // BUG REAL (relatado pelo usuário): o clique mandava pra
-    // clientes[indiceAtual + 1] -- ou seja, sempre PULAVA o cliente onde a
-    // pessoa realmente tinha parado (ex.: fechou o navegador ou navegou pra
-    // fora da fila no meio do atendimento) e ia direto pro próximo. indiceAtual
-    // é sincronizado (sincronizarPosicao) toda vez que a página bate com um
-    // cliente da fila -- ele já É "onde eu parei", não precisa de +1.
-    // indiceAtual só fica -1 se a fila foi criada mas a pessoa nunca chegou
-    // a visitar o primeiro cliente (caso raríssimo) -- Math.max cobre isso
-    // voltando pro início em vez de tentar acessar um índice negativo.
+    // indiceAtual já É "onde parei" (sincronizarPosicao o mantém), então
+    // retomar vai pra ele, sem +1 (+1 pularia o cliente onde parou). Só é
+    // -1 se nunca visitou o primeiro; Math.max volta pro início.
     const indiceRetomada = Math.max(0, fila.indiceAtual);
     const restantes = fila.clientes.length - indiceRetomada;
     if (restantes <= 0) return; // não sobrou nada pra retomar
@@ -557,9 +492,7 @@
 
     const ancora = ancoraToolbarLista();
     if (ancora) {
-      // Ação secundária (retomar é menos comum que iniciar do zero) --
-      // usa o estilo "ghost", mais discreto, também já usado na barra
-      // (mesmo padrão do botão "Limpar").
+      // Ação secundária: estilo "ghost", como o botão "Limpar".
       btn.className = 'pbi-btn pbi-btn-ghost';
       Object.assign(btn.style, {
         color: '#B45309',
@@ -569,8 +502,7 @@
       return;
     }
 
-    // Fallback: seletor de ancoragem não encontrado -- volta pro
-    // comportamento antigo (flutuante).
+    // Fallback flutuante.
     Object.assign(btn.style, {
       position: 'fixed',
       bottom: '60px',
@@ -587,22 +519,20 @@
       fontFamily: 'system-ui, -apple-system, sans-serif',
     });
     document.body.appendChild(btn);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(btn);
   }
 
   /* ---------------------------------------------------------------------
-   * 6. AVANÇO NA FILA (rodado na página de DETALHE do cliente)
+   * 6. AVANÇO NA FILA (página de DETALHE do cliente)
    * --------------------------------------------------------------------- */
   function irParaProximo(motivo) {
     const fila = obterFila();
     if (!fila || fila.indiceAtual === -1 || fila.indiceAtual === null) return;
 
     const clienteAtual = fila.clientes[fila.indiceAtual];
-    // Se o cliente atual já foi registrado com sucesso (Alt+S ou clique
-    // manual em "Registrar e Enviar"), conta como "atendido" mesmo que
-    // você tenha avançado pelo botão "Próximo →" (que também serve pra
-    // pular sem registrar) -- ver registrarSucessoSemAvancar().
+    // Cliente já registrado conta como "atendido" mesmo avançando por
+    // "Próximo →" (que também serve pra pular sem registrar).
     const jaRegistrado = fila.indiceRegistrado === fila.indiceAtual;
     const motivoEfetivo = jaRegistrado ? 'atendido' : motivo;
 
@@ -613,9 +543,8 @@
       fila.totalPulados = (fila.totalPulados || 0) + 1;
     }
 
-    // Guarda o que este passo contou, pra irParaAnterior() poder desfazer
-    // exatamente essa contagem se você voltar depois -- sem isso, ir e
-    // voltar repetidas vezes infla o resumo final.
+    // Guarda o que este passo contou, pra irParaAnterior() desfazer
+    // exatamente essa contagem.
     fila.ultimoMotivo = motivoEfetivo;
     fila.indiceAtual += 1;
     delete fila.indiceRegistrado;
@@ -633,20 +562,18 @@
     const proximo = fila.clientes[fila.indiceAtual];
     toast(`→ ${proximo.label}`);
 
-    // Aqui não há nenhum reload de terceiros competindo (diferente do
-    // registro bem-sucedido, que é seguido de location.reload() pelo
-    // Módulo 2) -- navegar direto é seguro.
+    // Nenhum reload de terceiros competindo aqui (ao contrário do registro
+    // bem-sucedido, seguido de location.reload() no Módulo 2): navegar
+    // direto é seguro.
     setTimeout(() => {
       window.location.href = proximo.url;
     }, 350);
   }
 
-  // Contraparte de irParaProximo(): volta um cliente na fila, desfazendo a
-  // contagem do passo que está sendo revertido (ver fila.ultimoMotivo). Se
-  // o cliente que você está deixando tinha sido registrado nesta visita,
-  // isso também é desfeito -- ao chegar de volta no cliente anterior,
-  // sincronizarPosicao() restaura indiceRegistrado sozinho se ele já
-  // estiver em "atendidos hoje" (registro real já foi enviado ao CRM).
+  // Contraparte de irParaProximo(): volta um cliente e desfaz a contagem do
+  // passo revertido (fila.ultimoMotivo). Ao chegar no cliente anterior,
+  // sincronizarPosicao() restaura indiceRegistrado se ele já estiver em
+  // "atendidos hoje".
   function irParaAnterior() {
     const fila = obterFila();
     if (!fila || fila.indiceAtual === -1 || fila.indiceAtual === null) return;
@@ -670,37 +597,23 @@
     const anterior = fila.clientes[fila.indiceAtual];
     toast(`← ${anterior.label}`);
 
-    // Mesma lógica do avanço manual: nenhum reload de terceiros competindo
-    // aqui, navegar direto é seguro.
+    // Sem reload de terceiros competindo: navegar direto é seguro.
     setTimeout(() => {
       window.location.href = anterior.url;
     }, 350);
   }
 
-  // Chamado quando "Registrar e Enviar" tem sucesso (WhatsApp abriu). NÃO
-  // navega e NÃO avança fila.indiceAtual -- só marca que este cliente já
-  // foi registrado, pra "atendidos hoje" e pro resumo final da fila. Você
-  // decide quando seguir pro próximo (Alt+P / botão "Próximo →").
+  // Chamado quando "Registrar e Enviar" tem sucesso. NÃO navega e NÃO
+  // avança indiceAtual: só marca o cliente como registrado (atendidos hoje
+  // e resumo final).
   //
-  // BUG REAL (relatado pelo usuário: "a barra de progresso não está
-  // contando"): esta função marcava fila.clientes[fila.indiceAtual] como
-  // atendido -- ou seja, confiava na posição PARADA da fila, não na página
-  // onde você está de verdade. Isso sempre bateu certo enquanto
-  // sincronizarPosicao() realinhava indiceAtual com qualquer página
-  // visitada -- mas agora que a posição só muda por Próximo/Voltar
-  // (correção anterior, pedida pelo usuário), visitar um cliente da fila
-  // por qualquer outro caminho (ex.: Fluxo de Cobrança nativo do CRM,
-  // busca, lista) e mandar WhatsApp ali marcava o cliente ERRADO --
-  // exatamente onde a fila tinha parado, não quem foi realmente
-  // contatado. Corrigido: usa o CNPJ da PRÓPRIA URL atual, sempre o
-  // cliente certo, não importa como você chegou nele.
+  // Usa o CNPJ da PRÓPRIA URL atual, não fila.clientes[indiceAtual]: a
+  // posição só muda por Próximo/Voltar, então um cliente visitado por outro
+  // caminho (Fluxo de Cobrança nativo, busca, lista) seria marcado errado.
   //
-  // Roda de forma síncrona, dentro da interceptação de window.open (ver
-  // aguardarEAvancar), porque o Módulo 2 chama location.reload() quase
-  // instantaneamente depois do window.open() -- rápido demais pra qualquer
-  // setTimeout nosso vencer essa corrida. marcarComoAtendidoHoje() e
-  // salvarFila() gravam em localStorage, que sobrevive ao reload sem
-  // precisar de nenhuma "ponte".
+  // Roda síncrona, dentro da interceptação (ver aguardarEAvancar), porque o
+  // Módulo 2 chama location.reload() quase junto com o envio, rápido demais
+  // pra um setTimeout. O localStorage sobrevive ao reload.
   function registrarSucessoSemAvancar() {
     if (!paginaNaFila) return;
 
@@ -712,11 +625,8 @@
 
     marcarComoAtendidoHoje(cnpjAtual);
 
-    // indiceRegistrado só faz sentido gravar quando a página atual É a
-    // posição parada da fila -- é o que irParaProximo() consulta pra saber
-    // se o passo que está avançando já foi registrado (jaRegistrado). Se
-    // você registrou um cliente fora da posição parada, esse controle não
-    // se aplica a ele -- só ao próximo passo de Alt+P/Alt+V de verdade.
+    // indiceRegistrado só é gravado quando a página atual É a posição parada
+    // da fila: é o que irParaProximo() consulta (jaRegistrado).
     const idxDaPagina = fila.clientes.findIndex((c) => c.cnpj === cnpjAtual);
     if (idxDaPagina !== -1 && idxDaPagina === fila.indiceAtual) {
       fila.indiceRegistrado = fila.indiceAtual;
@@ -726,47 +636,24 @@
     toast('✓ Registrado. Use Alt+P (ou "Próximo →") quando quiser seguir.');
   }
 
-  // Tudo que acontece no INSTANTE em que sabemos que o registro deu certo
-  // -- diário + atendidos hoje. Chamada por DOIS detectores independentes
-  // (ver instalarDeteccaoAbrirWhatsApp e aguardarEAvancar logo abaixo);
-  // sucessoJaProcessado é o cadeado compartilhado que garante só processar
-  // uma vez, não importa qual dos dois disparar primeiro.
-  //
-  // BUG REAL (relatado pelo usuário: "o contato é gerado, mas o progresso
-  // não registra" -- reproduzido com um script isolado, não só suspeita):
-  // esta trava usava a mesma variável "avancando" que aguardarEAvancar()
-  // seta pra TRUE no INSTANTE DO CLIQUE, antes de qualquer sucesso -- e o
-  // Alt+S arma aguardarEAvancar() (via prepararEAguardarEnvio) ANTES do
-  // clique de verdade, de propósito. Como o registro real (fetch + abrir
-  // WhatsApp) quase sempre termina bem antes dos
-  // CONFIG.TIMEOUT_SUCESSO_MS (1200ms) de aguardarEAvancar() resetarem
-  // "avancando", esta função sempre encontrava avancando=true e saía sem
-  // processar nada -- o bug acontecia em TODO Alt+S, não só em algum
-  // cenário raro. As duas travas tinham propósitos diferentes (uma é
-  // "clique em andamento", a outra é "este sucesso específico já foi
-  // processado") e nunca deveriam ter sido a mesma variável.
+  // Tudo que acontece no instante em que o registro é dado como certo:
+  // diário + atendidos hoje. Chamada por DOIS detectores independentes
+  // (instalarDeteccaoAbrirWhatsApp e aguardarEAvancar); sucessoJaProcessado
+  // garante que só o primeiro processa. Não pode reusar "avancando" (ver
+  // o estado do módulo).
   const EVENTO_CONTATO_REGISTRADO = 'smarttable:contato-registrado';
 
   function marcarSucessoDoRegistro() {
     if (sucessoJaProcessado) return; // já processado pelo outro detector
     sucessoJaProcessado = true;
 
-    // Sinal visível no console -- PEDIDO DO USUÁRIO (indiretamente, depois
-    // de duas rodadas de diagnóstico manual pra achar bug de detecção):
-    // dá pra conferir NA HORA, olhando o console durante o próprio clique,
-    // se a detecção disparou -- sem precisar rodar script de diagnóstico
-    // depois.
+    // Deixa conferir no console, durante o clique, se a detecção disparou.
     console.log('[Fila] ✓ Sucesso do registro detectado -- marcando atendido hoje.');
 
-    // DIÁRIO (Módulo 8): este é o instante EXATO em que sabemos que a
-    // cobrança saiu de verdade. Registra antes do resto porque o Módulo 2
-    // dispara location.reload() logo em seguida -- só grava em
-    // localStorage, que sobrevive ao reload.
-    //
-    // Fica AQUI, e não dentro de registrarSucessoSemAvancar(), porque
-    // aquela função sai cedo quando a página não faz parte de uma fila --
-    // e pra medir interessa toda cobrança enviada, dentro da fila ou fora
-    // dela.
+    // DIÁRIO (Módulo 8): registra antes do resto porque o Módulo 2 dispara
+    // location.reload() logo em seguida (só grava em localStorage). Fica
+    // AQUI, e não em registrarSucessoSemAvancar(), porque aquela sai cedo
+    // fora de uma fila e o diário mede toda cobrança enviada.
     if (window.__diario) {
       try {
         const cnpjAtual = new URL(location.href).searchParams.get('cnpj') || '';
@@ -776,12 +663,10 @@
       }
     }
 
-    // NÚMEROS DIFERENTES (Módulo 4, v1.36.0): o Alt+S que manda pra mais de
-    // um número só pode seguir pros números extras depois de SABER que o
-    // registro do 1º envio deu certo. Este é o único ponto que sabe disso
-    // -- e ainda de forma síncrona, antes do location.reload() do Módulo 2
-    // (protegido, não é tocado). Evento, e não chamada direta, pra que a
-    // fila não passe a depender do Módulo 4.
+    // NÚMEROS DIFERENTES (Módulo 4): o Alt+S com mais de um número só segue
+    // pros extras depois de saber que o 1º registro deu certo, e este é o
+    // único ponto que sabe, ainda síncrono antes do reload do Módulo 2.
+    // Evento e não chamada direta, pra fila não depender do Módulo 4.
     try {
       window.dispatchEvent(new window.CustomEvent(EVENTO_CONTATO_REGISTRADO, {
         detail: { cnpj: extrairCnpjDaUrl(location.href) },
@@ -795,53 +680,28 @@
     setTimeout(() => { sucessoJaProcessado = false; }, CONFIG.TIMEOUT_SUCESSO_MS);
   }
 
-  // BUG REAL (relatado pelo usuário: "a barra de progresso não está
-  // contando" -- e o diagnóstico confirmou: o cliente certo, na posição
-  // certa da fila, nunca aparecia em "atendidos hoje"). CAUSA: por padrão o
-  // "Registrar e Enviar" (Módulo 2, protegido) NÃO abre nenhuma aba nova --
-  // ele navega a própria aba pro protocolo whatsapp://send (WhatsApp
-  // Desktop), a pedido do usuário. window.open() só é chamado de verdade
-  // quando o interruptor "Enviar pelo WhatsApp Web" (Alt+O) está ligado.
-  // A detecção antiga (aguardarEAvancar, abaixo) só via window.open --
-  // então no caminho padrão (Desktop) ela NUNCA disparava, e o cliente
-  // nunca era marcado como atendido, não importa como o botão foi clicado.
+  // Detecta o sucesso do registro observando window.abrirWhatsAppCliente(),
+  // função nativa da página que o Módulo 2 (protegido) chama nos DOIS
+  // caminhos, sempre e só depois que o registro na API deu certo.
   //
-  // CORREÇÃO: em vez de depender de COMO o WhatsApp abre depois (que muda
-  // com o interruptor), observamos window.abrirWhatsAppCliente() -- a
-  // função nativa da própria página que o Módulo 2 já declara depender
-  // ("Depende de... window.abrirWhatsAppCliente()"), chamada nos DOIS
-  // caminhos (Desktop e Web), sempre e só quando o registro na API já deu
-  // certo. Envolvê-la aqui é síncrono -- sem espera de rede, sem correr
-  // contra o location.reload() que vem logo depois -- e não depende de
-  // "armar" antes de simular nenhum clique: funciona pro Alt+S, pro clique
-  // manual, ou qualquer outro jeito de disparar o botão.
+  // Por que não window.open: por padrão o Módulo 2 navega a própria aba pro
+  // protocolo whatsapp://send (WhatsApp Desktop); window.open só é chamado
+  // com "Enviar pelo WhatsApp Web" (Alt+O) ligado. Detectar só window.open
+  // nunca disparava no caminho padrão.
   //
-  // Não mexe no Módulo 2 (protegido): só envolve uma função que já existe
-  // na página (fora dos nossos módulos), chama ela normalmente por dentro,
-  // e nunca interfere no retorno nem no comportamento dela.
+  // O embrulho é síncrono (sem corrida com o location.reload()), não
+  // depende de "armar" antes e não altera retorno nem comportamento da
+  // função. O Módulo 2 não é tocado.
   //
-  // BUG REAL Nº2 (achado depois do primeiro conserto, confirmado com o
-  // usuário: mesmo com "abrirWhatsAppClienteEnvolvida: true", um registro
-  // de verdade continuava sem marcar atendidosHoje): a tela do CRM
-  // provavelmente RE-DEFINE window.abrirWhatsAppCliente em algum momento
-  // depois que instalamos o embrulho (comum em telas que recriam funções a
-  // cada renderização do modal) -- silenciosamente jogando fora nosso
-  // embrulho antes do clique de verdade acontecer, sem erro nenhum pra
-  // avisar. Envolver uma vez só (como antes) não sobrevive a isso.
-  //
-  // CORREÇÃO: em vez de só embrulhar o valor atual, VIGIA a propriedade --
-  // por getter/setter quando a página deixa (reage na hora, sem esperar
-  // nenhum intervalo), e SEMPRE também por sondagem periódica (confirmado
-  // em produção: pelo menos uma tela do CRM define window.abrirWhatsAppCliente
-  // como propriedade NÃO-CONFIGURÁVEL -- writable, mas Object.defineProperty
-  // pra instalar o getter/setter lança "Cannot redefine property"; a
-  // sondagem é a ÚNICA forma de detecção que sobrevive a isso). Não importa
-  // quantas vezes a página redefina a função depois, nem de que jeito: o
-  // embrulho nunca fica perdido por mais que ~SONDAGEM_ABRIR_WHATSAPP_MS.
+  // A tela do CRM pode REDEFINIR window.abrirWhatsAppCliente depois do
+  // embrulho, sem erro nenhum, descartando-o. Por isso a propriedade é
+  // vigiada por getter/setter (reage na hora) E sempre por sondagem
+  // periódica. Confirmado em produção: pelo menos uma tela define a
+  // propriedade como NÃO-CONFIGURÁVEL (defineProperty lança "Cannot redefine
+  // property"); ali a sondagem é a única detecção possível. O embrulho
+  // nunca fica perdido por mais que ~SONDAGEM_ABRIR_WHATSAPP_MS.
   function instalarDeteccaoAbrirWhatsApp() {
-    // Idempotente: uma vez instalada (accessor e/ou sondagem), cobre
-    // qualquer redefinição futura sozinha -- chamar de novo não tem mais
-    // nada a fazer.
+    // Idempotente: depois de instalada, cobre redefinições sozinha.
     if (window.__smartTableVigiaAbrirWhatsApp) return;
     window.__smartTableVigiaAbrirWhatsApp = true;
 
@@ -871,21 +731,11 @@
       });
       instaladaComoAccessor = true;
     } catch (erro) {
-      // Propriedade não-configurável -- degrada pro embrulho simples (só a
-      // atribuição atual). A sondagem abaixo é quem cobre redefinições
-      // futuras neste caso.
-      //
-      // BUG REAL (achado em revisão, sem reproduzir em produção ainda):
-      // pelo menos em teoria, uma tela pode ir além de "não-configurável" e
-      // marcar a propriedade também como NÃO-GRAVÁVEL (frozen de verdade) --
-      // nesse caso esta atribuição também lança (TypeError em modo estrito),
-      // e como aqui não havia try/catch, a exceção subia sem ser tratada até
-      // iniciar() (ver logo abaixo), derrubando o registro do listener de
-      // clique inteiro -- ou seja, NENHUMA detecção de sucesso sobrava, nem
-      // a sondagem, nem o clique. Protegido: se nem a atribuição simples for
-      // possível, a sondagem abaixo ainda tenta a cada
-      // SONDAGEM_ABRIR_WHATSAPP_MS (e também vai falhar silenciosamente
-      // nesse caso específico, mas sem nunca comprometer o resto do módulo).
+      // Não-configurável: degrada pro embrulho simples; a sondagem cobre as
+      // redefinições futuras. A propriedade pode ser também NÃO-GRAVÁVEL
+      // (congelada), e aí a atribuição lança TypeError. Sem este try/catch a
+      // exceção subiria até iniciar() e derrubaria o registro do listener
+      // de clique.
       try {
         window.abrirWhatsAppCliente = valorAtual;
       } catch (erroDeAtribuicao) {
@@ -897,11 +747,9 @@
       }
     }
 
-    // REDE DE SEGURANÇA por sondagem -- roda sempre, mesmo quando o
-    // accessor acima funcionou (custo desprezível: só compara uma flag
-    // booleana a cada SONDAGEM_ABRIR_WHATSAPP_MS). Cobre tanto a
-    // propriedade não-configurável (única defesa possível ali) quanto
-    // qualquer jeito de substituir o descriptor inteiro por cima do nosso.
+    // Rede de segurança por sondagem: roda sempre, mesmo com o accessor
+    // funcionando. Cobre a propriedade não-configurável e a troca do
+    // descriptor inteiro por cima do nosso.
     const idSondagem = setInterval(() => {
       const atual = window.abrirWhatsAppCliente;
       if (typeof atual !== 'function' || atual.__smartTableEnvolvida) return;
@@ -913,47 +761,36 @@
           window.abrirWhatsAppCliente = envolver(atual);
         }
       } catch (erro) {
-        // Mesma proteção do fallback inicial acima: se a propriedade virou
-        // (ou sempre foi) não-gravável, cada tique falharia do mesmo jeito
-        // -- sem o try/catch, isso são exceções não tratadas repetidas pra
-        // sempre a cada SONDAGEM_ABRIR_WHATSAPP_MS, sem nenhum ganho.
+        // Propriedade não-gravável: cada tique falharia igual. Sem o
+        // try/catch seriam exceções não tratadas repetidas pra sempre.
       }
     }, CONFIG.SONDAGEM_ABRIR_WHATSAPP_MS);
 
-    // setInterval no navegador devolve um número; em Node (só acontece nos
-    // testes, que rodam o módulo via window.eval() no processo real do
-    // Node, não isolado por página) devolve um objeto Timeout com
-    // .unref() -- sem isso, cada janela de teste deixava um timer real
-    // rodando pra sempre, travando o processo inteiro no fim da suíte. Em
-    // produção (navegador) este optional chaining não faz nada.
+    // Em Node (testes rodam o módulo no processo real) setInterval devolve
+    // Timeout com .unref(); sem isso o timer travava o fim da suíte. No
+    // navegador não faz nada.
     idSondagem?.unref?.();
   }
 
   function aguardarEAvancar() {
-    // Rede de segurança: window.abrirWhatsAppCliente() pode ainda não
-    // existir no instante em que o Módulo 3 carregou (script da própria
-    // página, fora da nossa ordem de carregamento) -- tenta de novo bem
-    // antes do clique de verdade acontecer. Idempotente (ver guarda acima).
+    // window.abrirWhatsAppCliente pode não existir quando o módulo carregou
+    // (script da própria página, fora da nossa ordem): tenta de novo antes
+    // do clique de verdade. Idempotente.
     instalarDeteccaoAbrirWhatsApp();
 
     if (avancando) return; // já está processando um clique anterior
     avancando = true;
-    // Novo clique -- se sobrou uma trava de sucesso de um clique anterior
-    // (não deveria, ela mesma se reseta depois de CONFIG.TIMEOUT_SUCESSO_MS),
-    // não deixa isso bloquear a detecção deste clique novo.
+    // Novo clique: uma trava de sucesso que sobrou não pode bloquear a
+    // detecção deste.
     sucessoJaProcessado = false;
 
     let sucesso = false;
     const openOriginal = window.open;
 
-    // Interceptação temporária e não invasiva, MANTIDA como reforço além
-    // de instalarDeteccaoAbrirWhatsApp() acima: não mexe no módulo
-    // "Registrar e Enviar" existente, só observa se ele chamou window.open
-    // com sucesso (retorno diferente de null = não foi bloqueado por
-    // pop-up blocker). Cobre qualquer caminho de sucesso que a gente não
-    // tenha previsto -- sucessoJaProcessado (compartilhado com
-    // marcarSucessoDoRegistro) garante que só um dos dois processa de
-    // verdade.
+    // Interceptação temporária, MANTIDA como reforço de
+    // instalarDeteccaoAbrirWhatsApp(): só observa se o Módulo 2 chamou
+    // window.open com sucesso (retorno não-null = sem pop-up blocker).
+    // sucessoJaProcessado garante que só um dos dois detectores processa.
     window.open = function (...args) {
       const janela = openOriginal.apply(window, args);
       if (janela && !sucesso) {
@@ -989,24 +826,16 @@
     const idx = cnpjAtual ? fila.clientes.findIndex((c) => c.cnpj === cnpjAtual) : -1;
 
     if (idx !== -1) {
-      // BUG REAL (relatado pelo usuário): a posição da fila (indiceAtual, o
-      // "Fila: X/Y" do painel) mudava sozinha sempre que a página batia com
-      // QUALQUER cliente da fila -- inclusive um que você já tinha atendido
-      // e só voltou pra conferir algo, fora do fluxo normal de
-      // Próximo/Voltar. A posição só deve avançar/recuar por ação explícita
-      // (irParaProximo/irParaAnterior, que já gravam o novo indiceAtual
-      // ANTES de navegar) ou na primeira visita depois de "Iniciar Fila"
-      // (indiceAtual ainda -1, precisa ser inicializado uma vez). Visitar
-      // avulso um cliente que também está na fila não deve "puxar" a
-      // posição pra cá.
+      // A posição só muda por ação explícita (irParaProximo/irParaAnterior,
+      // que gravam o novo indiceAtual ANTES de navegar) ou na primeira
+      // visita depois de "Iniciar Fila" (indiceAtual -1). Visitar avulso um
+      // cliente que também está na fila não puxa a posição pra cá.
       const primeiraVisita = fila.indiceAtual === -1;
       if (primeiraVisita || idx === fila.indiceAtual) {
         fila.indiceAtual = idx;
-        // Se este cliente já consta em "atendidos hoje" (registro real já foi
-        // enviado ao CRM, por Alt+S ou clique manual), o próximo avanço deve
-        // contar como "atendido" mesmo que tenhamos chegado aqui via Alt+V
-        // (voltar) ou qualquer outra navegação, não só pela mesma sequência
-        // de cliques que fez o registro original.
+        // Cliente já em "atendidos hoje" (registro real já enviado): o
+        // próximo avanço conta como "atendido", mesmo chegando por Alt+V
+        // ou outra navegação.
         if (obterAtendidosHoje().has(cnpjAtual)) {
           fila.indiceRegistrado = idx;
         }
@@ -1015,9 +844,8 @@
       paginaNaFila = true;
       removerBotaoRetomar(); // já estamos na fila -- não faz sentido "retomar"
     } else {
-      // Estamos numa página que não bate com nenhum item conhecido da fila
-      // (ex.: navegação manual, ou reabriu o navegador na lista). Se ainda
-      // sobra fila pra terminar, oferece continuar sem precisar iniciar de novo.
+      // Página fora da fila (navegação manual, ou reabriu o navegador na
+      // lista): se sobra fila, oferece continuar.
       paginaNaFila = false;
       criarBotaoRetomar(fila);
     }
@@ -1033,37 +861,26 @@
       criarBotaoIniciarFila();
     }
 
-    // Instala o quanto antes (independe de clique) -- se a função da
-    // página ainda não existir agora, aguardarEAvancar() tenta de novo
-    // bem antes do clique de verdade acontecer.
-    //
-    // Protegido por try/catch (mesmo raciocínio de sincronizarPosicao()
-    // logo abaixo): mesmo com as proteções internas da própria função,
-    // nenhuma falha inesperada aqui pode impedir o registro do listener de
-    // clique -- é exatamente esse encadeamento (uma exceção nesta chamada
-    // pulando o resto de iniciar()) que já foi confirmado como causa real
-    // de "a barra de progresso não está contando" numa página com
-    // window.abrirWhatsAppCliente totalmente congelada.
+    // Instala o quanto antes; se a função da página ainda não existir,
+    // aguardarEAvancar() tenta de novo. O try/catch é obrigatório: uma
+    // exceção aqui pularia o registro do listener de clique (causa
+    // confirmada de "atendido não contava" com a função congelada).
     try {
       instalarDeteccaoAbrirWhatsApp();
     } catch (erro) {
       console.error('[Fila] Erro ao instalar a detecção de sucesso do registro -- continuando mesmo assim.', erro);
     }
 
-    // sincronizarPosicao() lê e valida dado do localStorage -- protegido
-    // por try/catch aqui porque, mesmo com a validação de schema acima,
-    // não queremos que NENHUMA falha inesperada impeça o registro do
-    // listener de clique logo abaixo. Sem isso, um erro nesta função
-    // desligaria a automação inteira da sessão silenciosamente.
+    // sincronizarPosicao() lê dado do localStorage; mesmo com a validação
+    // de schema, nenhuma falha pode impedir o listener de clique abaixo.
     try {
       sincronizarPosicao();
     } catch (e) {
       console.error('[Fila] Erro ao sincronizar posição da fila -- continuando mesmo assim.', e);
     }
 
-    // Listener em fase de captura, no document: não substitui nem interfere
-    // no handler original do botão "Registrar e Enviar", só observa o clique.
-    // Cobre o caso de CLIQUE REAL DE MOUSE no botão (sem passar pelo Alt+S).
+    // Captura no document: só observa o clique, sem interferir no handler
+    // original de "Registrar e Enviar". Cobre o clique real de mouse (sem Alt+S).
     document.addEventListener('click', function (e) {
       const botao = e.target.closest('button');
       if (!botao) return;
@@ -1081,8 +898,7 @@
     iniciar();
   }
 
-  // Helpers de depuração e ganchos usados pelo Módulo 4 (Atalhos de
-  // Teclado). Acessíveis no console (Isaac já usa o DevTools ativamente).
+  // Depuração no console e ganchos usados pelo Módulo 4 (Atalhos).
   window.filaDebug = {
     CONFIG,
     obterFila,
@@ -1101,19 +917,14 @@
     obterAtendidosHoje,
     extrairCnpjDaUrl,
     mesmoDiaDeHoje,
-    // A barra da lista de clientes -- o Módulo 15 (Alertas gerais) põe o
-    // botão dele na mesma barra, sem repetir a busca.
+    // A barra da lista: o Módulo 15 põe o botão dele nela, sem repetir a busca.
     ancoraToolbarLista,
     getPaginaNaFila: () => paginaNaFila,
     instalarDeteccaoAbrirWhatsApp,
     marcarSucessoDoRegistro,
-    // Expõe o "armar" da interceptação do window.open pro Módulo 4 chamar
-    // explicitamente ANTES do clique simulado do Alt+S -- garante que a
-    // detecção de sucesso funciona não importa qual estratégia de clique
-    // seja usada (mesmo uma que não borbulhe evento real de DOM até o
-    // listener acima). Chamar isto duas vezes seguidas é seguro
-    // (aguardarEAvancar já tem proteção contra chamada dupla via a
-    // variável "avancando").
+    // "Arma" a interceptação de window.open; o Módulo 4 chama ANTES do
+    // clique simulado do Alt+S, pra a detecção não depender da estratégia
+    // de clique. Chamar duas vezes é seguro (a trava "avancando" cobre).
     prepararEAguardarEnvio: aguardarEAvancar,
   };
 })();

@@ -1,29 +1,16 @@
 /* =========================================================================
  * MÓDULO 0: UTILITÁRIOS COMPARTILHADOS — CRM TexCotton
  * -------------------------------------------------------------------------
- * Funções e constantes usadas por 2+ módulos, extraídas pra um único lugar
- * depois de uma auditoria (/code-reviewer) apontar duplicação real:
- *   - normalizarData: existia em 3 cópias (Módulo 1, Módulo 6, Módulo 7) --
- *     a do Módulo 7 usava meia-noite (setHours(0,0,0,0)) em vez de meio-dia
- *     como as outras duas, causando um BUG REAL: uma promessa datada pra
- *     HOJE podia ser tratada como "futura" só pelo Módulo 7, excluindo o
- *     cliente da Fila por Prioridade por engano.
- *   - toast: existia em 3 cópias (Módulo 2, Módulo 3, Módulo 7), pixel a
- *     pixel idênticas.
- *   - esperar: existia em 2 cópias (Módulo 4, Módulo 7).
- *   - montarUrlCliente: existia em 2 cópias (Módulo 3, Módulo 5).
- *   - escolherTituloRepresentativo/maiorAtraso: a mesma regra de negócio
- *     (qual título "representa" o cliente pra nota do CRM e pra mensagem)
- *     existia em 3 cópias (Módulo 2, Módulo 4, Módulo 7), incluindo os
- *     limiares de dias do aviso de suspensão SCPC.
+ * Funções e constantes usadas por 2+ módulos: datas, toast e pilha de
+ * avisos, posição junto ao menu do CRM, título representativo do cliente,
+ * configurações (Alt+O), semana de cobrança, painéis exclusivos, registro
+ * de módulos e rotação de frases. Tudo sai em window.__smartTableUtil.
  *
- * Onde colar: PRIMEIRO módulo no @require do wrapper -- todos os outros
+ * Deve ser o PRIMEIRO módulo no @require do wrapper: todos os outros
  * dependem de window.__smartTableUtil já existir quando executam.
  *
- * Módulo 1 e Módulo 2 são protegidos (exigem confirmação explícita do
- * usuário pra qualquer edição) e continuam com suas próprias cópias
- * locais de normalizarData / maiorAtraso -- de propósito, não migradas
- * aqui nesta rodada.
+ * Módulos 1 e 2 são protegidos e mantêm cópias locais de normalizarData e
+ * maiorAtraso; não migrar sem autorização do usuário.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -35,11 +22,9 @@
   // CALENDÁRIO / DATAS
   // ============================================================
 
-  // Meio-dia evita que horário de verão empurre a data para o dia anterior
-  // (mesmo motivo do Módulo 1, que introduziu esse padrão primeiro). É a
-  // convenção que TODOS os módulos que comparam datas devem seguir -- nunca
-  // meia-noite, sob risco de comparações inconsistentes entre módulos (ver
-  // histórico do bug corrigido acima).
+  // Meio-dia evita que horário de verão empurre a data para o dia anterior.
+  // Convenção de TODOS os módulos que comparam datas: nunca meia-noite (uma
+  // promessa de hoje virava "futura" e o cliente saía da Fila por Prioridade).
   function normalizarData(data) {
     const d = new Date(data);
     d.setHours(12, 0, 0, 0);
@@ -78,13 +63,10 @@
   }
 
   // ============================================================
-  // UI: PILHA DE AVISOS (v1.38.0)
+  // UI: PILHA DE AVISOS
   // ============================================================
-  // PEDIDO DO USUÁRIO ("alguns pop-ups ficam um em cima do outro", com
-  // print): todo aviso nascia no MESMO ponto do canto inferior direito, e
-  // dois seguidos se cobriam -- inclusive o do Alt+A por cima do aviso
-  // verde do relatório (Módulo 1). Agora todos entram numa coluna: o mais
-  // novo embaixo, os outros sobem, no máximo MAX_AVISOS_NA_PILHA.
+  // Avisos entram numa coluna (o mais novo embaixo, no máximo
+  // MAX_AVISOS_NA_PILHA) para não se cobrirem no mesmo ponto.
   //
   // DISTANCIA_RODAPE_PILHA_PX: o aviso do relatório é do Módulo 1
   // (protegido, não muda de lugar): fica a 78px do rodapé e tem até ~2
@@ -131,24 +113,22 @@
   }
 
   // ============================================================
-  // UI: MENU LATERAL E CABEÇALHO DO CRM (v1.38.0)
+  // UI: MENU LATERAL E CABEÇALHO DO CRM
   // ============================================================
-  // CONFIRMADO no CRM real (diagnóstico do usuário, 23/09/2026):
+  // CONFIRMADO no CRM real:
   //   - aside#sidebar: fixo, left 0, abaixo do cabeçalho, 256px (w-64),
   //     camada 40, escondido abaixo de 1024px (hidden lg:flex); o botão
-  //     #sidebar-toggle-btn ("Recolher menu lateral") chama toggleSidebar().
+  //     #sidebar-toggle-btn chama toggleSidebar().
   //   - header#sit-header: fixo no topo, 80px de altura, camada 50.
-  // Os painéis nossos abriam a 16px da esquerda, numa camada (30) ABAIXO do
-  // menu: os primeiros 240px de cada um ficavam escondidos atrás dele.
+  // Painéis nossos (camada 30) ficam atrás do menu se abrirem em left 16px.
   //
   // A margem é MEDIDA, nunca fixada em 256: não sabemos como o CRM recolhe
-  // o menu (esconde, estreita ou desliza), e medir a borda direita dele
-  // serve pros três casos -- e pro menu que some em tela pequena.
+  // o menu (esconde, estreita ou desliza); medir a borda direita serve aos
+  // três casos e ao menu que some em tela pequena.
   const ID_MENU_LATERAL = 'sidebar';
   const ID_CABECALHO = 'sit-header';
   const FOLGA_MENU_PX = 16;
-  // Depois de recolher/expandir, o CRM pode animar o menu -- mede de novo
-  // quando a animação costuma ter acabado.
+  // O CRM pode animar o menu ao recolher/expandir: mede de novo depois.
   const ESPERA_ANIMACAO_MENU_MS = 350;
 
   function elementoVisivel(el) {
@@ -239,19 +219,17 @@
   }
 
   // ============================================================
-  // TÍTULO REPRESENTATIVO (regra de negócio confirmada com o usuário) --
-  // qual título "representa" o cliente pra nota padronizada do CRM e pra
-  // mensagem automática. Ordem de prioridade (primeira faixa não-vazia
-  // decide):
+  // TÍTULO REPRESENTATIVO (regra de negócio confirmada com o usuário):
+  // qual título "representa" o cliente na nota do CRM e na mensagem.
+  // Primeira faixa não-vazia decide:
   //   1. ULTIMO_DIA (prazo final antes de cartório/SCPC)
   //   2. NEGATIVADO_SCPC na janela de aviso de suspensão de cadastro
-  //   3. Maior atraso real entre todos os títulos (situação normal)
+  //   3. Maior atraso real, ignorando EM_CARTORIO
   // ============================================================
 
-  // Dias de atraso em que o SCPC passa a avisar sobre a suspensão de
-  // cadastro -- CONFIRMADO com o usuário: 16 a 18 dias avisa que a
-  // suspensão vem a caminho; exatamente no 19º dia é o último dia antes da
-  // suspensão de verdade (cadastro vai pra um analista).
+  // CONFIRMADO com o usuário: 16 a 18 dias de atraso o SCPC avisa que a
+  // suspensão de cadastro vem; o 19º dia é o último antes da suspensão de
+  // verdade (cadastro vai pra um analista).
   const DIAS_AVISO_SUSPENSAO_SCPC_MIN = 16;
   const DIAS_AVISO_SUSPENSAO_SCPC_MAX = 18;
   const DIAS_ULTIMO_DIA_SUSPENSAO_SCPC = 19;
@@ -274,23 +252,14 @@
     );
     if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
 
-    // CONFIRMADO com o usuário: título já EM_CARTORIO saiu da cobrança
-    // amigável -- a prioridade de pagamento (e por isso o pedido/CTA da
-    // mensagem) é sempre um título que AINDA NÃO foi pra cartório, mesmo
-    // que ele tenha menos dias de atraso que o título em cartório. BUG
-    // REAL (relatado pelo usuário): antes, "maior atraso real" comparava
-    // todos os títulos juntos -- um título em cartório há 45 dias vencia
-    // um título em atraso inicial há 3 dias só por ter mais dias,
-    // escolhendo o título errado (o que já foi pra cartório, não o que
-    // ainda dá pra evitar) e deixando o título realmente prioritário sem
-    // nenhuma menção na mensagem. Só cai pra um título em cartório se
-    // literalmente não sobrar nenhum outro -- caso raro na prática, já que
-    // um cliente com TODOS os títulos em cartório nem chega até aqui (ver
+    // CONFIRMADO com o usuário: título EM_CARTORIO saiu da cobrança amigável.
+    // O título da mensagem é sempre um que AINDA NÃO foi pra cartório, mesmo
+    // com menos dias de atraso. Só cai num título em cartório se não sobrar
+    // outro (raro: cliente com todos em cartório nem chega aqui, ver
     // avisarSeNaoCobrar no Módulo 1).
-    // DECISÃO DO USUÁRIO (28/09): VERIFICAR_POSICAO continua podendo ser o
-    // escolhido aqui -- se ele for o mais atrasado, o Alt+A não gera
-    // mensagem (situação incerta), mesmo havendo outro título normal. "Esse
-    // cliente não é da minha ossada." Travado em tests/mensagens.test.js.
+    // DECISÃO DO USUÁRIO: VERIFICAR_POSICAO pode ser o escolhido; se for o
+    // mais atrasado, o Alt+A não gera mensagem (situação incerta), mesmo
+    // havendo outro título normal. Travado em tests/mensagens.test.js.
     const naoCartorio = dados.registros.filter((r) => r.situacaoKey !== 'EM_CARTORIO');
     if (naoCartorio.length > 0) return maiorAtrasoEntre(naoCartorio);
 
@@ -301,18 +270,15 @@
   // CONFIGURAÇÕES DO USUÁRIO (interruptores do painel Alt+O)
   // ============================================================
   //
-  // POR QUE AQUI, e não no módulo que desenha o painel: o Módulo 0 carrega
-  // PRIMEIRO, então qualquer módulo pode ler uma configuração no momento em
-  // que precisa dela, sem depender de ordem de carregamento. O Módulo 9 só
-  // desenha o que estiver declarado aqui.
+  // Ficam aqui porque o Módulo 0 carrega PRIMEIRO: qualquer módulo lê uma
+  // configuração sem depender de ordem de carga. O Módulo 9 só desenha o
+  // que estiver declarado em DEFINICOES.
   //
-  // PRA ACRESCENTAR UM INTERRUPTOR NOVO: basta uma entrada em DEFINICOES.
-  // O painel aparece sozinho, o teste de configuração cobre sozinho, e
-  // quem precisa do valor chama ligado('aChave'). Nada de mexer na UI.
+  // Interruptor novo: uma entrada em DEFINICOES (painel e teste seguem
+  // sozinhos); quem precisa do valor chama ligado('aChave').
   //
-  // O padrão de TODO interruptor tem que ser o comportamento que já existia
-  // antes dele. Quem nunca abriu o painel não pode ter nada mudando embaixo
-  // dos pés.
+  // O padrão de TODO interruptor é o comportamento anterior a ele: quem
+  // nunca abriu o painel não pode ver nada mudar.
   const CHAVE_CONFIG = 'smarttable_config_v1';
 
   const DEFINICOES = Object.freeze({
@@ -329,9 +295,8 @@
   /**
    * Lê o objeto de configuração inteiro do localStorage.
    *
-   * Nunca lança: localStorage pode estar cheio, bloqueado (aba anônima) ou
-   * com JSON corrompido de uma versão anterior. Em qualquer desses casos o
-   * script tem que seguir cobrando com os padrões, não parar.
+   * Nunca lança (localStorage cheio, bloqueado ou com JSON corrompido):
+   * o script segue com os padrões.
    *
    * @returns {Record<string, boolean>} Só as chaves declaradas em DEFINICOES.
    */
@@ -354,8 +319,7 @@
     }
     if (!objeto || typeof objeto !== 'object') return {};
 
-    // Só aceita chave declarada e valor booleano -- lixo de versão antiga
-    // (ou de alguém editando à mão) não vira comportamento.
+    // Só chave declarada com valor booleano; lixo não vira comportamento.
     const limpo = {};
     Object.keys(DEFINICOES).forEach((chave) => {
       if (typeof objeto[chave] === 'boolean') limpo[chave] = objeto[chave];
@@ -428,16 +392,14 @@
   // SEMANA DE COBRANÇA (sábado a sexta) E IDENTIDADE DE USUÁRIO
   // ============================================================
   //
-  // A semana da cobrança NÃO é a semana do calendário: ela vai de SÁBADO a
-  // SEXTA (definição do usuário). Quando hoje é sábado, ele é o PRIMEIRO dia
-  // da semana nova, não o último da anterior.
+  // A semana da cobrança vai de SÁBADO a SEXTA (definição do usuário).
+  // Sábado é o PRIMEIRO dia da semana nova, não o último da anterior.
 
   /**
    * Data em AAAA-MM-DD, montada campo a campo.
    *
-   * NUNCA usar toISOString() aqui: ele converte pra UTC, e com a convenção
-   * de meio-dia deste projeto um fuso negativo devolve o dia ANTERIOR. Seria
-   * a terceira vez que data trocada de dia causa bug neste código.
+   * NUNCA usar toISOString(): converte pra UTC e, com a convenção de
+   * meio-dia, um fuso negativo devolve o dia ANTERIOR.
    *
    * @param {Date} data
    * @returns {string}
@@ -451,8 +413,7 @@
 
   /**
    * "R$ 1.234,56" (ou "R$\u00a01.234,56") -> 1234.56; null se não for número.
-   * Mesma regra do Módulo 4 (converterMoedaBrParaNumero), aqui pra quem mais
-   * precisar (Alt+U, desempate por valor vencido -- v1.48.0).
+   * Mesma regra do Módulo 4 (converterMoedaBrParaNumero).
    *
    * @param {unknown} texto
    * @returns {number|null}
@@ -465,20 +426,17 @@
   }
 
   /**
-   * Identificador CENSURADO pra log/console/diagnóstico (regra permanente do
-   * usuário: "Para todos os codigos no devstool, codifique de uma maneira
-   * que as informações sensíveis sejam censuradas"). Devolve o apelido
-   * estável do Módulo 8 ("cli.xxxx": o mesmo valor vira sempre o mesmo
-   * apelido, então dá pra cruzar logs), nunca o CNPJ, a razão social ou o
-   * número do título. Sem o Módulo 8, um marcador fixo -- nunca o valor.
+   * Identificador CENSURADO pra log/console/diagnóstico (regra permanente de
+   * privacidade). Devolve o apelido estável do Módulo 8 ("cli.xxxx", o mesmo
+   * valor sempre no mesmo apelido), nunca o CNPJ, a razão social ou o número
+   * do título. Sem o Módulo 8, um marcador fixo -- nunca o valor.
    *
    * @param {unknown} valor CNPJ, número de título, id de acordo...
    * @returns {string}
    */
   function apelidoParaLog(valor) {
-    // CNPJ com ou sem pontuação é o MESMO cliente: normaliza pros dígitos
-    // antes, senão "12.345.678/0001-99" e "12345678000199" virariam dois
-    // apelidos e os logs não cruzariam (achado do revisor, rodada 2).
+    // CNPJ com ou sem pontuação é o MESMO cliente: normaliza pros dígitos,
+    // senão viram dois apelidos e os logs não cruzam.
     const texto = String(valor ?? '');
     const chave = /^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$/.test(texto.trim()) ? texto.replace(/\D/g, '') : texto;
     try {
@@ -493,9 +451,8 @@
   /**
    * Lê `nome = [ ... ]` / `{ ... }` de um script da página SEM executar
    * nada: casa colchetes/chaves respeitando texto entre aspas e escape.
-   * Serve pro HTML baixado (Alt+U sem aba, Módulo 7) e pra página aberta
-   * (__TITULOS_PAGOS__, Módulo 12) -- não depende de como o CRM declara a
-   * variável (window.x, const, let).
+   * Serve pro HTML baixado (Módulo 7) e pra página aberta (__TITULOS_PAGOS__,
+   * Módulo 12); não depende de como o CRM declara a variável.
    * @returns {*} o valor (JSON.parse) ou undefined se não achou
    */
   function lerVariavelDoScript(doc, nome) {
@@ -530,8 +487,7 @@
 
   /**
    * 'AAAA-MM-DD' (com ou sem hora depois) -> 'DD/MM'; '' se não for data.
-   * Única versão do projeto (v1.46.0, revisão de código): os Módulos 16 e 17
-   * tinham cada um a sua, e a do 17 devolvia lixo pra texto vazio.
+   * Única versão do projeto (Módulos 16 e 17 usam esta).
    *
    * @param {string} iso
    * @returns {string}
@@ -565,16 +521,15 @@
   /**
    * O primeiro nome dentro de um identificador de usuário do CRM.
    *
-   * POR QUE ISTO EXISTE (achado ao vivo, e teria dado número errado em
-   * silêncio): a API do dashboard consolidado devolve DOIS esquemas de
-   * identificação na MESMA resposta --
+   * A API do dashboard consolidado devolve DOIS esquemas de identificação na
+   * MESMA resposta:
    *
    *   depositos/acordos  -> "isaac.s"      (login: nome.inicial)
    *   promessas/contatos -> "ISAAC.03876"  (código do CRM)
    *
-   * Procurar por "ISAAC.03876" acharia a pessoa em duas seções e não acharia
-   * nada nas outras duas, devolvendo R$ 0,00 pra quem recebeu de verdade --
-   * sem erro na tela. O que vem antes do ponto é igual nos dois esquemas.
+   * Comparar o identificador inteiro acharia a pessoa em duas seções e
+   * devolveria R$ 0,00 nas outras, sem erro na tela. O que vem antes do
+   * ponto é igual nos dois esquemas.
    *
    * CONFERIDO com dado real: nas quatro seções, nenhum primeiro nome se
    * repete entre os usuários do time.
@@ -587,13 +542,12 @@
   }
 
   /*
-   * LISTA DE CLIENTES FILTRADA? (v1.43.0, usada pela Carteira e pelo Alt+U)
+   * LISTA DE CLIENTES FILTRADA? (usada pela Carteira e pelo Alt+U)
    * Com um filtro do CRM ligado, window.CLIENTES traz só parte da carteira.
-   * CONFIRMADO no CRM (diagnóstico de 25/09/2026): o formulário de filtros é
-   * GET -- filtro ligado vai pro endereço (?cartorio=true&diasCartorio=6&
-   * cartorioModo=QUALQUER); a lista sem filtro não tem parâmetro nenhum. Com
-   * o filtro de dia, cada cliente traz titulosNoDiaFiltrado (um número); sem
-   * ele, null -- segunda verificação, pelo próprio dado.
+   * CONFIRMADO no CRM: o formulário de filtros é GET; filtro ligado vai pro
+   * endereço (?cartorio=true&diasCartorio=6&cartorioModo=QUALQUER) e a lista
+   * sem filtro não tem parâmetro nenhum. Com o filtro de dia, cada cliente
+   * traz titulosNoDiaFiltrado (número); sem ele, null (segunda verificação).
    *
    * diasCartorio/cartorioModo só valem com cartorio=true (o formulário os
    * envia mesmo desligados). Parâmetro DESCONHECIDO com valor conta como
@@ -649,20 +603,12 @@
   // PAINÉIS FLUTUANTES: SÓ UM ABERTO POR VEZ
   // ============================================================
   //
-  // DEFEITO REAL que motivou isto: quatro painéis nossos (Ajuda/Alt+H,
-  // Novidades/Alt+L, Configurações/Alt+O, Entrou na semana/Alt+D) abriam
-  // todos em bottom:112px left:16px. Nenhum fechava os outros, então abrir
-  // dois empilhava um por cima do outro -- e fechar o de cima revelava um
-  // painel que a pessoa não lembrava de ter aberto.
+  // Só um painel flutuante nosso na tela: abrir qualquer um fecha os demais.
+  // Os painéis abrem na mesma posição, então empilhariam. Reposicionar não
+  // resolve (a próxima cópia repete o erro); o espaço é EXCLUSIVO.
   //
-  // A causa foi copiar coordenadas de um painel pro seguinte. O conserto
-  // não é reposicionar (aí a próxima cópia repete o erro num canto novo):
-  // é tornar o espaço EXCLUSIVO. Só um painel flutuante nosso na tela, e
-  // abrir qualquer um fecha os demais.
-  //
-  // Isto também é o orçamento de tela do projeto, em código: enquanto todo
-  // painel novo passar por aqui, a quantidade de coisa simultânea na tela
-  // não cresce, por mais painéis que a gente acrescente.
+  // É também o orçamento de tela do projeto: todo painel novo deve passar
+  // por aqui.
   const paineisRegistrados = new Map();
 
   /**
@@ -699,25 +645,12 @@
   // REGISTRO DE MÓDULOS CARREGADOS
   // ============================================================
   //
-  // MESMO PADRÃO do registro de painéis logo acima: cada módulo se anuncia
-  // sozinho, em vez de ser listado à mão num arquivo que não tem nada a ver
-  // com ele. Antes disto, "quais módulos existem" era afirmado em TRÊS
-  // lugares independentes -- as linhas @require do wrapper, a flag que cada
-  // módulo seta (`window.__xCarregado = true`), e um array copiado à mão
-  // dentro do Módulo 6 (`FLAGS_DOS_MODULOS`) -- e o terceiro já ficou pra
-  // trás duas vezes na mesma sessão de manutenção (o Módulo 11 nunca entrou
-  // nele, sem nenhum aviso até alguém rodar a suíte de testes).
+  // Cada módulo se anuncia sozinho, na mesma linha em que seta sua flag
+  // (`window.__xCarregado = true`).
   //
-  // ISTO NÃO ELIMINA a necessidade de um humano lembrar de anunciar um
-  // módulo novo -- MODULOS_ESPERADOS continua sendo uma lista hand-mantida,
-  // porque não há como uma página descobrir em runtime quantos @require o
-  // Tampermonkey concatenou (isso é metadado do userscript, não algo
-  // exposto pro JS). O que muda: o lugar certo de editar quando um módulo
-  // novo nasce é O PRÓPRIO ARQUIVO DELE (a mesma linha que já seta a flag),
-  // não um arquivo alheio -- e um nome que não bate com o esperado avisa NA
-  // HORA, no console, na primeira vez que a página carrega em
-  // desenvolvimento, em vez de só quando alguém lembra de rodar
-  // `npm run verificar`.
+  // MODULOS_ESPERADOS é mantida à mão: a página não descobre em runtime
+  // quantos @require o Tampermonkey concatenou. Módulo novo: acrescentar o
+  // nome aqui; um nome que não bate avisa no console na hora.
   const MODULOS_ESPERADOS = Object.freeze([
     'Utilitários Compartilhados',
     'Aviso de Cobrança',
@@ -768,32 +701,23 @@
     return MODULOS_ESPERADOS.filter((nome) => !modulosCarregadosRegistrados.has(nome));
   }
 
-  // Módulo 0 se anuncia igual a qualquer outro -- não é caso especial, só
-  // precisa acontecer DEPOIS de modulosCarregadosRegistrados existir (por
-  // isso aqui, e não lá em cima junto da flag __utilitariosCompartilhadosCarregados).
+  // Precisa vir DEPOIS de modulosCarregadosRegistrados existir.
   registrarModuloCarregado('Utilitários Compartilhados');
 
   // ============================================================
   // ROTAÇÃO DE FRASES (variar sem soar aleatório)
   // ============================================================
   //
-  // PROBLEMA MEDIDO: 192 mensagens da matriz de cenários produziam 18
-  // distintas, e 83% terminavam na MESMA pergunta final. Com quase toda a
-  // carteira sendo contatada diariamente, o mesmo cliente lia a mesma frase
-  // todo dia -- que é quando a mensagem deixa de ser lida.
+  // Evita o mesmo cliente ler a mesma frase todo dia.
   //
   // A escolha é DETERMINÍSTICA por semente, não sorteada:
   //   - mesmo cliente, dia seguinte  -> frase diferente
   //   - mesmo cliente, mesmo dia     -> frase IDÊNTICA, mesmo apertando
-  //                                     Alt+A duas vezes (nada troca no meio
-  //                                     de uma conversa em andamento)
+  //                                     Alt+A duas vezes
   //   - clientes diferentes, mesmo dia -> frases diferentes entre si
   //
-  // POR QUE UM HASH PRÓPRIO, e não o hashEstavel do Módulo 8: aquele gera
-  // os apelidos censurados (cli.xxxx), que precisam continuar os mesmos pra
-  // cruzar diagnósticos de dias diferentes. Se um dia alguém ajustar o hash
-  // por causa das frases, trocaria todos os apelidos sem perceber. São dois
-  // usos com requisitos diferentes; ficam separados de propósito.
+  // Hash próprio, separado do hashEstavel do Módulo 8: aquele gera os
+  // apelidos censurados (cli.xxxx), que não podem mudar. Não unificar.
 
   /**
    * Hash estável de uma string (FNV-1a). Mesmo texto, mesmo número, sempre

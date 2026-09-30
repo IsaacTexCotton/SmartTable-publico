@@ -1,25 +1,19 @@
 /* =========================================================================
  * MÓDULO 15: ALERTAS GERAIS — CRM TexCotton
  * -------------------------------------------------------------------------
- * PEDIDO DO USUÁRIO (v1.40.0): um lembrete geral, sem cliente -- "hoje
- * faço um pra quarta e amanhã um pra segunda". Decisões dele (perguntadas
- * antes de implementar):
+ * Lembrete geral, sem cliente. Decisões do usuário:
+ *   - Botão "🔔 Alertas gerais" só na LISTA de clientes, ao lado de "▶ Iniciar
+ *     Fila de Atendimento". Abre painel com formulário e alertas em cards.
+ *   - No dia, o aviso aparece só na lista de clientes, a cada abertura, até
+ *     excluir o alerta ou fechar o aviso.
+ *   - O alerta some sozinho no dia seguinte ao da data.
+ *   - Nome "Alertas gerais", para não confundir com o "⚠ Alerta" do cliente
+ *     (Módulo 12), que não muda.
  *
- *   - ONDE: botão "🔔 Alertas gerais" na LISTA de clientes (só lá), ao lado
- *     de "▶ Iniciar Fila de Atendimento". Abre um painel com o formulário
- *     (descrição + data + Confirmar) em cima e os alertas em cards embaixo,
- *     cada um com um X pra excluir. Acumula quantos quiser.
- *   - NO DIA: o aviso aparece só na lista de clientes (não nas outras
- *     telas), toda vez que ela abre enquanto houver alerta pra hoje -- até
- *     você excluir o alerta ou fechar o aviso.
- *   - DEPOIS: o alerta some sozinho no dia seguinte ao da data.
- *   - NOME: "Alertas gerais", pra não confundir com o "⚠ Alerta" da tela do
- *     cliente (Módulo 12, não cobrar + observação daquele cliente), que
- *     continua exatamente como está.
- *
- * ARMAZENAMENTO: localStorage (smarttable_alertas_gerais_v1), só neste
- * navegador -- mesmo lugar dos alertas do cliente. Lista de
- * { id, descricao, data: 'AAAA-MM-DD', criadoEm }.
+ * Armazenamento: localStorage (smarttable_alertas_gerais_v1), só neste
+ * navegador. Lista de { id, descricao, data: 'AAAA-MM-DD', criadoEm }.
+ * Expõe window.__alertasGerais. Depende de window.__smartTableUtil (Módulo 6)
+ * e, opcionalmente, de window.filaDebug (Módulo 3).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -33,10 +27,9 @@
     ID_BOTAO: 'smarttable-botao-alertas-gerais',
     ID_PAINEL: 'smarttable-painel-alertas-gerais',
     ID_AVISO: 'smarttable-aviso-alertas-gerais',
-    // Mesmo z-index dos outros painéis nossos: abaixo dos modais do CRM.
+    // Abaixo dos modais do CRM, como os outros painéis.
     Z_INDEX: 30,
     MAX_DESCRICAO: 300,
-    // Quantos alertas de hoje o aviso lista antes de "e mais N".
     MAX_NO_AVISO: 3,
   };
 
@@ -68,7 +61,7 @@
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ''));
     if (!m) return null;
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
-    // Recusa 2026-02-31 & cia (o Date "corrige" pra março).
+    // Recusa 2026-02-31 (o Date "corrige" para março).
     return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
   }
 
@@ -105,9 +98,8 @@
   }
 
   /**
-   * Os alertas de hoje em diante, em ordem de data. Os de dias anteriores
-   * são apagados aqui mesmo ("some sozinho no dia seguinte"), e um item
-   * ilegível é descartado com aviso no console -- nunca derruba a lista.
+   * Alertas de hoje em diante, em ordem de data. Os de dias anteriores são
+   * apagados aqui; item ilegível é descartado com aviso, sem derrubar a lista.
    *
    * @param {Date} [agora] Injetável pra teste.
    * @returns {{id: string, descricao: string, data: string, criadoEm: number}[]}
@@ -178,7 +170,7 @@
     return e;
   }
 
-  // A lista de clientes -- a mesma rota que a Carteira (Módulo 14) fotografa.
+  // Mesma rota que a Carteira (Módulo 14) fotografa.
   function naListaDeClientes() {
     return /^\/crm\/clientes\/?$/.test(location.pathname);
   }
@@ -330,7 +322,7 @@
     else abrirPainel();
   }
 
-  /** O aviso "alertas de hoje", na pilha de avisos, até excluir ou fechar. */
+  /** Aviso "alertas de hoje" na pilha de avisos, até excluir ou fechar. */
   function mostrarAvisoDeHoje() {
     const hoje = alertasDeHoje();
     if (hoje.length === 0 || avisoEl) return;
@@ -379,8 +371,7 @@
     });
     botao.addEventListener('click', alternarPainel);
 
-    // Mesma barra do "▶ Iniciar Fila de Atendimento" (Módulo 3), com a
-    // mesma classe nativa dos botões dela.
+    // Mesma barra e classe nativa do "▶ Iniciar Fila de Atendimento" (Módulo 3).
     const ancora = window.filaDebug?.ancoraToolbarLista?.() ?? null;
     if (ancora) {
       botao.className = 'pbi-btn pbi-btn-quiet';

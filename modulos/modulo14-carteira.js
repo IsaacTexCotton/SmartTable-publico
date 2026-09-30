@@ -1,113 +1,77 @@
 /* =========================================================================
  * MÓDULO 14: CARTEIRA (Alt+M) — CRM TexCotton
  * -------------------------------------------------------------------------
- * "Como a minha carteira está agora, está melhor ou pior, por quê, quanto
- * deve entrar, e a régua funciona?" -- um painel de MIS/BI em quatro abas:
- *
- *   Hoje      -> fotografia: vencido, % da dívida em cobrança, SCPC,
- *                promessas, cobertura, concentração, aging, o que está fora
- *                do painel, e a SAÚDE do histórico (gravações, lacunas,
- *                alertas de dados).
- *   Evolução  -> PONTE (por que o vencido mudou), CURA da semana e semana a
- *                semana, tendência de 30 dias.
- *   Resultado -> API do CRM (semana/mês) e PREVISÃO DE ENTRADA das promessas.
+ * Painel de MIS/BI da carteira em quatro abas:
+ *   Hoje      -> fotografia: vencido, % da dívida em cobrança, SCPC, promessas,
+ *                cobertura, concentração, aging, fora do painel e saúde do
+ *                histórico (gravações, lacunas, alertas de dados).
+ *   Evolução  -> ponte (por que o vencido mudou), cura, cura semanal, tendência.
+ *   Resultado -> API do CRM (semana/mês) e previsão de entrada das promessas.
  *   Régua     -> cruza o diário (faixa do Alt+U, hora do contato) com quem
  *                quitou em até 7 dias.
  *
- * ============================ PRINCÍPIO CENTRAL ============================
- * GRAVA-SE O DADO BRUTO; TODO NÚMERO É CALCULADO NA HORA DA LEITURA.
- *
- * Pedido explícito do usuário: "não podemos deixar que nenhum erro passe,
- * pois se tivermos que tirar as fotos salvas toda vez que algo der errado, o
- * processo será infinito". Até a v1.33.1 a fotografia guardava números JÁ
- * CALCULADOS (vencido do escopo, faixas, cura, ponte) e só alguns campos de
- * cada cliente. Qualquer mudança de regra (escopo, faixas, "quem some
- * quitou") ou qualquer bug de cálculo ficava congelado no histórico, e a
- * única saída era apagar. Agora:
- *
- *   1. A captura grava, de cada cliente, os campos da lista EXATAMENTE como
- *      o CRM mandou (texto continua texto, null continua null), numa lista
- *      explícita de campos permitidos (CAMPOS_BRUTOS). Nada é calculado
- *      antes de gravar: a gravação não pode falhar por causa de uma conta.
- *   2. Agregado, aging, cura, ponte, previsão e régua são calculados a
- *      partir desse bruto toda vez que o painel abre ou o CSV é gerado.
- *      Corrigir uma regra corrige o histórico INTEIRO, retroativamente.
- *   3. Cada registro guarda a lista de campos que usou (`campos`), então
- *      acrescentar um campo no futuro não quebra os registros antigos.
- *   4. Erros NÃO passam em silêncio: a captura valida a lista (campo
- *      sumido, campo novo, tipo inesperado, CNPJ repetido, cliente sem
- *      vencido...) e grava os alertas junto; o resultado de cada tentativa
- *      (sucesso ou falha, com o motivo) fica registrado e aparece no
- *      painel; dias úteis sem fotografia aparecem como lacuna; e há backup
- *      e restauração do histórico inteiro.
+ * PRINCÍPIO CENTRAL: GRAVA-SE O DADO BRUTO; TODO NÚMERO É CALCULADO NA LEITURA.
+ * Decisão do usuário: nenhum erro pode ficar congelado no histórico. Mudar
+ * regra (escopo, faixas, "quem some quitou") ou corrigir conta corrige o
+ * histórico INTEIRO, retroativamente, sem apagar fotografia.
+ *   1. A captura grava os campos da lista como o CRM mandou, só os de
+ *      CAMPOS_BRUTOS. Nada é calculado antes de gravar.
+ *   2. Agregado, aging, cura, ponte, previsão e régua saem desse bruto a cada
+ *      abertura do painel ou geração do CSV.
+ *   3. Cada registro guarda a lista de campos que usou (`campos`): campo novo
+ *      não quebra registro antigo.
+ *   4. Erro não passa em silêncio: a captura valida a lista e grava alertas; o
+ *      resultado de cada tentativa (com o motivo da falha) aparece no painel;
+ *      dia útil sem fotografia vira lacuna; há backup e restauração.
  *
  * DE ONDE VÊM OS NÚMEROS:
+ *   1. FOTOGRAFIA -- window.CLIENTES (campos confirmados ao vivo).
+ *      dividaAVencer vem SEMPRE null: "a vencer" é dividaTotal - dividaVencida.
+ *      A lista só tem quem deve (confirmado ao vivo: nenhum cliente com
+ *      dividaVencida <= 0). Logo, cliente que SOME da lista quitou o vencido
+ *      (cura, ponte e régua contam assim), e dividaTotal soma só os clientes
+ *      EM ATRASO. Risco aceito: transferência de negociador também faz sumir.
+ *      Se a premissa quebrar, a captura grava o alerta 'semVencidoNaLista'.
+ *      CORTE: vale a PRIMEIRA leitura completa do dia (posição de abertura).
+ *      Uma leitura posterior só substitui se trouxer MAIS clientes ou se a
+ *      gravada for do formato antigo (sem bruto).
+ *   2. RESULTADO -- APIs do Alt+D, buscadas na hora: dashboard-consolidado e a
+ *      lista de promessas (cumpridas pelo dia do pagamento, critério do Alt+D).
+ *      Não filtra por escopo: o recuperado é tudo o que se recebeu.
+ *   3. RÉGUA -- eventos 'fila' e 'contato' do diário (Módulo 8), casados com as
+ *      fotografias pelo hash do CNPJ. Descritivo, não causal.
  *
- *   1. FOTOGRAFIA -- window.CLIENTES, o array que a lista de clientes usa
- *      pra se desenhar. Campos confirmados ao vivo (diagnóstico de console,
- *      2026-09-23). dividaAVencer vem SEMPRE null: "a vencer" é
- *      dividaTotal - dividaVencida.
+ * ESCOPO (decisões do usuário): carteira de CONFIG_CARTEIRA.PESSOAS e, nela, só
+ * o vencido do 2º ao 20º dia. O 1º dia (e dia 0 ou sem dias) não é referência;
+ * do 21º em diante o CLIENTE INTEIRO é do analista; cartório e "não cobrar"
+ * contam no vencido; o 20º é da cobrança aqui mesmo com a fila do Alt+U parando
+ * no 19º. Fora do escopo aparece na linha "Fora do painel". O escopo é aplicado
+ * na leitura.
  *
- *      A LISTA SÓ TEM QUEM DEVE (confirmado ao vivo: `CLIENTES.filter(c =>
- *      !(c.dividaVencida > 0)).length` deu 0). Então: cliente que SOME da
- *      lista quitou o vencido (cura, ponte e régua contam assim), e a soma
- *      de dividaTotal é a dívida dos clientes EM ATRASO, não a carteira
- *      inteira. Risco aceito: transferência pra outro negociador também faz
- *      sumir. Se a premissa quebrar (cliente sem vencido na lista), a
- *      captura grava o alerta 'semVencidoNaLista'.
- *
- *      CORTE: a fotografia do dia é a PRIMEIRA leitura completa da lista
- *      (posição de abertura). Uma leitura posterior só substitui se trouxer
- *      MAIS clientes (a primeira era parcial) ou se a gravada for do formato
- *      antigo (sem o bruto) -- aí a nova é estritamente mais completa.
- *
- *   2. RESULTADO -- as APIs do Alt+D, buscadas na hora: dashboard-consolidado
- *      (depósitos, taxa de cumprimento, acordos, contatos) e a lista de
- *      promessas (cumpridas pelo dia do pagamento, o mesmo critério do Alt+D).
- *      Não é filtrável pelo escopo: o recuperado é tudo o que se recebeu.
- *
- *   3. RÉGUA -- eventos 'fila' e 'contato' do diário (Módulo 8), casados com
- *      as fotografias pelo hash do CNPJ. É DESCRITIVO, não causal.
- *
- * ESCOPO (decisões do usuário): a carteira de CONFIG_CARTEIRA.PESSOAS (hoje
- * só o Isaac) e, dentro dela, só o vencido do 2º ao 20º dia. O 1º dia (e dia
- * 0 ou sem dias) não é referência; do 21º em diante o CLIENTE INTEIRO é do
- * analista; cartório e "não cobrar" contam no vencido; o 20º é da cobrança
- * aqui mesmo com a fila do Alt+U parando no 19º. Fora do escopo não some:
- * aparece na linha "Fora do painel". Como o escopo é aplicado NA LEITURA,
- * mudá-lo não exige apagar nenhuma fotografia.
- *
- * ONDE FICA GUARDADO: IndexedDB (banco "smarttable_carteira", um registro
- * por dia, ~65 KB/dia com 180 clientes, 400 dias ≈ 26 MB), com cota própria -- o
- * localStorage (~5 MB pro CRM inteiro) fica pro diário e pra fila. O
- * navegador é convidado a tornar o armazenamento PERSISTENTE (não apagar
- * sob pressão de disco); o painel mostra se aceitou. Nenhum CNPJ, razão
- * social, endereço ou contato é gravado: CNPJ, grupo e representante viram
- * hash de 53 bits (pseudonimização: quem tiver a lista de CNPJs consegue
- * casar). Sem IndexedDB, o histórico vive só na memória da aba e o painel
- * diz isso. O estado da última gravação fica numa chave pequena do
- * localStorage (smarttable_carteira_status), pra sobreviver até a uma falha
- * do próprio IndexedDB.
+ * ARMAZENAMENTO: IndexedDB "smarttable_carteira", um registro por dia
+ * (~65 KB/dia com 180 clientes), cota própria; o localStorage (~5 MB pro CRM
+ * inteiro) fica pro diário e pra fila. Pede armazenamento PERSISTENTE e o
+ * painel mostra se aceitou. Nenhum CNPJ, razão social, endereço ou contato é
+ * gravado: CNPJ, grupo e representante viram hash de 53 bits (pseudonimização).
+ * Sem IndexedDB, o histórico vive na memória da aba e o painel diz isso. O
+ * estado da última gravação fica em smarttable_carteira_status (localStorage),
+ * pra sobreviver a falha do IndexedDB.
  *
  * FORMATOS DE REGISTRO:
- *   - formato 3 (v1.34.0+): { data, formato: 3, hashVersao: 2, capturadoEm,
- *     totalLista, campos: [...], linhas: [[h, g, r, ...valores]], alertas }.
- *   - legado (v1.31.0–v1.33.1): { data, agregado, detalhe? } -- números já
- *     calculados com as regras da época e hash de 31 bits. É mostrado como
- *     estava (tendência e CSV), marcado como legado, e não entra em cura,
- *     ponte nem régua (o hash não casa com o formato 3). O legado de HOJE é
- *     substituído na próxima abertura da lista.
+ *   - formato 3: { data, formato: 3, hashVersao: 2, capturadoEm, totalLista,
+ *     campos: [...], linhas: [[h, g, r, ...valores]], alertas }.
+ *   - legado: { data, agregado, detalhe? } -- números já calculados, hash de 31
+ *     bits. Mostrado como estava (tendência e CSV), marcado como legado, fora de
+ *     cura, ponte e régua (hash não casa). O legado de HOJE é substituído na
+ *     próxima abertura da lista.
  *
- * O QUE ESTE PAINEL NÃO MOSTRA DE PROPÓSITO:
- *   - Valor em cartório separado: não existe em window.CLIENTES.
- *   - Inadimplência sobre FATURAMENTO ou sobre a CARTEIRA INTEIRA: nenhuma
- *     fonte traz faturamento, e a lista não traz os clientes em dia.
- *   - valoresAcordo da API: vem sem porUsuario, misturaria outras pessoas.
- *   - Parcelas de acordo na previsão: a lista só traz o valor TOTAL.
+ * NÃO MOSTRA DE PROPÓSITO: valor em cartório separado (não existe em
+ * window.CLIENTES); inadimplência sobre faturamento ou carteira inteira (sem
+ * fonte); valoresAcordo da API (sem porUsuario, misturaria outras pessoas);
+ * parcelas de acordo na previsão (a lista só traz o valor TOTAL).
  *
- * ONDE COLAR: depois do Módulo 0 e do Módulo 10 (usa buscarConsolidado de
- * lá). Lê o diário (Módulo 8) e os nomes das faixas (Módulo 7) só na hora de
- * abrir o painel.
+ * ONDE COLAR: depois do Módulo 0 e do Módulo 10 (usa buscarConsolidado de lá).
+ * Lê o diário (Módulo 8) e os nomes das faixas (Módulo 7) só ao abrir o painel.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -124,7 +88,7 @@
     HASH_VERSAO: 2,
     CHAVE_STATUS: 'smarttable_carteira_status',
     // Históricos antigos no localStorage: o v2 é MIGRADO pro IndexedDB (como
-    // legado); o v1 (definição antiga) só é apagado.
+    // legado); o v1 só é apagado.
     CHAVE_MIGRAR: 'smarttable_carteira_v2',
     CHAVES_ANTIGAS: ['smarttable_carteira_v1', 'smarttable_carteira_v2'],
     ID_PAINEL: 'smarttable-painel-carteira',
@@ -162,10 +126,9 @@
     SEMANAS_CURA: 8,
     // Lacunas: dias úteis (seg-sex) sem fotografia nesta janela.
     DIAS_LACUNAS: 30,
-    // Lembrete de backup: o histórico mora num navegador só, e limpeza de
-    // dados do site, troca de computador ou o navegador sem espaço levam
-    // tudo junto. Passou disso sem backup, o painel avisa e a lista mostra
-    // um aviso (uma vez por dia).
+    // Lembrete de backup: o histórico mora num navegador só; limpeza de dados do
+    // site ou troca de computador levam tudo. Passou disso, painel e lista avisam
+    // (uma vez por dia).
     DIAS_LEMBRETE_BACKUP: 7,
 
     DIAS_PREVISAO: [7, 30],
@@ -389,12 +352,11 @@
   }
 
   /*
-   * LISTA FILTRADA NÃO É FOTOGRAFADA (pedido do usuário, v1.43.0: "o Alt+M
-   * deve fotografar apenas a lista completa da minha carteira, sem nenhum
-   * filtro"). Com um filtro do CRM ligado (ex.: o novo "Dias de atraso"),
-   * window.CLIENTES traz só parte da carteira: gravada, os clientes de fora
-   * contariam como QUITADOS (cura, ponte) e, no dia seguinte, como entradas.
-   * A detecção mora no Módulo 0 (a mesma que o Alt+U usa).
+   * LISTA FILTRADA NÃO É FOTOGRAFADA (decisão do usuário: só a lista completa
+   * da carteira, sem filtro). Com filtro do CRM ligado, window.CLIENTES traz
+   * parte da carteira: gravada, os de fora contariam como QUITADOS (cura,
+   * ponte) e, no dia seguinte, como entradas. A detecção mora no Módulo 0 (a
+   * mesma do Alt+U).
    *
    * @param {object[]} lista
    * @param {string} [busca] location.search da página
@@ -402,10 +364,9 @@
    */
   function filtrosAtivosNaLista(lista, busca) {
     const detectar = util()?.filtrosAtivosNaListaDeClientes;
-    // FALHA FECHADA (v1.46.0, revisão de código): sem o detector (Módulo 0
-    // desatualizado/sem carregar) não dá pra saber se a lista está completa
-    // -- trata como filtrada. Fotografar uma lista parcial como "a carteira
-    // do dia" é o erro caro; deixar de fotografar é o barato.
+    // FALHA FECHADA: sem o detector (Módulo 0 desatualizado/sem carregar) não dá
+    // pra saber se a lista está completa, então trata como filtrada. Fotografar
+    // lista parcial é o erro caro; deixar de fotografar é o barato.
     if (typeof detectar !== 'function') return ['não deu pra conferir os filtros (atualize o SmartTable)'];
     return detectar(lista, { busca, pessoas: CONFIG_CARTEIRA.PESSOAS });
   }
@@ -942,7 +903,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * MIGRAÇÃO do localStorage (v1.31–v1.32)
+   * MIGRAÇÃO do localStorage
    * --------------------------------------------------------------------- */
 
   let migracao = null;
@@ -1041,9 +1002,8 @@
       ({ registro } = montarRegistro(lista, agora));
       await migrarLocalStorage();
       const existente = decodificar(await lerDia(hojeIso));
-      // forcar: "Tirar nova fotografia de hoje" (pedido do usuário, v1.43.0)
-      // -- substitui mesmo com menos clientes: é o caso de a primeira ter
-      // saído errada. Fica registrado no status e aparece no painel.
+      // forcar: "Tirar nova fotografia de hoje" substitui mesmo com menos
+      // clientes (a primeira pode ter saído errada). Fica registrado no status.
       const substitui = opcoes.forcar || !existente || existente.legado || registro.totalLista > existente.totalLista;
       if (opcoes.forcar && existente) {
         gravarStatus({ fotografiaRefeita: { quando: agora.toISOString(), data: hojeIso, antes: existente.totalLista, depois: registro.totalLista } });
@@ -1420,12 +1380,10 @@
    * Resultado de um período para as PESSOAS. Cumprimento por VALOR, só
    * entre as decididas: cumprido / (cumprido + quebrado).
    *
-   * RECUPERADO (revisão geral, 29/09/2026): as promessas cumpridas do
-   * recuperado vêm de `pagas` -- a MESMA apuração do Alt+D (Módulo 10), pelo
-   * dia estimado do pagamento. O `cumprido` do consolidado agrupa pela data
-   * da promessa e dava outro número com o mesmo rótulo; ele continua só na
-   * taxa de cumprimento (que é mesmo por promessa).
-   *
+   * RECUPERADO: as promessas cumpridas vêm de `pagas` -- a MESMA apuração do
+   * Alt+D (Módulo 10), pelo dia estimado do pagamento. O `cumprido` do
+   * consolidado agrupa pela data da promessa (outro número, mesmo rótulo) e
+   * fica só na taxa de cumprimento, que é por promessa.
    * @param {object} dados O `data` do consolidado.
    * @param {{valor: number, quantidade: number, semValor: number}|{erro: string}} [pagas]
    *   Sem `pagas` (ou com erro), o recuperado fica null (indisponível), nunca parcial.
@@ -1886,9 +1844,8 @@
   const horaDe = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   /**
-   * "TIRAR NOVA FOTOGRAFIA DE HOJE" (pedido do usuário, v1.43.0). Só na lista
-   * de clientes (é de lá que sai a fotografia) e só com a lista COMPLETA --
-   * a mesma regra da captura automática. Substitui a de hoje depois de
+   * "Tirar nova fotografia de hoje". Só na lista de clientes e só com a lista
+   * COMPLETA (mesma regra da captura automática). Substitui a de hoje depois de
    * confirmar, mesmo com menos clientes. Dias anteriores não se refazem.
    */
   function criarBotaoNovaFotografia() {
@@ -2308,8 +2265,7 @@
     const conteudos = Object.fromEntries(ABAS.map((aba) => {
       const el = criarDiv('Carregando...', { color: CORES.apagado, paddingTop: '4px' });
       el.dataset.papel = aba.chave;
-      // Papéis de acessibilidade: leitor de tela anuncia "Carteira, diálogo"
-      // e as abas como abas -- e os testes E2E acham tudo por papel e nome.
+      // Papéis de acessibilidade: os testes E2E acham tudo por papel e nome.
       el.id = `${CONFIG_CARTEIRA.ID_PAINEL}-conteudo-${aba.chave}`;
       el.setAttribute('role', 'tabpanel');
       el.setAttribute('aria-labelledby', `${CONFIG_CARTEIRA.ID_PAINEL}-aba-${aba.chave}`);
@@ -2331,8 +2287,8 @@
       avisoRodape.style.color = CORES.ruim;
       console.warn(`[Carteira] ${acao} falhou.`, erro);
     };
-    // Um ano de histórico leva alguns segundos pra recalcular: a tela diz
-    // que está trabalhando em vez de parecer travada.
+    // Um ano de histórico leva segundos pra recalcular: a tela avisa que está
+    // trabalhando em vez de parecer travada.
     const comEspera = (rotulo, acao) => async () => {
       avisoRodape.textContent = `${rotulo}...`;
       avisoRodape.style.color = CORES.apagado;
@@ -2374,7 +2330,7 @@
     rodape.appendChild(avisoRodape);
     meuPainel.appendChild(rodape);
     document.body.appendChild(meuPainel);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(meuPainel);
 
     const vivo = () => painelEl === meuPainel;

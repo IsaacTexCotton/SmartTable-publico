@@ -2,80 +2,48 @@
  * MÓDULO 10: RECEBIDO NA SEMANA (Alt+D) — CRM TexCotton
  * -------------------------------------------------------------------------
  * Mostra quanto entrou na carteira do Isaac e da Bianca na semana vigente
- * (SÁBADO a SEXTA), sem sair da página em que você está.
+ * (SÁBADO a SEXTA), com botão para a semana anterior.
  *
- * DE ONDE VEM O NÚMERO: da API que o próprio dashboard consolidado usa --
- * GET /api/crm/dashboard-consolidado?inicio=AAAA-MM-DD&fim=AAAA-MM-DD.
- * Descoberta ao vivo com o usuário, espionando a rede do dashboard. Ela já
- * devolve tudo AGREGADO POR USUÁRIO, então este módulo não precisa visitar
- * cliente nenhum: é uma chamada só.
+ * Depósitos: GET /api/crm/dashboard-consolidado?inicio=&fim= (já agregado por
+ * usuário; uma chamada só). É dado financeiro real, não inferência.
  *
- * Isto é um marco no projeto: é o primeiro número FINANCEIRO que o SmartTable
- * mostra vindo de dado de verdade. Todo o resto que toca pagamento (ver o
- * retrato de títulos no Módulo 6) é INFERÊNCIA -- "o título sumiu da lista,
- * provavelmente foi pago". Aqui não se infere nada.
+ * SÃO DOIS NÚMEROS DE ORIGEM DIFERENTE (definição do usuário):
+ *   - Depósitos           -> recuperado por NEGOCIAÇÕES (seção `depositos`).
+ *   - Promessas cumpridas -> recuperado por PROMESSAS (lista, não o consolidado).
+ * O TOTAL RECUPERADO soma os dois (decisão do usuário). Nada na API prova que
+ * os conjuntos sejam disjuntos e o endpoint não permite conferir (só traz
+ * totais por usuário). Se o total parecer alto, sobreposição é o primeiro
+ * suspeito; por isso as duas parcelas continuam na tela.
  *
- * SÃO DOIS NÚMEROS, NÃO DOIS CANDIDATOS AO MESMO (definição do usuário):
- *   - Depósitos          -> dinheiro recuperado por NEGOCIAÇÕES (seção
- *                           `depositos` do consolidado, por período).
- *   - Promessas cumpridas-> dinheiro recuperado por PROMESSAS feitas na
- *                           cobrança. A PARTIR DA v1.59.1 NÃO vem mais do
- *                           consolidado (ver abaixo).
- * Eles medem origens diferentes, e o painel mostra os dois separados. O
- * TOTAL RECUPERADO soma os dois.
+ * PROMESSAS CUMPRIDAS: o consolidado agrupa pela PROMESSA, não pelo pagamento,
+ * então a soma sai da lista GET /api/crm/promessas (a da tela /crm/promessas):
+ *   - entram CUMPRIDA, PARCIAL e CUMPRIDA_PARCIAL (valor pago; nas parciais, o
+ *     efetivamente pago);
+ *   - a semana é a do DIA DO PAGAMENTO estimado (abaixo). Limite conhecido:
+ *     verificar de novo uma parcial move o valor de semana;
+ *   - o crédito é de quem CRIOU a promessa (`usuarioCriacao`, "ISAAC.03876");
+ *   - a busca vai de DIAS_RETROATIVOS antes do início da semana até
+ *     DIAS_ADIANTE depois da sexta (promessa agendada para a frente e paga
+ *     antes tem data prometida fora da semana). Verificação de promessa mais
+ *     antiga que isso fica de fora: aumente DIAS_RETROATIVOS.
  *
- * PROMESSAS CUMPRIDAS (v1.59.1, pedido do usuário, 29/09/2026): o consolidado
- * agrupa o cumprido pela PROMESSA, e não pelo pagamento -- uma promessa criada
- * na semana passada e paga hoje caía no relatório da semana passada. Agora a
- * soma sai da LISTA de promessas (GET /api/crm/promessas, a mesma da tela
- * /crm/promessas):
- *   - entram as promessas CUMPRIDA, PARCIAL e CUMPRIDA_PARCIAL (o valor pago
- *     das cumpridas mais o efetivamente pago das parciais);
- *   - na semana (sábado a sexta) do DIA DO PAGAMENTO estimado (ver "DATA DO
- *     PAGAMENTO" acima; v1.59.1 a v1.60.0 usavam a data da verificação). LIMITE
- *     CONHECIDO: verificar de novo uma parcial move o valor de semana;
- *   - o crédito é de quem CRIOU a promessa (`usuarioCriacao`, esquema
- *     "ISAAC.03876"), e não de quem verificou;
- *   - a busca traz as promessas com data prometida nos DIAS_RETROATIVOS antes
- *     do início da semana até o fim dela (quem verifica uma promessa muito
- *     antiga fica de fora: aumente DIAS_RETROATIVOS).
- * Depósitos seguem do consolidado (o usuário disse que só as promessas erravam).
+ * DATA DO PAGAMENTO (decisão do usuário): o CRM não guarda o dia do pagamento.
+ * A verificação é automática, de madrugada, no dia útil DEPOIS do pagamento
+ * (diagnóstico do usuário: 95% de um só verificador, 90% entre 0h e 7h). Então
+ * o pagamento é estimado como o DIA ÚTIL ANTERIOR à verificação (fim de semana
+ * e feriado pulados, calendário do Módulo 1): verificada na segunda, paga na
+ * sexta (semana ANTERIOR). Pagamento de sábado/domingo é estimado como sexta.
+ * A data da verificação sozinha NÃO decide a semana.
  *
- * DATA DO PAGAMENTO (v1.61.0, decisão do usuário em 29/09/2026): o CRM não guarda
- * o dia em que o cliente pagou; a verificação é automática, de madrugada (95% das
- * verificações vêm de um só verificador, 90% entre 0h e 7h -- diagnóstico do
- * usuário) e vem no dia útil DEPOIS do pagamento. Então o dia do pagamento é
- * estimado como o DIA ÚTIL ANTERIOR à data da verificação (fim de semana e
- * feriado pulados, pelo calendário do Módulo 1): verificada na terça, paga na
- * segunda; verificada na segunda, paga na sexta (semana ANTERIOR, sábado começa
- * a semana nova); verificada na terça depois de uma segunda de feriado, paga na
- * sexta. É uma estimativa: para pagamento de sábado ou domingo (raro na amostra)
- * ela erra pra sexta. As 5% de verificações manuais seguem a mesma regra.
- * Por isso a data da verificação sozinha NÃO decide mais a semana, e o painel
- * ganhou o botão "semana anterior": o que foi pago na sexta e verificado na
- * segunda pertence à semana passada.
- *
- * JANELA PARA A FRENTE (v1.60.0): a busca também olha DIAS_ADIANTE dias depois
- * da sexta. Uma promessa AGENDADA PARA A SEMANA QUE VEM e verificada (paga)
- * antes tem data prometida fora da semana; sem olhar pra frente ela nem era lida.
- *
- * PROMESSAS FEITAS HOJE (v1.60.0, pedido do usuário): bloco à parte, com a
- * quantidade e o valor PROMETIDO das promessas CRIADAS hoje (`dataCriacao` =
- * hoje), de qualquer status e para qualquer data prometida, no nome de quem
- * criou. É dinheiro prometido, não recuperado: NÃO entra no Total recuperado.
- * O valor prometido pode incluir juros e multa (como no CRM).
- *
- * Essa soma foi uma decisão explícita do usuário, revertendo a minha: eu
- * tinha me recusado a somar porque nada na resposta da API prova que as
- * duas sejam conjuntos disjuntos. Quem conhece o negócio definiu que são
- * origens distintas, então somar é o certo. As parcelas continuam na tela
- * para que dê pra conferir uma contra a outra -- se o total um dia parecer
- * alto demais, sobreposição é o primeiro suspeito, e ela NÃO é verificável
- * por este endpoint (ele devolve totais por usuário, não pagamento a
- * pagamento).
+ * PROMESSAS FEITAS HOJE: bloco à parte com quantidade e valor PROMETIDO das
+ * promessas CRIADAS hoje (`dataCriacao`), de qualquer status e data prometida,
+ * no nome de quem criou. É dinheiro prometido: NÃO entra no Total recuperado.
+ * O valor pode incluir juros e multa (como no CRM).
  *
  * ONDE COLAR: depois do Módulo 0 (usa semanaSabadoASexta, dataIso,
- * primeiroNomeDeUsuario e formatarMoeda de lá).
+ * primeiroNomeDeUsuario e formatarMoeda de lá). Usa o calendário do Módulo 1
+ * (`window.__avisoCobranca.feriados`) quando presente.
+ * Expõe: window.__recebidoSemana (ver o fim do arquivo).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -87,22 +55,16 @@
   const CONFIG_RECEBIDO = {
     ENDPOINT: '/api/crm/dashboard-consolidado',
     ID_PAINEL: 'smarttable-painel-recebido',
-    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM
-    // (z-50), que já nos custou um alerta invisível uma vez.
+    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
     Z_INDEX: 30,
     TIMEOUT_MS: 15000,
 
-    // Quem aparece no painel, pelo PRIMEIRO NOME (ver primeiroNomeDeUsuario
-    // no Módulo 0 e o porquê de ser o primeiro nome, e não o identificador
-    // inteiro). Minúsculas, sem acento -- é assim que a comparação é feita.
-    //
-    // Pra acompanhar outra pessoa: acrescente aqui. O painel desenha uma
-    // linha por nome desta lista, e quem não teve movimento na semana
-    // aparece com R$ 0,00 -- nunca some da tabela nem vira erro.
+    // Quem aparece no painel, pelo PRIMEIRO NOME (ver primeiroNomeDeUsuario no
+    // Módulo 0). Minúsculas, sem acento. Quem não teve movimento aparece com
+    // R$ 0,00: nunca some da tabela nem vira erro.
     PESSOAS: ['isaac', 'bianca'],
 
-    // As duas métricas, cada uma apontando pra sua seção e seu campo na
-    // resposta da API. Acrescentar uma métrica é uma entrada aqui.
+    // Cada métrica aponta para sua seção e seu campo na resposta da API.
     METRICAS: [
       {
         chave: 'depositos',
@@ -120,8 +82,7 @@
       },
     ],
 
-    // Lista de promessas do CRM (mesma da tela /crm/promessas; confirmada por
-    // diagnóstico do usuário em 29/09/2026).
+    // Lista de promessas do CRM (mesma da tela /crm/promessas; confirmado no CRM).
     PROMESSAS: {
       ENDPOINT: '/api/crm/promessas',
       TAMANHO_PAGINA: 1000,
@@ -147,10 +108,10 @@
     fundo: '#ffffff',
   };
 
-  // Relógio do painel (os testes trocam `agora` pra fixar o dia, senão o resultado dependeria do dia em que rodam).
+  // Os testes trocam `agora` para fixar o dia.
   const relogio = { agora: () => new Date() };
   let painelEl = null;
-  // true = mostrando a semana anterior (botão do painel); volta a false toda vez que o Alt+D abre do zero.
+  // true = semana anterior (botão do painel); volta a false quando o Alt+D abre do zero.
   let semanaAnterior = false;
 
   /** @returns {object|null} */
@@ -182,18 +143,10 @@
    * @throws {Error}
    */
   async function buscarJson(url) {
-
-    // AbortController em vez de confiar no timeout do navegador: sem isto, um
-    // backend lento deixa o painel em "Carregando..." pra sempre, e o
-    // operador não sabe se espera ou desiste.
-    //
-    // window.fetch / window.AbortController com o prefixo EXPLÍCITO, e não
-    // como identificador livre. No navegador dá no mesmo; fora dele, não:
-    // identificador livre resolve pro global do ambiente, e o teste acaba
-    // exercitando o fetch do Node (que recusa URL relativa) em vez do que a
-    // janela expõe. É a mesma armadilha que já mascarou bug de localStorage
-    // e de Blob neste projeto -- dependência explícita é o que a torna
-    // testável de verdade.
+    // AbortController: sem timeout, backend lento deixa o painel em
+    // "Carregando..." para sempre.
+    // window.fetch/window.AbortController com prefixo EXPLÍCITO: identificador
+    // livre resolve para o global do Node nos testes (que recusa URL relativa).
     const controle = new window.AbortController();
     const relogio = setTimeout(() => controle.abort(), CONFIG_RECEBIDO.TIMEOUT_MS);
 
@@ -230,7 +183,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * PROMESSAS CUMPRIDAS: pela data da verificação, no crédito de quem criou
+   * PROMESSAS CUMPRIDAS: pelo dia estimado do pagamento, no crédito de quem criou
    * --------------------------------------------------------------------- */
 
   /** AAAA-MM-DD -> Date ao meio-dia (a convenção de data do projeto). */
@@ -364,10 +317,8 @@
       const corpo = await buscarJson(url);
       if (!Array.isArray(corpo?.data)) throw new Error('A lista de promessas do CRM veio em formato inesperado.');
       itens.push(...corpo.data);
-      // Revisão geral (29/09/2026): com totalPages na resposta, só ele decide.
-      // Se a API limitasse o tamanho da página abaixo do pedido, "página
-      // curta" pareceria o fim da lista e as outras páginas se perderiam
-      // em silêncio (soma menor, sem aviso).
+      // Com totalPages na resposta, só ele decide: se a API limitasse a página
+      // abaixo do pedido, "página curta" pareceria o fim e perderia páginas em silêncio.
       const brutoTotal = corpo.pagination?.totalPages;
       const totalPaginas = brutoTotal === null || brutoTotal === '' ? NaN : Number(brutoTotal);
       completo = Number.isFinite(totalPaginas)
@@ -395,8 +346,7 @@
   /**
    * O valor de uma métrica para uma pessoa.
    *
-   * Pessoa sem movimento na semana simplesmente NÃO aparece em porUsuario --
-   * conferido ao vivo, as seções vêm com contagens diferentes (7, 5, 4, 6).
+   * Pessoa sem movimento NÃO aparece em porUsuario (confirmado no CRM).
    * Ausência é ZERO, nunca erro nem linha em branco.
    *
    * @param {object} dados O `data` da API.
@@ -419,8 +369,7 @@
   }
 
   /**
-   * Monta a tabela de números. Separado do DOM pra poder ser testado sem
-   * navegador -- é aqui que mora a única aritmética do módulo.
+   * Monta a tabela de números (aritmética do módulo, separada do DOM).
    *
    * @param {object} dados O `data` do consolidado.
    * @param {{porPessoa: object[], semValor?: number}|{erro: string}} [promessas] A apuração de
@@ -455,21 +404,8 @@
       };
     });
 
-    // TOTAL RECUPERADO = depósitos + promessas cumpridas.
-    //
-    // DECISÃO DO USUÁRIO, e ela reverte uma minha. A primeira versão deste
-    // módulo se recusava a somar as duas métricas, porque nada na resposta
-    // da API prova que elas sejam conjuntos disjuntos -- um pagamento
-    // contado duas vezes infla o número sem deixar rastro. O usuário, que é
-    // quem conhece o negócio, definiu que são origens diferentes: depósito
-    // é o recuperado por NEGOCIAÇÕES, promessa cumprida é o recuperado por
-    // PROMESSAS feitas na cobrança. Com isso, somar é o certo.
-    //
-    // O QUE CONTINUA VALENDO, se o número um dia parecer alto demais: este
-    // é o primeiro suspeito, e a sobreposição NÃO É VERIFICÁVEL por aqui --
-    // o endpoint devolve totais por usuário, não pagamento a pagamento. As
-    // duas parcelas continuam na tela, separadas, justamente pra que dê pra
-    // conferir uma contra a outra.
+    // TOTAL RECUPERADO = depósitos + promessas cumpridas (decisão do usuário:
+    // origens diferentes; sobreposição não é verificável, ver cabeçalho).
     const totalPorPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => ({
       nome,
       valor: metricas.reduce(
@@ -548,7 +484,6 @@
       color: CORES.tinta, fontWeight: '700', fontSize: '14px',
     });
     cabecalho.appendChild(titulo);
-    // v1.61.0: o que foi pago na sexta e verificado na segunda pertence à semana passada.
     const alternar = document.createElement('button');
     alternar.type = 'button';
     alternar.dataset.papel = 'alternar-semana';
@@ -579,7 +514,7 @@
     painelEl.appendChild(dica);
 
     document.body.appendChild(painelEl);
-    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe (v1.38.0).
+    // Fora do menu lateral do CRM, e acompanhando quando ele recolhe.
     window.__smartTableUtil?.acompanharMenuLateral?.(painelEl);
     return corpo;
   }
@@ -614,8 +549,7 @@
       const nome = criarDiv(pessoa.nome.charAt(0).toUpperCase() + pessoa.nome.slice(1), {
         color: CORES.texto,
       });
-      // Ausente na semana é ZERO, e a tela DIZ que é zero por ausência -- não
-      // deixa no ar se o número é zero ou se a busca falhou.
+      // A tela diz que é zero por ausência, não por busca que falhou.
       if (!pessoa.presente) {
         nome.textContent += ' (sem movimento)';
         nome.style.color = CORES.apagado;
@@ -648,9 +582,7 @@
   }
 
   /**
-   * O bloco do TOTAL RECUPERADO: depósitos + promessas cumpridas, por
-   * pessoa e no conjunto. Destacado, porque é o número que a pergunta
-   * original queria.
+   * O bloco do TOTAL RECUPERADO: depósitos + promessas cumpridas, por pessoa e no conjunto.
    *
    * @param {object} resumo Saída de montarResumo().
    * @returns {HTMLElement}
@@ -664,8 +596,7 @@
     bloco.appendChild(criarDiv('Total recuperado', {
       color: CORES.tinta, fontWeight: '700', fontSize: '13px',
     }));
-    // A composição fica escrita: quem olhar o total daqui a três meses
-    // sabe do que ele é feito sem precisar abrir o código.
+    // A composição fica escrita na tela.
     bloco.appendChild(criarDiv('depósitos + promessas cumpridas', {
       color: CORES.apagado, fontSize: '11px', marginBottom: '6px',
     }));
@@ -782,9 +713,7 @@
         buscarConsolidado(semana.inicioIso, semana.fimIso),
         buscarPromessasDaSemana(semana, relogio.agora()),
       ]);
-      // O painel pode ter sido fechado enquanto a resposta vinha. Sem esta
-      // guarda, escreveríamos num elemento já removido -- sem estourar, mas
-      // deixando o trabalho invisível e o código mentindo sobre o que fez.
+      // O painel pode ter sido fechado enquanto a resposta vinha.
       if (!painelEl || !corpo.isConnected) return;
       if (rDados.status === 'rejected') throw rDados.reason;
       let promessas;
@@ -814,8 +743,7 @@
     abrirPainel();
   }
 
-  // Registrado uma vez na carga, não por abertura -- esta aba fica aberta o
-  // dia inteiro e um listener por abertura vazaria a cada Alt+D.
+  // Registrado uma vez na carga: um listener por abertura vazaria a cada Alt+D.
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && painelEl) fecharPainel();
   });

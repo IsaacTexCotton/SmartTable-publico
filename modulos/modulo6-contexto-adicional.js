@@ -1,43 +1,33 @@
 /* =========================================================================
  * MÓDULO 6: CONTEXTO ADICIONAL (Promessas + Contato Recente) — CRM TexCotton
  * -------------------------------------------------------------------------
- * O que faz: ao entrar na página do cliente, lê as abas "Promessas" e
- * "Contatos" (que já vêm pré-carregadas no HTML, confirmado -- não precisa
- * abrir aba igual ao Módulo 5) e calcula:
+ * Ao entrar na página do cliente, lê as abas "Promessas" e "Contatos" (já
+ * pré-carregadas no HTML, confirmado; não precisa abrir aba como o Módulo 5)
+ * e calcula:
  *
- *   1. Se hoje é o dia combinado de alguma promessa de pagamento (status
- *      ainda "Pendente").
- *   2. Se alguma promessa já venceu (status "Pendente" vencida, "Quebrada"
- *      ou "Parcial" -- pro cliente dá na mesma: o pagamento combinado não
- *      foi identificado) E ainda não houve NENHUM contato registrado desde
- *      o vencimento. CONFIRMADO com o usuário: a mensagem é só no primeiro
- *      contato depois que a promessa vence -- não um dia específico (nem
- *      precisa ser dia útil), e sem limite de quantos dias já se passaram.
- *      Não repete em toda visita seguinte, só até o primeiro contato
- *      registrado depois do vencimento.
- *   3. Se o contato mais recente do cliente foi no último dia útil (e foi
- *      efetivo), pra permitir uma linha de "retomando o contato de ontem".
+ *   1. Hoje é o dia combinado de alguma promessa (status ainda "Pendente").
+ *   2. Alguma promessa venceu sem pagamento identificado ("Pendente" vencida,
+ *      "Quebrada" ou "Parcial") e NÃO houve nenhum contato desde o vencimento.
+ *      Confirmado: a mensagem é só no primeiro contato depois do vencimento,
+ *      sem exigir dia útil e sem limite de dias passados.
+ *   3. O contato mais recente foi efetivo e no último dia útil ("retomando o
+ *      contato de ontem").
  *
- * O resultado fica em window.__contextoAdicional, pronto pra ser consultado
- * pelo Alt+A (Módulo 4) sem precisar trocar de aba na hora do atalho.
+ * Expõe window.__contextoAdicional (lido pelo Alt+A, Módulo 4) e
+ * window.__contextoAdicionalDebug.
  *
- * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1 a 5.
- * Depende só de window.__avisoCobranca (Módulo 1) pra feriados e pra cruzar
- * títulos pendentes -- se ele não estiver carregado, degrada com avisos no
- * console em vez de quebrar.
+ * Carga: anexado ao FINAL do smart-table.js, depois dos módulos 1 a 5.
+ * Depende de window.__smartTableUtil (Módulo 0) e, para feriados e cruzar
+ * títulos pendentes, de window.__avisoCobranca (Módulo 1); sem o Módulo 1
+ * degrada com aviso no console.
  *
- * PREMISSAS AINDA NÃO CONFIRMADAS COM O USUÁRIO (documentadas de propósito,
- * revisar se o comportamento real divergir):
- *   - "Já houve contato desde o vencimento" conta QUALQUER contato
- *     registrado (efetivo ou não) com data posterior à data prometida --
- *     não só contato efetivo. Decisão: uma tentativa de contato já
- *     registrada é suficiente pra não repetir o lembrete, mesmo sem
- *     resposta do cliente. Revisar se o usuário preferir outro critério.
- *   - "Título pendente" no caso Parcial é calculado por cruzamento: título
- *     da promessa que já não aparece mais na lista de abertos do Módulo 1
- *     é considerado pago. Isso também classificaria como "pago" um título
- *     renegociado/cancelado por outro motivo -- risco aceito, não há como
- *     diferenciar com o dado disponível hoje.
+ * PREMISSAS NÃO CONFIRMADAS (revisar se o comportamento real divergir):
+ *   - "Já houve contato desde o vencimento" conta QUALQUER contato registrado
+ *     (efetivo ou não) posterior à data prometida.
+ *   - "Título pendente" no caso Parcial é por cruzamento: título da promessa
+ *     que sumiu da lista de abertos do Módulo 1 é considerado pago. Título
+ *     renegociado/cancelado também vira "pago" -- risco aceito, sem dado
+ *     para diferenciar.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -46,34 +36,17 @@
   window.__contextoAdicionalCarregado = true;
   window.__smartTableUtil?.registrarModuloCarregado?.('Contexto Adicional');
 
-  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
-  // deste arquivo no @require do wrapper.
+  // Módulo 0: precisa estar carregado ANTES deste arquivo no @require.
   const { normalizarData } = window.__smartTableUtil;
 
-  // Confirmação visual de que a versão certa carregou -- resposta direta pro
-  // problema de "o Tampermonkey atualizou mesmo?" que já causou confusão
-  // (o wrapper pode estar em @version novo enquanto os @require ainda estão
-  // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
-  // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
-  // de propósito, pra não repetir o toast em cada módulo carregado.
+  // MANTER SINCRONIZADO MANUALMENTE com @version em smart-table.user.js. O
+  // wrapper pode estar numa versão nova com os @require ainda em cache antigo;
+  // este toast confirma qual versão carregou. Só este módulo faz o aviso.
   const VERSAO_SMARTTABLE = '1.62.1';
 
-  // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
-  // mesma linha em que já seta sua própria flag de "já carreguei") -- este
-  // arquivo só LÊ o registro, não mantém uma lista própria dele.
-  //
-  // HISTÓRICO: até a v1.22.x este arquivo tinha uma cópia própria
-  // (FLAGS_DOS_MODULOS) das flags de todos os módulos, e ela ficou pra trás
-  // duas vezes na mesma sessão de manutenção (o Módulo 11 nunca entrou
-  // nela). Antes disso, o total também já tinha sido fixo no código ("7
-  // módulos"), e igualmente ficou pra trás. Os dois eram o mesmo problema:
-  // uma verdade sobre "quais módulos existem" copiada num arquivo que não
-  // tem nada a ver com o módulo novo sendo criado. Ver Módulo 0
-  // (MODULOS_ESPERADOS / registrarModuloCarregado) pro porquê disso não
-  // resolver 100% sozinho -- ainda precisa de um humano lembrando de
-  // chamar a função no módulo novo -- mas move o lugar certo de editar pra
-  // dentro do próprio arquivo do módulo, e avisa na hora se o nome não
-  // bater.
+  // Cada módulo se anuncia no Módulo 0 (registrarModuloCarregado); aqui só se
+  // LÊ o registro, sem lista própria de módulos (cópias locais já ficaram para
+  // trás). Ver MODULOS_ESPERADOS no Módulo 0.
   function avisarVersaoCarregada() {
     const u = window.__smartTableUtil;
     const carregados = u?.modulosCarregados?.() ?? [];
@@ -96,8 +69,7 @@
     el.textContent = `SmartTable v${VERSAO_SMARTTABLE} ✓`;
     Object.assign(el.style, {
       position: 'fixed',
-      // Abaixo do cabeçalho fixo do CRM e fora do menu lateral (v1.38.0):
-      // antes ficava a 16px do canto, por cima dos dois.
+      // Abaixo do cabeçalho fixo do CRM e fora do menu lateral.
       top: `${(window.__smartTableUtil?.alturaCabecalho?.() ?? 0) + 16}px`,
       left: '16px',
       background: '#16232F',
@@ -127,45 +99,30 @@
     SELETOR_ITEM_PROMESSA: '#content-promessas .promessa-item',
     SELETOR_ITEM_CONTATO: '#content-contatos .contato-item',
     STATUS_DIA_DA_PROMESSA: 'PENDENTE',
-    // Qualquer um destes remete a "não pagamento" pro cliente -- CONFIRMADO
-    // com o usuário que "Pendente" vencida entra junto de "Quebrada" e
-    // "Parcial" (o CRM às vezes não atualiza o status a tempo, mas o
-    // pagamento combinado segue sem ser identificado do mesmo jeito).
-    // "Cumprida"/"Cumprida Parcial" ficam de fora de propósito (resolvidas).
+    // Decisão do usuário: "Pendente" vencida entra junto de "Quebrada" e
+    // "Parcial" (o CRM às vezes não atualiza o status a tempo, mas o pagamento
+    // combinado segue sem ser identificado). "Cumprida"/"Cumprida Parcial"
+    // ficam de fora de propósito.
     STATUS_NAO_PAGAMENTO: ['PENDENTE', 'QUEBRADA', 'PARCIAL'],
-    // CONFIRMADO com o usuário: cliente com pelo menos um contato registrado,
-    // mas cujo contato mais recente é ANTERIOR a essa data (ou seja, todos
-    // os contatos são anteriores -- checar só o mais recente já cobre isso),
-    // recebe uma linha de apresentação extra na mensagem (ver contatoAntigo).
+    // Decisão do usuário: cliente com contatos, mas cujo mais recente é
+    // ANTERIOR a esta data, recebe linha de apresentação extra (contatoAntigo).
     DATA_CORTE_CONTATO_ANTIGO: { ano: 2026, mes: 8, dia: 10 }, // 10/08/2026
-    // Código do negociador dono desta carteira, no formato que o CRM grava
-    // em data-usuario de cada .contato-item (confirmado ao vivo:
-    // "ISAAC.03876", "BIANCA.03665"). Cliente já contatado por OUTRA pessoa
-    // mas nunca por este usuário recebe a linha de apresentação (ver
-    // nuncaContatadoPorMim) -- é o primeiro contato DELE com o cliente,
-    // mesmo que o cliente já conheça a empresa.
-    //
-    // Este valor é só o FALLBACK: o usuário logado é lido da própria página
-    // (ver lerUsuarioLogado) e só cai aqui se a leitura falhar. Serve também
-    // de referência pra avisar no console quando a sessão logada não é a de
-    // sempre.
-    //
-    // NÃO precisa ser trocado ao mudar de negociador: tanto a régua quanto o
-    // nome que aparece na mensagem ("Sou Isaac do financeiro...", ver
-    // nomeDoNegociador) saem do usuário logado de verdade.
+    // Código do negociador no formato de data-usuario de cada .contato-item
+    // (confirmado: "ISAAC.03876"). É só o FALLBACK: o usuário logado é lido
+    // da página (lerUsuarioLogado). Não precisa trocar ao mudar de negociador:
+    // a régua e o nome na mensagem saem do usuário logado de verdade.
     USUARIO_NEGOCIADOR: 'ISAAC.03876',
-    // Âncora do usuário logado no header do CRM -- confirmado ao vivo que
-    // existe tanto na lista quanto na página de cliente, e que tem id
-    // próprio (nada de classe Tailwind, que já nos traiu neste projeto).
+    // Âncora do usuário logado no header; confirmado que existe na lista e na
+    // página de cliente e tem id próprio (classe Tailwind já nos traiu).
     SELETOR_BOTAO_USUARIO: '#user-menu-btn',
     // Formato do código do usuário dentro desse botão ("ISAAC.03876").
     REGEX_CODIGO_USUARIO: /^[A-Za-zÀ-ÿ0-9_-]+\.\d+$/,
   };
 
   /* ---------------------------------------------------------------------
-   * 1. CALENDÁRIO -- reaproveita feriados do Módulo 1 (window.__avisoCobranca),
-   * mas precisa da direção "dia útil ANTERIOR", que não existe lá (Módulo 1
-   * só tem "a partir de"/"próximo", sempre pra frente no tempo).
+   * 1. CALENDÁRIO -- feriados vêm do Módulo 1 (window.__avisoCobranca), mas
+   * a direção "dia útil ANTERIOR" só existe aqui (o Módulo 1 só anda pra
+   * frente).
    * --------------------------------------------------------------------- */
   function chaveData(data) {
     const ano = data.getFullYear();
@@ -201,8 +158,7 @@
     return obterFeriadosDoAno(data.getFullYear()).indexOf(chaveData(data)) === -1;
   }
 
-  // Sempre estritamente ANTES da data informada -- direção nova que o
-  // Módulo 1 não tem (só anda pra frente no tempo).
+  // Sempre estritamente ANTES da data informada.
   function diaUtilAnterior(data) {
     let d = adicionarDias(data, -1);
     let guarda = 0;
@@ -214,13 +170,11 @@
   }
 
   /**
-   * PEDIDO DO USUÁRIO (28/09/2026): no primeiro dia útil depois de fim de
-   * semana e/ou feriado, o cliente pode ter pago nesses dias sem o
-   * pagamento aparecer ainda no CRM. O Alt+A acrescenta uma ressalva à
-   * frase final (ver obterRessalvaPagamentoEmDiaNaoUtil no Módulo 4).
-   *
-   * Feriado que cai no sábado/domingo conta como fim de semana. Sem o
-   * Módulo 1 (lista de feriados), só o fim de semana é reconhecido.
+   * No primeiro dia útil depois de fim de semana e/ou feriado, o cliente pode
+   * ter pago sem o pagamento aparecer ainda no CRM; o Alt+A acrescenta uma
+   * ressalva (ver obterRessalvaPagamentoEmDiaNaoUtil no Módulo 4).
+   * Feriado em sábado/domingo conta como fim de semana. Sem o Módulo 1, só o
+   * fim de semana é reconhecido.
    *
    * @param {Date} hoje
    * @returns {'no fim de semana'|'no feriado'|'no fim de semana ou no feriado'|null}
@@ -261,8 +215,8 @@
   }
 
   function converterDataBr(texto) {
-    // Aceita "26/08/2026" (promessa) ou "10/09/2026 16:08" (contato) --
-    // usa só a parte da data, ignora hora se vier.
+    // Aceita "26/08/2026" (promessa) ou "10/09/2026 16:08" (contato);
+    // usa só a data.
     const m = (texto || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
     if (!m) return null;
     const [, dia, mes, ano] = m;
@@ -273,9 +227,8 @@
    * 2. LEITURA: PROMESSAS
    * --------------------------------------------------------------------- */
   function lerTitulosDoItem(item) {
-    // Procura o container pelo texto do rótulo ("Títulos:"), não pela
-    // classe Tailwind -- mais resistente a mudança de estilo, mesmo
-    // princípio já usado nos módulos 4 e 5 pra achar elemento por texto.
+    // Acha o container pelo texto do rótulo ("Títulos:"), não pela classe
+    // Tailwind (mesmo princípio dos módulos 4 e 5).
     const containerTitulos = Array.from(item.querySelectorAll('div')).find((d) => {
       const rotulo = d.querySelector('span');
       return rotulo && rotulo.textContent.trim() === 'Títulos:';
@@ -284,18 +237,15 @@
     return Array.from(containerTitulos.querySelectorAll('span.bg-gray-100')).map((s) => s.textContent.trim());
   }
 
-  // `raiz` (v1.45.0): a página do cliente BAIXADA por fetch (Alt+U sem abrir
-  // aba) tem o mesmo HTML de Promessas/Contatos -- mesma leitura, outra raiz.
-  // Sem argumento, lê esta página, como sempre.
+  // `raiz`: a página do cliente baixada por fetch (Alt+U sem abrir aba) tem o
+  // mesmo HTML de Promessas/Contatos. Sem argumento, lê esta página.
   function lerPromessas(raiz = document) {
     const itens = raiz.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_PROMESSA);
     return Array.from(itens)
       .map((item) => {
-        // CONFIRMADO com outerHTML real: "data-status" não está no próprio
-        // ".promessa-item", está num filho (<div class="flex-1 cursor-pointer"
-        // data-status="PENDENTE" ...>). Ler item.dataset.status direto sempre
-        // dava vazio -- por isso a linha de promessa nunca aparecia, mesmo com
-        // data e títulos lidos certinho.
+        // Confirmado no HTML real: "data-status" está num filho
+        // (<div class="flex-1 cursor-pointer" data-status="PENDENTE">), não
+        // no ".promessa-item"; item.dataset.status direto dá vazio.
         const elementoComStatus = item.querySelector('[data-status]');
         const status = ((elementoComStatus && elementoComStatus.dataset.status) || '').toUpperCase();
         const spanData = item.querySelector('p.text-xs.text-gray-500 span');
@@ -313,12 +263,9 @@
   /* ---------------------------------------------------------------------
    * 3. LEITURA: CONTATO MAIS RECENTE
    * --------------------------------------------------------------------- */
-  // Varre TODOS os ".contato-item" e escolhe o de data mais recente, em vez
-  // de confiar que o primeiro do DOM já é o mais novo -- essa suposição não
-  // era confirmada (ver nota no cabeçalho do arquivo) e causava inconsistência
-  // real: clientes contatados em dias diferentes (ex.: quinta e sexta)
-  // acabavam recebendo a mesma linha "contato de ontem", porque o item
-  // pego não era de fato o contato mais recente de cada um.
+  // Varre TODOS os ".contato-item" e escolhe a data mais recente: a ordem do
+  // DOM não é confirmada, e assumir que o primeiro é o mais novo dava a mesma
+  // linha "contato de ontem" para clientes contatados em dias diferentes.
   function lerContatoMaisRecente(raiz = document) {
     const itens = raiz.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO);
     let maisRecente = null;
@@ -334,21 +281,18 @@
     return maisRecente;
   }
 
-  // Histórico completo (não só o mais recente) -- necessário pra saber se
-  // JÁ houve algum contato depois do vencimento de uma promessa, não só
-  // qual foi o último. Inclui contatos não efetivos de propósito (ver nota
-  // "PREMISSA AINDA NÃO CONFIRMADA" no cabeçalho do arquivo).
+  // Histórico completo, para saber se JÁ houve contato depois do vencimento.
+  // Inclui não efetivos de propósito (ver PREMISSAS no cabeçalho).
   function lerTodosContatos(raiz = document) {
     const itens = raiz.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO);
     return Array.from(itens)
       .map((item) => ({
         data: converterDataBr(item.dataset.data),
         efetivo: item.dataset.efetivo === 'true',
-        // Quem registrou o contato ("ISAAC.03876", "BIANCA.03665") --
-        // confirmado ao vivo no HTML real (data-usuario). Normalizado em
-        // maiúsculas igual ao status da promessa logo acima: se o CRM um dia
-        // mudar a caixa do código, a comparação com USUARIO_NEGOCIADOR
-        // falharia em silêncio e eu me apresentaria pra todo mundo.
+        // Quem registrou o contato (data-usuario, confirmado no HTML real).
+        // Em maiúsculas: se o CRM mudar a caixa, a comparação com
+        // USUARIO_NEGOCIADOR falharia em silêncio e o operador se apresentaria
+        // para todo mundo.
         usuario: (item.dataset.usuario || '').trim().toUpperCase(),
       }))
       .filter((c) => c.data);
@@ -366,24 +310,16 @@
   function calcularContextoPromessa(hoje, raiz = document, abertos) {
     const promessas = lerPromessas(raiz);
 
-    // BUG REAL (relatado pelo usuário): cliente cumpriu a promessa (título
-    // já tinha sumido da lista de abertos do Módulo 1, baixa lançada), mas
-    // a frase de agradecimento não apareceu -- porque o status da promessa
-    // no CRM ("Pendente") ainda não tinha sido atualizado pra "Cumprida"
-    // no instante da mensagem (o CRM não atualiza isso na hora). Essa
-    // promessa "tecnicamente pendente" continuava sendo tratada como ativa
-    // aqui, bloqueando obterLinhaAgradecimentoPagamento (Módulo 4) via
-    // ctx.promessa -- e pior, teria mostrado "hoje é o dia combinado" pra
-    // um título que JÁ foi pago. CORRIGIDO: cruza com os títulos ainda
-    // abertos de verdade (Módulo 1, mesma fonte que calcularTitulosPendentes
-    // já usa pro caso Parcial) antes de considerar qualquer promessa ativa
-    // -- confiar no status do CRM sozinho não é suficiente.
+    // O status da promessa no CRM ("Pendente") demora a virar "Cumprida"
+    // depois da baixa. Confiar só nele trataria como ativa uma promessa já
+    // paga: bloquearia o agradecimento (Módulo 4, via ctx.promessa) e diria
+    // "hoje é o dia combinado" para título pago. Por isso cruza com os títulos
+    // realmente abertos (Módulo 1).
     function temTituloAindaAberto(titulosDaPromessa) {
       return calcularTitulosPendentes(titulosDaPromessa, abertos).length > 0;
     }
 
-    // Prioridade 1: alguma promessa é justamente pra hoje (e ainda não foi
-    // resolvida antes da hora -- só faz sentido lembrar se ainda pendente).
+    // Prioridade 1: promessa para hoje, ainda pendente.
     const paraHoje = promessas.find(
       (p) =>
         mesmaData(hoje, p.dataPrometida) &&
@@ -392,28 +328,22 @@
     );
     if (paraHoje) return { tipo: 'DIA_DA_PROMESSA', promessa: paraHoje };
 
-    // Prioridade 2: alguma promessa já venceu (data prometida no passado) e
-    // continua sem pagamento identificado (Pendente vencida, Quebrada ou
-    // Parcial). CONFIRMADO com o usuário: não é "só no dia útil seguinte" --
-    // é "só no primeiro contato depois do vencimento", não importa quantos
-    // dias (úteis ou não) já se passaram. Por isso cobra se NENHUM contato
-    // foi registrado com data posterior ao vencimento; assim que o primeiro
-    // contato pós-vencimento é registrado, a mensagem para de aparecer nas
-    // visitas seguintes (mesmo que a promessa continue sem resolução no CRM).
+    // Prioridade 2: promessa vencida sem pagamento identificado. Confirmado:
+    // cobra só se NENHUM contato foi registrado depois do vencimento,
+    // independente de quantos dias (úteis ou não) passaram. Após o primeiro
+    // contato pós-vencimento a mensagem some, mesmo com a promessa sem
+    // resolução no CRM.
     const contatos = lerTodosContatos(raiz);
     const vencidasSemPagamento = promessas
       .filter(
         (p) =>
           CONFIG_CONTEXTO.STATUS_NAO_PAGAMENTO.indexOf(p.status) !== -1 &&
           p.dataPrometida.getTime() < hoje.getTime() &&
-          // Mesma correção do caso "paraHoje" acima: só considera ativa se
-          // sobrar pelo menos 1 título ainda aberto de verdade -- uma
-          // promessa QUEBRADA/PARCIAL com TODOS os títulos já pagos (CRM
-          // sem atualizar o status a tempo) está de fato resolvida.
+          // Promessa QUEBRADA/PARCIAL com TODOS os títulos já pagos está
+          // resolvida (CRM sem atualizar o status).
           temTituloAindaAberto(p.titulos)
       )
-      // Promessa mais antiga primeiro -- a que está esperando resposta há
-      // mais tempo é a mais relevante quando há mais de uma vencida.
+      // A mais antiga primeiro: espera resposta há mais tempo.
       .sort((a, b) => a.dataPrometida.getTime() - b.dataPrometida.getTime());
 
     for (const p of vencidasSemPagamento) {
@@ -421,9 +351,8 @@
         (c) => c.data.getTime() > p.dataPrometida.getTime()
       );
       if (!jaContatadoDepoisDoVencimento) {
-        // "Pendente" vencida usa a mesma frase de "Quebrada" -- pro cliente
-        // é a mesma situação (pagamento combinado não identificado), o CRM
-        // só não atualizou o status ainda.
+        // "Pendente" vencida usa a frase de "Quebrada": para o cliente é a
+        // mesma situação.
         const tipo = p.status === 'PARCIAL' ? 'PARCIAL' : 'QUEBRADA';
         return { tipo, promessa: p };
       }
@@ -432,12 +361,9 @@
     return null;
   }
 
-  // REVERTIDO (confirmado com o usuário): a tentativa de reconhecer
-  // recontato com intervalo maior que "ontem" (dia útil anterior) estava
-  // puxando datas velhas demais, sem relação com a cobrança atual --
-  // "retomando nosso contato de [data antiga]" ficava estranho e
-  // desconectado do que estava sendo cobrado agora. Volta a valer só
-  // quando o contato mais recente foi EXATAMENTE o dia útil anterior.
+  // Decisão do usuário: só vale quando o contato mais recente foi EXATAMENTE
+  // o dia útil anterior. Intervalo maior puxava datas velhas e desconectadas
+  // da cobrança atual ("retomando nosso contato de [data antiga]").
   function calcularContextoContato(hoje) {
     const contato = lerContatoMaisRecente();
     if (!contato || !contato.data || !contato.efetivo) return null;
@@ -451,20 +377,14 @@
 
     if (!mesmaData(contato.data, diaAnterior)) return null;
 
-    // "Ontem" só é literalmente verdade quando o dia útil anterior cai no
-    // dia de calendário anterior (terça a sexta, sem feriado no meio). Numa
-    // segunda-feira -- ou terça após feriado na segunda -- o dia útil
-    // anterior pula um fim de semana e "ontem" fica incorreto; nesses casos
-    // o Módulo 4 usa diaSemanaTexto (ex.: "sexta-feira") em vez de "ontem".
+    // "Ontem" só é literal quando o dia útil anterior é o dia de calendário
+    // anterior. Após fim de semana ou feriado o Módulo 4 usa diaSemanaTexto
+    // (ex.: "sexta-feira") em vez de "ontem".
     const ontemCalendario = adicionarDias(hoje, -1);
 
-    // MELHORIA (confirmada pelo usuário): se o contato de ontem (dia útil
-    // anterior) já foi, ele próprio, precedido por outro contato no dia
-    // útil anterior a ele -- ou seja, ontem já era um recontato -- o
-    // relatório provavelmente já tinha sido omitido ontem também (ver
-    // deveOmitirRelatorio no Módulo 4). Hoje não repete essa omissão por
-    // 2+ dias seguidos: volta a enviar o relatório atualizado, mesmo sem
-    // título novo.
+    // Decisão do usuário: se ontem já foi um recontato (havia contato no dia
+    // útil anterior a ele), o relatório provavelmente já foi omitido ontem
+    // (deveOmitirRelatorio, Módulo 4). Não omite 2+ dias seguidos.
     let recontatoConsecutivo = false;
     try {
       const diaAntesDoAnterior = diaUtilAnterior(diaAnterior);
@@ -482,9 +402,8 @@
     };
   }
 
-  // Cruza os títulos de uma promessa com os títulos que AINDA aparecem em
-  // aberto no Módulo 1 -- o que sumiu da lista, presumimos pago (ver
-  // ressalva no cabeçalho do arquivo sobre esse presumível).
+  // Cruza os títulos da promessa com os que AINDA estão em aberto no Módulo 1;
+  // o que sumiu presume-se pago (ver PREMISSAS no cabeçalho).
   function calcularTitulosPendentes(titulosDaPromessa, abertosInformados) {
     if (abertosInformados instanceof Set) return titulosDaPromessa.filter((t) => abertosInformados.has(t));
     if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') {
@@ -503,31 +422,23 @@
   /* ---------------------------------------------------------------------
    * 4b. DETECÇÃO DE PAGAMENTO SEM PROMESSA (retrato de títulos vencidos)
    * -----------------------------------------------------------------
-   * CONFIRMADO com o usuário: se um título sumiu da lista de vencidos
-   * desde a última vez que esta página foi aberta (bem provavelmente
-   * porque foi pago), o relatório deve continuar sendo enviado no
-   * recontato -- deveOmitirRelatorio (Módulo 4) só detectava título
-   * NOVO, não título que sumiu.
+   * Decisão do usuário: título que sumiu da lista de vencidos desde a última
+   * abertura da página (provavelmente pago) mantém o relatório no recontato;
+   * deveOmitirRelatorio (Módulo 4) só detectava título NOVO.
    *
-   * Não há como ler a coluna "Dt. pagamento" direto do CRM sem trocar o
-   * filtro visível da tabela de títulos pra "Pagos" (investigado com o
-   * usuário: a tabela é RECONSTRUÍDA por filtro, não é só esconder
-   * linhas -- mexer nisso trocaria o que está na tela do operador).
-   * Alternativa combinada com o usuário: guardamos no localStorage, por
-   * CNPJ, quais títulos estavam vencidos na última vez que a página foi
-   * aberta, e comparamos com a visita atual.
+   * A coluna "Dt. pagamento" não é lida do CRM: exigiria trocar o filtro
+   * visível da tabela para "Pagos", e a tabela é RECONSTRUÍDA por filtro
+   * (mudaria a tela do operador). Em vez disso, guarda-se no localStorage,
+   * por CNPJ, os títulos vencidos da última visita e compara-se com a atual.
    *
-   * RISCO ACEITO (avisado ao usuário): só funciona neste navegador/
-   * computador -- não sincroniza entre máquinas -- e é uma inferência (o
-   * título pode ter sumido por outro motivo, não só pagamento -- ex.:
-   * renegociação, baixa manual). Mas nunca gera informação financeira
-   * ERRADA: isso só decide SE o relatório é reenviado -- o conteúdo do
-   * relatório em si sempre é montado com os dados ao vivo da página no
-   * momento do envio, nunca a partir do retrato salvo.
+   * RISCO ACEITO: só funciona neste navegador (sem sincronia entre máquinas)
+   * e é inferência (renegociação ou baixa manual também fazem o título
+   * sumir). Não gera informação financeira errada: só decide SE o relatório é
+   * reenviado; o conteúdo vem sempre dos dados ao vivo, nunca do retrato.
    * --------------------------------------------------------------------- */
   const CHAVE_SNAPSHOT_TITULOS = 'smarttable_snapshot_titulos_v1';
-  // Entradas de clientes não revisitados há mais que isso são descartadas
-  // a cada gravação -- sem isso, o objeto no localStorage só cresce.
+  // Entradas de clientes não revisitados há mais que isso são descartadas a
+  // cada gravação, para o objeto no localStorage não crescer sem limite.
   const DIAS_EXPIRACAO_SNAPSHOT_TITULOS = 30;
 
   function obterCnpjDaPagina() {
@@ -557,14 +468,12 @@
     }
   }
 
-  // Compara com o retrato salvo da visita anterior (se houver) ANTES de
-  // sobrescrever com o retrato atual -- sempre roda as duas coisas juntas,
-  // nessa ordem. Aproveita a gravação pra descartar entradas antigas de
-  // outros clientes.
-  // Retorna { houve, titulos } -- titulos é a lista dos tituloCompleto que
-  // sumiram desde o retrato anterior (provavelmente pagos), pra dar pra
-  // agradecer o pagamento pelo número certo em vez de só um boolean genérico
-  // (ver obterLinhaAgradecimentoPagamento no Módulo 4).
+  // Compara com o retrato da visita anterior ANTES de sobrescrevê-lo com o
+  // atual (sempre as duas coisas juntas, nessa ordem) e aproveita para
+  // descartar entradas antigas.
+  // Retorna { houve, titulos }: titulos são os tituloCompleto que sumiram
+  // (provavelmente pagos), para agradecer pelo número certo (ver
+  // obterLinhaAgradecimentoPagamento no Módulo 4).
   function verificarESalvarSnapshotTitulos() {
     const cnpj = obterCnpjDaPagina();
     if (!cnpj) return { houve: false, titulos: [] };
@@ -580,11 +489,10 @@
     }
 
     const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
-    // BUG REAL (revisão geral, 29/09/2026): título que SAI da cobrança sem ser
-    // pago (entrou em acordo, virou CARTEIRA/NÃO COBRAR ou foi marcado "fora
-    // do relatório" no Alerta) também some de `registros`, e o Alt+A
-    // agradecia a "baixa" de um título que ninguém pagou. Só conta como
-    // sumido o que não está em NENHUMA lista da tabela.
+    // Título que SAI da cobrança sem ser pago (acordo, CARTEIRA/NÃO COBRAR,
+    // "fora do relatório") também some de `registros`; agradecer a "baixa"
+    // dele seria errado. Só conta como sumido o que não está em NENHUMA lista
+    // da tabela.
     const aindaNaTabela = new Set(
       [dados.registros, dados.emAcordo, dados.naoCobrar, dados.foraDoRelatorio]
         .flatMap((lista) => (Array.isArray(lista) ? lista : []))
@@ -598,28 +506,18 @@
         ? anterior.titulos.filter((t) => !aindaNaTabela.has(t))
         : [];
 
-    // BUG REAL (achado em revisão, com repro): a comparação é destrutiva --
-    // toda vez que a página CARREGA, o retrato é sobrescrito. Como o
-    // agradecimento de pagamento só é montado quando o operador aperta
-    // Alt+A, bastava um F5 (ou sair e voltar pra página do cliente) entre a
-    // detecção e a cobrança pra linha "Recebemos a baixa do título X,
-    // obrigado!" sumir pra sempre -- o segundo carregamento comparava contra
-    // o retrato já atualizado pelo primeiro e não via mais nada sumido.
-    //
-    // Correção: a detecção fica "grudada" no retrato pelo resto do DIA em
-    // que aconteceu, então recarregar a página quantas vezes for não apaga
-    // mais nada. Não precisa de limpeza explícita: o agradecimento só sai
-    // quando contatoRecente existe (último contato = dia útil anterior), e
-    // no instante em que o operador registra o contato de hoje o contato
-    // mais recente passa a ser HOJE, contatoRecente vira null e a linha sai
-    // de cena sozinha (ver obterLinhaAgradecimentoPagamento no Módulo 4).
+    // A comparação é destrutiva (o retrato é sobrescrito a cada carga) e o
+    // agradecimento só é montado no Alt+A. Sem persistência, um F5 entre a
+    // detecção e a cobrança apagaria a linha "Recebemos a baixa do título X".
+    // Por isso a detecção fica "grudada" no retrato pelo resto do DIA. Não
+    // precisa de limpeza: ao registrar o contato de hoje, contatoRecente vira
+    // null e a linha sai sozinha (ver obterLinhaAgradecimentoPagamento no
+    // Módulo 4).
     const hojeChave = chaveData(new Date());
 
-    // DIÁRIO (Módulo 8): registra só o que sumiu AGORA, nunca o acumulado do
-    // dia. A detecção fica grudada no retrato pelo resto do dia (ver acima),
-    // então gravar `titulosSumidos` aqui geraria um evento duplicado a cada
-    // recarregamento da página -- e o Alt+U visita cada cliente em aba de
-    // fundo, o que multiplicaria isso ainda mais.
+    // Diário (Módulo 8): registra só o que sumiu AGORA, nunca o acumulado do
+    // dia. Gravar `titulosSumidos` duplicaria o evento a cada recarga, e o
+    // Alt+U visita cada cliente em aba de fundo.
     if (sumidosAgora.length > 0 && window.__diario) {
       window.__diario.registrar('baixa', { c: cnpj, tt: sumidosAgora });
     }
@@ -641,9 +539,7 @@
     snapshotsLimpos[cnpj] = {
       titulos: titulosAtuais,
       salvoEm: agora,
-      // Campos novos e OPCIONAIS -- retrato gravado por uma versão anterior
-      // (só {titulos, salvoEm}) continua sendo lido sem erro, então não há
-      // quebra de formato salvo.
+      // OPCIONAIS: retrato antigo ({titulos, salvoEm}) continua legível.
       sumidos: titulosSumidos,
       sumidosEm: hojeChave,
     };
@@ -652,10 +548,8 @@
     return { houve: titulosSumidos.length > 0, titulos: titulosSumidos };
   }
 
-  // true quando há pelo menos um contato registrado, mas o mais recente
-  // deles é anterior à data de corte -- checar só o mais recente já cobre
-  // "todos são anteriores", já que por definição nenhum outro pode ser
-  // mais novo que ele.
+  // true quando há contato registrado e o mais recente é anterior à data de
+  // corte (checar só o mais recente cobre "todos são anteriores").
   function calcularContatoAntigo(totalContatos) {
     if (totalContatos === 0) return false;
     const maisRecente = lerContatoMaisRecente();
@@ -665,12 +559,10 @@
     return maisRecente.data.getTime() < dataCorte.getTime();
   }
 
-  // Lê o código do usuário LOGADO direto do header do CRM, em vez de
-  // confiar num valor fixo no código. Confirmado ao vivo: o botão
-  // #user-menu-btn existe na lista E na página de cliente, e contém um
-  // <div> folha com o código ("ISAAC.03876") -- só um elemento da página
-  // bate o padrão NOME.NUMERO, então não há ambiguidade.
-  // Devolve null se não achar (aí quem chama usa o fallback do CONFIG).
+  // Lê o código do usuário LOGADO do header do CRM. Confirmado: #user-menu-btn
+  // existe na lista e na página de cliente e contém um <div> folha com o
+  // código ("ISAAC.03876"); só um elemento bate o padrão NOME.NUMERO.
+  // Devolve null se não achar (quem chama usa o fallback do CONFIG).
   function lerUsuarioLogado() {
     const botao = document.querySelector(CONFIG_CONTEXTO.SELETOR_BOTAO_USUARIO);
     if (!botao) return null;
@@ -683,7 +575,7 @@
 
   /**
    * Primeiro nome do negociador a partir do código do CRM.
-   * CONFIRMADO com o usuário: a parte antes do ponto é o nome da pessoa
+   * Confirmado: a parte antes do ponto é o nome
    * ("ISAAC.03876" -> "Isaac", "BIANCA.03665" -> "Bianca").
    * @param {string|null|undefined} codigo Código no formato NOME.NUMERO.
    * @returns {string} Nome capitalizado, ou '' se o código não bater o formato.
@@ -696,21 +588,19 @@
     return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
   }
 
-  // Quem conta como "eu" na comparação com o data-usuario dos contatos:
-  // o usuário logado de verdade, com o valor do CONFIG como fallback só
-  // quando a leitura do header falha (ver lerUsuarioLogado).
-  //
-  // Avisa (uma vez por carga de página) quando os dois divergem -- não é
-  // erro (a régua E o nome na mensagem seguem o logado), mas é bom saber
-  // que a sessão não é a de sempre antes de sair mandando mensagem.
+  // Quem conta como "eu" na comparação com data-usuario: o usuário logado, com
+  // o CONFIG só como fallback se a leitura do header falhar.
+  // Avisa uma vez por carga quando o fallback é usado ou quando logado e
+  // configurado divergem (não é erro, mas o operador deve saber que a sessão
+  // não é a de sempre antes de enviar).
   let jaAvisouDivergenciaDeUsuario = false;
   let jaAvisouUsuarioIlegivel = false;
   function obterUsuarioNegociador() {
     const fixo = CONFIG_CONTEXTO.USUARIO_NEGOCIADOR.trim().toUpperCase();
     const logado = lerUsuarioLogado();
     if (!logado) {
-      // Antes caía no fallback calado: na máquina de outra pessoa, a
-      // mensagem sairia assinada com o nome do fallback sem ninguém saber.
+      // Não cair no fallback calado: na máquina de outra pessoa a mensagem
+      // sairia assinada com o nome do fallback sem ninguém saber.
       if (!jaAvisouUsuarioIlegivel) {
         jaAvisouUsuarioIlegivel = true;
         console.warn(
@@ -732,31 +622,25 @@
     return logado;
   }
 
-  // PEDIDO DO USUÁRIO: cliente que JÁ tem contato registrado, mas nenhum
-  // deles feito por ele (o usuário logado, ver obterUsuarioNegociador) -- do ponto de
-  // vista do cliente a empresa já falou com ele, mas do ponto de vista do
-  // negociador é o primeiro contato dele com aquele cliente, então cabe se
-  // apresentar. Cliente com ZERO contatos não entra aqui de propósito: esse
-  // caso já tem mensagem própria (ver semContatoAnterior), que também se
-  // apresenta -- contar os dois juntos duplicaria a apresentação.
-  //
-  // Convive com contatoAntigo (CONFIRMADO com o usuário: "as duas devem
-  // coexistir") -- são motivos diferentes pra mesma linha: aqui é "nunca
-  // falei com você", lá é "faz muito tempo que falei com você".
+  // Cliente COM contato registrado, mas nenhum feito pelo usuário logado: é o
+  // primeiro contato DELE, então cabe se apresentar. Cliente com ZERO contatos
+  // fica de fora de propósito: já tem mensagem própria (semContatoAnterior),
+  // que também se apresenta; contar os dois duplicaria a apresentação.
+  // Decisão do usuário: convive com contatoAntigo ("as duas devem coexistir");
+  // aqui é "nunca falei com você", lá é "faz muito tempo".
   function calcularNuncaContatadoPorMim(totalContatos) {
     if (totalContatos === 0) return false;
     const contatos = lerTodosContatos();
     if (contatos.length === 0) return false;
-    // Os dois lados normalizados em maiúsculas (ver lerTodosContatos).
+    // Os dois lados em maiúsculas (ver lerTodosContatos).
     const eu = obterUsuarioNegociador();
     return !contatos.some((c) => c.usuario === eu);
   }
 
-  // CONFIRMADO com o usuário (bug real): se existe uma promessa datada
-  // pro mesmo dia do último contato -- INDEPENDENTE do status atual dela
-  // (mesmo já paga/resolvida, então fora de calcularContextoPromessa) --
-  // é porque o cliente retornou naquele contato. "Retomando o contato de
-  // ontem, já que ainda não obtivemos retorno" fica errado nesse caso.
+  // Confirmado: promessa datada no mesmo dia do último contato, QUALQUER que
+  // seja o status atual (mesmo paga/resolvida, fora de calcularContextoPromessa),
+  // indica que o cliente retornou naquele contato; "retomando o contato de
+  // ontem, já que ainda não obtivemos retorno" ficaria errado.
   function houvePromessaNaDataDoUltimoContato(contatoRecente) {
     if (!contatoRecente || !contatoRecente.data) return false;
     const promessas = lerPromessas();
@@ -764,23 +648,11 @@
   }
 
   /**
-   * Contexto "neutro": mesma forma que calcularContexto() devolve, com todas
-   * as regras desligadas. Usado quando não dá pra calcular (erro, ou página
-   * sem as abas de Promessas/Contatos).
-   *
-   * CORRIGIDO (achado de revisão): este objeto era um literal DUPLICADO em
-   * dois pontos do arquivo. Quem acrescentasse um campo novo ao contexto
-   * tinha que lembrar de editar os dois -- esquecer um não quebra teste
-   * nenhum, só faz o Módulo 4 receber `undefined` naquele campo e mudar de
-   * comportamento em silêncio, justamente no caminho de fallback (o menos
-   * testado). Agora existe um lugar só.
-   *
-   * @returns {object} Contexto neutro, com o nome do usuário logado (o
-   *   header do CRM existe em toda página) e o CONFIG só se ele não for lido.
-   *
-   * CORRIGIDO (revisão geral, 29/09/2026): assinava sempre com o nome do
-   * CONFIG. Na máquina de outro operador, uma falha no cálculo ou a espera
-   * de 5 s estourada faziam a mensagem sair com o nome errado, sem aviso.
+   * Nome do negociador sem lançar: usa o logado e só cai no CONFIG se a
+   * leitura falhar. Assinar sempre com o CONFIG faria a mensagem sair com o
+   * nome errado na máquina de outro operador (falha no cálculo ou espera de
+   * 5 s estourada).
+   * @returns {string}
    */
   function nomeDoNegociadorSemFalhar() {
     try {
@@ -791,6 +663,14 @@
     }
   }
 
+  /**
+   * Contexto "neutro": mesma forma de calcularContexto(), com todas as regras
+   * desligadas. Usado quando não dá pra calcular (erro, ou página sem as abas).
+   * Único literal do fallback: campo novo se acrescenta aqui e em
+   * calcularContexto(); esquecer aqui faz o Módulo 4 receber `undefined` no
+   * caminho de fallback, sem teste que pegue.
+   * @returns {object}
+   */
   function contextoVazio() {
     return {
       promessa: null,
@@ -822,8 +702,7 @@
       contatoAntigo: calcularContatoAntigo(totalContatos),
       nuncaContatadoPorMim: calcularNuncaContatadoPorMim(totalContatos),
       periodoNaoUtilAntesDeHoje: periodoNaoUtilAntesDe(hoje),
-      // Primeiro nome de quem está logado, pra mensagem do Alt+A se
-      // apresentar com o nome certo em vez de um nome fixo no código.
+      // Nome de quem está logado, pra mensagem do Alt+A se apresentar certo.
       nomeNegociador: nomeDoNegociador(obterUsuarioNegociador()),
       calcularTitulosPendentes,
     };
@@ -834,10 +713,9 @@
    * --------------------------------------------------------------------- */
   /**
    * O que o log do contexto pode mostrar: tipos, sim/não e contagens.
-   * LISTA FECHADA de propósito (revisão geral, 29/09/2026): o log espalhava
-   * o contexto inteiro (`...ctx`) e, com promessa, saíam os números dos
-   * títulos e as datas prometidas. Campo novo no contexto só aparece aqui
-   * se alguém o puser nesta lista.
+   * LISTA FECHADA de propósito (privacidade): nunca espalhar `...ctx`, que
+   * vazaria números de títulos e datas prometidas. Campo novo só aparece
+   * aqui se alguém o puser na lista.
    * @param {object|null|undefined} ctx Contexto calculado.
    * @returns {object} Resumo sem dado de cliente.
    */
@@ -869,10 +747,8 @@
   }
 
   function aguardarConteudoEExecutar() {
-    // Confirmado com o usuário: Promessas/Contatos já vêm pré-carregados no
-    // HTML (diferente do Grupo, no Módulo 5) -- na maioria das vezes isso já
-    // resolve na primeira checagem. O observer é só rede de segurança pro
-    // instante inicial de carregamento da página.
+    // Confirmado: Promessas/Contatos já vêm pré-carregados no HTML (diferente
+    // do Grupo, no Módulo 5). O observer é só rede de segurança.
     if (document.getElementById('content-promessas') && document.getElementById('content-contatos')) {
       montarEExpor();
       return;
@@ -903,22 +779,17 @@
     aguardarConteudoEExecutar();
   }
 
-  // Hooks de depuração (mesmo padrão do window.filaDebug no Módulo 3 e do
-  // window.__avisoCobranca no Módulo 1). Rodar no console, na página do
-  // cliente, pra diagnosticar sem precisar copiar HTML manualmente:
+  // Hooks de depuração (mesmo padrão de window.filaDebug no Módulo 3 e de
+  // window.__avisoCobranca no Módulo 1). Rodar no console da página do cliente:
   //   window.__contextoAdicionalDebug.lerPromessas()
-  //     -> mostra o que foi de fato extraído de cada .promessa-item (status,
-  //        data lida, títulos). Array vazio ou dataPrometida:null aqui
-  //        indica que os seletores (baseados em classes Tailwind nunca
-  //        confirmadas com HTML real) não bateram com a estrutura da
-  //        página -- não é problema de data/status, é de leitura do DOM.
+  //     -> status, data e títulos extraídos de cada .promessa-item. Array
+  //        vazio ou dataPrometida:null = seletor não bateu com o DOM.
   //   window.__contextoAdicionalDebug.calcularContextoPromessa(new Date())
-  //     -> roda a decisão final (DIA_DA_PROMESSA / QUEBRADA / PARCIAL / null)
-  //        com a data de agora, sem esperar o carregamento da página.
+  //     -> decisão final (DIA_DA_PROMESSA / QUEBRADA / PARCIAL / null).
   /**
-   * O que a fila por prioridade (Módulo 7) lê de uma aba de cliente, a
-   * partir da página BAIXADA (v1.45.0, Alt+U sem abrir aba). Mesmas funções
-   * da tela, com a página baixada como raiz e os títulos em aberto DELA.
+   * O que a fila por prioridade (Módulo 7) lê de uma aba de cliente, a partir
+   * da página BAIXADA (Alt+U sem abrir aba): mesmas funções da tela, com a
+   * página baixada como raiz e os títulos em aberto DELA.
    *
    * @param {Document} raiz página do cliente (DOMParser)
    * @param {object[]} registrosAbertos registros do Módulo 1 daquela página

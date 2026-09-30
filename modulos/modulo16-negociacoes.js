@@ -1,31 +1,29 @@
 /* =========================================================================
- * MÓDULO 16: NEGOCIAÇÕES (títulos em acordo) — CRM TexCotton
- * -------------------------------------------------------------------------
- * PEDIDO DO USUÁRIO (v1.41.0): identificar títulos que estão num acordo, pra
- * não cobrar como vencido comum o que o cliente já negociou. Os títulos
- * originais continuam abertos na tabela até o dia seguinte à confirmação
- * do pagamento -- durante TODO o acordo eles apareciam como vencidos.
+ * MÓDULO 16: NEGOCIAÇÕES (títulos em acordo) -- CRM TexCotton
+ * Identifica títulos que estão num acordo, pra não cobrar como vencido
+ * comum o que o cliente já negociou (os originais seguem abertos na tabela
+ * até o dia seguinte à confirmação do pagamento).
  *
- * FONTE (confirmada ao vivo pelo usuário, 24/09/2026 -- nada deduzido):
- *   - A lista de negociações do cliente JÁ VEM na página (aba Negociações,
- *     pré-carregada como Promessas/Contatos): cada linha tem um botão
- *     onclick="abrirModalStatusNeg(ID, 'STATUS', valor)".
- *   - O detalhe de cada uma vem de GET /api/crm/negociacoes/{id} (a mesma
- *     chamada que o "Ver detalhes" do CRM faz): { success, data: { status,
- *     titulos: [{ duplicata: '925585-1', ... }], parcelas: [{ numeroParcela,
- *     valor, dataVencimento, status, vencida, valorPago }], dataCriacao,
- *     saldoRestante, ... } }. Fixture: tests/fixtures/negociacao-detalhes-ativa.html.
+ * FONTE (confirmada ao vivo, nada deduzido):
+ *   - A lista de negociações já vem na página (aba Negociações): cada linha
+ *     tem onclick="abrirModalStatusNeg(ID, 'STATUS', valor)".
+ *   - Detalhe: GET /api/crm/negociacoes/{id} -> { success, data: { status,
+ *     titulos: [{ duplicata: '925585-1' }], parcelas: [{ numeroParcela, valor,
+ *     dataVencimento, status, vencida, valorPago }], dataCriacao,
+ *     saldoRestante } }. Fixture: tests/fixtures/negociacao-detalhes-ativa.html.
  *
- * REGRA (decisões do usuário):
- *   - ATIVA (aceita, em andamento) e CONCLUIDA (paga, aguardando a baixa do
- *     dia seguinte): os títulos do acordo NÃO são cobrados -- saem do
- *     relatório (Módulo 1) e da mensagem (Módulo 4). ATIVA: a mensagem só
- *     relembra a parcela; parcela atrasada é cobrada.
+ * REGRA (decisão do usuário):
+ *   - ATIVA e CONCLUIDA (paga, aguardando a baixa do dia seguinte): títulos
+ *     NÃO são cobrados -- saem do relatório (Módulo 1) e da mensagem
+ *     (Módulo 4). ATIVA: a mensagem relembra a parcela; parcela atrasada é
+ *     cobrada.
  *   - INADIMPLENTE: títulos cobrados normalmente + menção ao acordo.
  *   - PROPOSTA_ENVIADA / CANCELADA: ignoradas (cobrança normal).
+ * Só consulta a API pros status que mudam algo; cliente sem acordo não faz
+ * requisição.
  *
- * Só consulta a API pros status que mudam algo (ATIVA, CONCLUIDA,
- * INADIMPLENTE) -- cliente sem acordo, a maioria, não faz requisição.
+ * Expõe window.__negociacoes (objeto no fim). Usa o Módulo 0
+ * (window.__smartTableUtil).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -41,16 +39,14 @@
     STATUS_CONSULTADOS: ['ATIVA', 'CONCLUIDA', 'INADIMPLENTE'],
     // Títulos destes acordos não são cobrados.
     STATUS_PROTEGEM: ['ATIVA', 'CONCLUIDA'],
-    // Status de PARCELA confirmados pelo diagnóstico da API (24/09/2026,
-    // acordos ATIVA e CONCLUIDA): "PENDENTE" e "PAGO" -- a tela de detalhes
-    // mostra "Paga", mas a API manda PAGO. Lista fechada de propósito:
-    // "contém PAG" pegaria AGUARDANDO_PAGAMENTO como paga. Status fora das
-    // duas listas conta como PENDENTE (lembra/cobra, nunca some em silêncio)
-    // e gera aviso pra conferir.
+    // Status de PARCELA confirmados na API: "PENDENTE" e "PAGO" (a tela mostra
+    // "Paga"). Lista fechada: "contém PAG" pegaria AGUARDANDO_PAGAMENTO.
+    // Status fora das listas conta como PENDENTE (nunca some em silêncio) e
+    // gera aviso.
     STATUS_PARCELA_PAGA: ['PAGO'],
     STATUS_PARCELA_PENDENTE: ['PENDENTE'],
     TIMEOUT_REQUISICAO_MS: 5000,
-    // Teto que Alt+A / Alt+R / Alt+U esperam a leitura terminar.
+    // Teto que Alt+A / Alt+R / Alt+U esperam a leitura.
     TIMEOUT_AGUARDAR_MS: 6000,
     SELETOR_LINHAS_TITULOS: '#tabela-titulos-ds tbody tr',
   };
@@ -96,8 +92,7 @@
 
   /**
    * Parcela atrasada: a API diz que venceu OU a data já passou. Só o
-   * "vencida" da API não basta -- com ele atrasado, a frase A sairia
-   * "com vencimento em [data passada]. Posso contar com o pagamento na data?".
+   * "vencida" não basta: a frase A sairia com data passada.
    */
   function parcelaAtrasada(p) {
     return p.vencida || (p.dataVencimento !== '' && p.dataVencimento < hojeIso());
@@ -106,9 +101,10 @@
   /* ---------------------------------------------------------------------
    * 2. LEITURA
    * --------------------------------------------------------------------- */
-  /** As negociações listadas na página: [{ id, status }]. */
-  // `raiz` (v1.45.0): a página de OUTRO cliente baixada por fetch (Alt+U
-  // sem abrir aba). Sem argumento, esta página.
+  /**
+   * As negociações listadas na página: [{ id, status }]. `raiz`: a página de
+   * OUTRO cliente baixada por fetch (Alt+U); sem argumento, esta página.
+   */
   function lerListaDaPagina(raiz = document) {
     const vistos = new Set();
     const lista = [];
@@ -122,9 +118,9 @@
   }
 
   /**
-   * Valida e reduz a resposta da API ao que a cobrança usa. Qualquer coisa
-   * fora do formato confirmado vira null (e erro visível) -- nunca um acordo
-   * "meio lido" que marcaria os títulos errados.
+   * Valida e reduz a resposta da API ao que a cobrança usa. Fora do formato
+   * confirmado vira null (erro visível) -- falha fechada, nunca um acordo
+   * "meio lido" que marcaria títulos errados.
    */
   function interpretarDetalhe(json, idEsperado) {
     const d = json?.data;
@@ -156,8 +152,8 @@
     const controle = typeof window.AbortController === 'function' ? new window.AbortController() : null;
     const limite = setTimeout(() => controle?.abort(), CONFIG_NEGOCIACOES.TIMEOUT_REQUISICAO_MS);
     try {
-      // window.fetch explícito: mesma razão do Módulo 10 (fora do navegador o
-      // identificador livre cai no fetch do ambiente, não no da janela).
+      // window.fetch explícito: mesma razão do Módulo 10 (nos testes o
+      // identificador livre é o fetch do ambiente, não o da janela).
       const r = await window.fetch(CONFIG_NEGOCIACOES.URL_DETALHE(id), {
         headers: { Accept: 'application/json' },
         credentials: 'same-origin',
@@ -173,8 +169,8 @@
   }
 
   /**
-   * Busca e valida o detalhe de cada negociação que muda a cobrança. Mesma
-   * leitura pra esta página (carregar) e pra uma página baixada.
+   * Busca e valida o detalhe de cada negociação que muda a cobrança. Serve
+   * a esta página e a uma página baixada.
    * @returns {Promise<{acordos: object[], erros: number[], statusDesconhecidos: {id: number, status: string}[]}>}
    */
   async function lerAcordos(raiz = document) {
@@ -210,8 +206,7 @@
 
   /**
    * O que o operador precisa conferir antes de cobrar, ou null. Sai ao abrir
-   * a página E de novo no Alt+A (o aviso da abertura some em segundos, e o
-   * Alt+A pode vir bem depois).
+   * a página e de novo no Alt+A (o toast da abertura some logo).
    */
   function avisoPendente() {
     const partes = [];
@@ -263,10 +258,9 @@
    *   ativa: o acordo ATIVA mais urgente (parcela atrasada primeiro; senão
    *   a próxima a vencer). Acordo ATIVA sem parcela pendente não conta.
    *   inadimplente: o acordo INADIMPLENTE mais recente com algum título entre
-   *   os `registros` cobrados AGORA. A aba traz o histórico inteiro: sem
-   *   esse filtro, um acordo quebrado em março (títulos já pagos) ou um
-   *   título renegociado num acordo novo faria a mensagem dizer "os títulos
-   *   voltaram para a cobrança" sem ser verdade.
+   *   os `registros` cobrados AGORA. A aba traz o histórico inteiro: sem o
+   *   filtro, acordo antigo (títulos já pagos) ou título renegociado faria a
+   *   mensagem dizer "voltaram para a cobrança" sem ser verdade.
    * @param {Array<{tituloCompleto: string}>} [registros] títulos cobrados agora (Módulo 1)
    */
   function resumoDeCobranca(registros = []) {
@@ -291,8 +285,7 @@
 
   /**
    * Os acordos de OUTRO cliente, a partir da página dele baixada por fetch
-   * (v1.45.0, Alt+U sem abrir aba) -- mesma lista, mesma API, mesma
-   * validação e mesmas consultas desta página.
+   * (Alt+U): mesma lista, API, validação e consultas desta página.
    * @param {Document} raiz
    */
   async function acordosDaPaginaBaixada(raiz) {
@@ -318,8 +311,8 @@
   const ROTULOS_STATUS = { ATIVA: 'ativa', CONCLUIDA: 'quitado', INADIMPLENTE: 'inadimplente' };
 
   function chaveDaLinha(tr) {
-    // CONFIRMADO no HTML real: o data-key fica no checkbox da linha, não no
-    // <tr>: <input class="titulo-check" data-key="915950-2-a-0"> -- número-parcela-...
+    // Confirmado no HTML real: o data-key fica no checkbox, não no <tr>:
+    // <input class="titulo-check" data-key="915950-2-a-0"> (número-parcela-...).
     const chave = tr.querySelector('input.titulo-check[data-key]')?.dataset.key || '';
     return chaveDoTitulo(/^(\d+-\d+)/.exec(chave)?.[1]);
   }
@@ -331,11 +324,9 @@
     return i >= 0 ? i : 0;
   }
 
-  // O selo NÃO pode ser texto dentro da célula: o Módulo 1 lê o
-  // textContent da coluna "Título" pra montar o número do título
-  // ("925585/1") -- um <span> ali viraria "925585🤝 Acordo #1947/1" no
-  // relatório e na busca do acordo. Por isso o selo é CSS (::after lê um
-  // atributo): aparece na tela e fica fora do textContent.
+  // O selo NÃO pode ser texto na célula: o Módulo 1 lê o textContent da
+  // coluna "Título" pra montar o número ("925585/1"). Por isso é CSS
+  // (::after lê um atributo): aparece na tela e fica fora do textContent.
   const ATRIBUTO_SELO = 'data-smarttable-acordo';
   const ATRIBUTO_TIPO = 'data-smarttable-acordo-tipo';
 
@@ -362,8 +353,8 @@
     linhas.forEach((tr) => {
       const chave = chaveDaLinha(tr);
       if (!chave) return;
-      // Acordo que protege vence o inadimplente: na renegociação o título
-      // está nos dois, e o selo tem que contar o que a cobrança faz com ele.
+      // Acordo que protege vence o inadimplente (renegociação: o título está
+      // nos dois); o selo tem que refletir o que a cobrança faz.
       const acordo = acordoQueProtege(chave) ?? estado.acordos.find((a) => a.titulos.includes(chave));
       const celula = tr.querySelectorAll('td')[coluna];
       if (!acordo || !celula || celula.hasAttribute(ATRIBUTO_SELO)) return;
@@ -377,10 +368,9 @@
   }
 
   function vigiarTabela() {
-    // A SmartTable do CRM redesenha as linhas ao ordenar/filtrar -- o selo
-    // volta. Vigia o contêiner (subtree), não o tbody: se o tbody inteiro
-    // for trocado, um observador preso ao antigo ficaria surdo. Marcar só
-    // mexe em atributo, então não realimenta este observador (childList).
+    // O CRM redesenha as linhas ao ordenar/filtrar. Vigia o contêiner
+    // (subtree), não o tbody: trocado o tbody, o observador ficaria surdo.
+    // Marcar só mexe em atributo, então não realimenta o observador.
     const tabela = document.getElementById('tabela-titulos-ds');
     if (!tabela) return;
     new MutationObserver(() => { if (estado.pronto) marcarTitulosNaTabela(); }).observe(tabela, { childList: true, subtree: true });

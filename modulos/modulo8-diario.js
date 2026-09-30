@@ -1,46 +1,35 @@
 /* =========================================================================
  * MÓDULO 8: DIÁRIO DE COBRANÇA — CRM TexCotton
  * -------------------------------------------------------------------------
- * Registra o que aconteceu, pra permitir responder uma pergunta que hoje
- * ninguém consegue responder: a régua de prioridade do Alt+U funciona?
+ * Registra o que aconteceu na cobrança e expõe diagnósticos censurados.
  *
- * O QUE ELE GRAVA (três tipos de evento):
- *   - 'fila'    : um por candidato, a cada rodada do Alt+U. Guarda a faixa
- *                 calculada e a POSIÇÃO final na fila.
- *   - 'contato' : quando a cobrança REALMENTE saiu (Módulo 3 confirma que o
- *                 WhatsApp abriu), com a hora -- é ela que diz se ser chamado
- *                 cedo muda alguma coisa.
- *   - 'baixa'   : quando o Módulo 6 detecta título que sumiu da lista.
+ * Eventos gravados (window.__diario.registrar / registrarLote):
+ *   - 'fila'    : um por candidato a cada rodada do Alt+U (faixa e POSIÇÃO).
+ *   - 'contato' : cobrança que REALMENTE saiu (Módulo 3 confirma a abertura
+ *                 do WhatsApp), com a hora.
+ *   - 'baixa'   : título que sumiu da lista (Módulo 6).
+ * Expõe: window.__diario, window.__diag (diagnósticos censurados) e
+ * window.__conferir (autoconferência).
  *
- * O QUE ELE NÃO É: não é prova de causa. Ver a seção "LIMITES" no fim deste
- * cabeçalho -- está lá de propósito, pra ninguém ler o relatório como se
- * fosse mais do que é.
+ * Instrumentação em cima de ferramenta em produção: NADA aqui pode derrubar o
+ * fluxo. Toda gravação é try/catch; falha vira aviso no console.
  *
- * SEGURANÇA: isto é instrumentação em cima de uma ferramenta de cobrança em
- * produção. NADA aqui pode derrubar o fluxo -- toda gravação é try/catch, e
- * falha vira aviso no console, nunca exceção que suba pro chamador.
- *
- * ARMAZENAMENTO: uma chave de localStorage POR DIA
- * ("smarttable_diario_v1_20260917"). Com ~290 eventos/dia, um array único
- * exigiria JSON.parse + stringify de megabytes A CADA evento -- inviável
- * durante uma rodada de Alt+U que grava 150 de uma vez. Por dia, cada blob
- * fica na casa das dezenas de KB. Limpeza é apagar chave antiga, sem
- * reescrever nada.
+ * Armazenamento: uma chave de localStorage POR DIA ("smarttable_diario_v1_
+ * AAAAMMDD"). Um array único exigiria parse + stringify de megabytes a cada
+ * evento, inviável numa rodada do Alt+U que grava ~150 de uma vez. Limpeza é
+ * apagar chave antiga.
  *
  * Onde colar: logo depois do Módulo 0 -- os módulos 3, 6 e 7 dependem dele.
  *
  * LIMITES (ler antes de tirar conclusão):
- *   1. "Pagou" é INFERÊNCIA. O que o sistema vê é título que sumiu da lista
- *      de vencidos. Renegociação, baixa manual e mudança pra NÃO COBRAR
- *      produzem o mesmo sinal.
- *   2. Comparar faixa 3 com faixa 9 NÃO diz se a régua é boa. As faixas
- *      contêm clientes diferentes por construção (dias de atraso, SCPC,
- *      promessa). Quem está 2 dias atrasado paga mais que quem está 30 em
- *      qualquer ordem. O diário mede COBERTURA (quem é chamado, quem nunca
- *      é), não o efeito da ORDEM. O grupo de controle, que mediria isso
- *      sorteando posições, foi REMOVIDO a pedido do usuário (28/09/2026).
- *   3. Cada negociador tem seu próprio localStorage. Os dados não se juntam
- *      sozinhos -- use exportar() nos dois e junte fora.
+ *   1. "Pagou" é INFERÊNCIA: título que sumiu da lista. Renegociação, baixa
+ *      manual e mudança pra NÃO COBRAR produzem o mesmo sinal.
+ *   2. Comparar faixas NÃO diz se a régua é boa: elas contêm clientes
+ *      diferentes por construção. O diário mede COBERTURA, não o efeito da
+ *      ORDEM. O grupo de controle (posições sorteadas) foi removido por
+ *      decisão do usuário.
+ *   3. Cada negociador tem seu localStorage. Use exportar() em cada máquina
+ *      e junte fora.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -51,16 +40,13 @@
 
   const CONFIG_DIARIO = {
     PREFIXO_CHAVE: 'smarttable_diario_v1_',
-    // Quantos dias de evento cru manter. Com ~290 eventos/dia a ~90 bytes,
-    // 120 dias ficam perto de 3 MB -- dentro do orçamento típico de 5 MB do
-    // localStorage, já contando o que os Módulos 3 e 6 guardam.
+    // Dias de evento cru. ~290 eventos/dia a ~90 bytes: 120 dias ~ 3 MB, dentro
+    // dos 5 MB típicos do localStorage, contando o que os Módulos 3 e 6 guardam.
     DIAS_RETENCAO: 120,
     // A partir daqui, avisa no console pra exportar e limpar.
     LIMITE_AVISO_BYTES: 3_500_000,
-    // Maior número de faixa SE o Módulo 7 não estiver carregado. Com ele, o
-    // limite vem da própria régua (faixaMaxima) -- na régua v3 (28/09) as
-    // faixas foram de 12 pra 15 e um número fixo aqui acusaria as novas
-    // como "faixa inválida" na autoconferência.
+    // Maior faixa SE o Módulo 7 não estiver carregado. Com ele, o limite vem da
+    // própria régua (faixaMaxima): um número fixo acusaria faixas novas como inválidas.
     FAIXA_MAXIMA: 15,
   };
 
@@ -122,8 +108,7 @@
       localStorage.setItem(nomeDaChave(diaNumerico), JSON.stringify(eventos));
       return true;
     } catch (erro) {
-      // Cota estourada é o caso esperado aqui. Não pode derrubar a cobrança:
-      // avisa, sugere o caminho de saída e segue.
+      // Cota estourada é o caso esperado. Não pode derrubar a cobrança.
       console.warn(
         '[Diário] Não consegui gravar (cota do localStorage?). O registro deste evento foi perdido, ' +
         'mas a cobrança segue normal. Rode window.__diario.exportar() e depois window.__diario.limpar().',
@@ -134,9 +119,8 @@
   }
 
   /**
-   * Apaga dias além da janela de retenção. Roda uma vez por carregamento de
-   * página, não a cada evento -- varrer o localStorage 150 vezes durante uma
-   * rodada de Alt+U seria desperdício puro.
+   * Apaga dias além da janela de retenção. Roda uma vez por carregamento, não
+   * a cada evento (varrer o localStorage 150x numa rodada seria desperdício).
    */
   function limparAntigos() {
     const limite = chaveDia(new Date(Date.now() - CONFIG_DIARIO.DIAS_RETENCAO * 86400000));
@@ -155,11 +139,9 @@
    * 3. REGISTRO
    * --------------------------------------------------------------------- */
   /**
-   * Grava um evento no dia de hoje.
-   *
-   * Campos curtos de propósito: com ~290 eventos por dia, nome de chave é
-   * volume. `t` tipo, `d` dia, `h` hora (minutos desde a meia-noite), `c`
-   * cnpj, `n` negociador -- o resto vem de `dados`.
+   * Grava um evento no dia de hoje. Campos curtos de propósito (nome de chave
+   * é volume): `t` tipo, `d` dia, `h` minutos desde a meia-noite, `c` cnpj,
+   * `n` negociador; o resto vem de `dados`.
    *
    * @param {'fila'|'contato'|'baixa'} tipo
    * @param {object} dados Campos específicos do tipo.
@@ -188,8 +170,7 @@
   }
 
   /**
-   * Grava vários eventos de uma vez, num único acesso ao localStorage.
-   * É o caminho do Alt+U: 150 candidatos numa rodada só.
+   * Grava vários eventos num único acesso ao localStorage (caminho do Alt+U).
    *
    * @param {'fila'|'contato'|'baixa'} tipo
    * @param {object[]} listaDeDados
@@ -215,9 +196,8 @@
    * 4. HASH ESTÁVEL (base dos apelidos censurados, ver apelido())
    * --------------------------------------------------------------------- */
   /**
-   * Hash determinístico e estável de string (variante de cyrb53, sem
-   * dependência externa). Mesma entrada, mesmo número, sempre -- inclusive
-   * entre recarregamentos e entre máquinas.
+   * Hash determinístico e estável de string (variante de cyrb53): mesma
+   * entrada, mesmo número, entre recarregamentos e máquinas.
    *
    * @param {string} texto
    * @returns {number} Inteiro não negativo.
@@ -272,24 +252,16 @@
   /**
    * Baixa o diário como JSON.
    *
-   * CENSURADO POR PADRÃO: o diário guarda o CNPJ de cada cliente, e arquivo
-   * exportado é justamente o que acaba anexado num e-mail ou num chat. O
-   * apelido é estável, então juntar os dados de duas máquinas e detectar
-   * duplicata continua funcionando -- só não dá pra saber QUEM é.
-   *
-   * Pra exportar com CNPJ de verdade (uso interno, nunca pra fora):
-   * window.__diario.exportar({ censurado: false }).
+   * CENSURADO POR PADRÃO: arquivo exportado acaba anexado em e-mail ou chat. O
+   * apelido é estável, então juntar duas máquinas e detectar duplicata segue
+   * funcionando. Com CNPJ de verdade (uso interno): exportar({ censurado: false }).
    *
    * @param {object} [opcoes]
    * @param {boolean} [opcoes.censurado] Padrão true.
    */
   /**
-   * Monta o conteúdo da exportação, sem baixar nada.
-   *
-   * Separado de exportar() de propósito: o que precisa de garantia é O QUE
-   * SAI, não o mecanismo de download. Grudados, só dava pra testar a censura
-   * atravessando Blob e createObjectURL -- e um teste que depende de
-   * encanamento é um teste que não protege o que importa.
+   * Monta o conteúdo da exportação, sem baixar nada. Separado de exportar()
+   * porque a garantia que importa é O QUE SAI, testável sem Blob/createObjectURL.
    *
    * @param {object} [opcoes]
    * @param {boolean} [opcoes.censurado] Padrão true.
@@ -359,24 +331,11 @@
     const janela = opcoes.janelaBaixaDias ?? 7;
     const todos = eventos({ ultimosDias: opcoes.ultimosDias });
 
-    // DEDUPLICA por (cnpj, dia): o mesmo cliente pode ter VÁRIAS atribuições
-    // no mesmo dia, e contar todas infla "na fila" e derruba a taxa de
-    // contato pela metade -- números descritivos errados, justamente os que
-    // o diário existe pra dar.
-    //
-    // Duas causas, uma delas legítima:
-    //   1. BUG (corrigido): o Módulo 7 chamava registrarLote duas vezes por
-    //      rodada, sobra de um refactor. Achado num relatório real do usuário,
-    //      onde as posições 1-36 apareciam repetidas.
-    //   2. LEGÍTIMA: rodar o Alt+U mais de uma vez no dia. A fila encolhe
-    //      conforme o dia passa (quem já teve movimentação hoje sai), então
-    //      92 de manhã viram 36 à tarde -- e quem estava nas duas aparece
-    //      duas vezes, com posições diferentes.
-    //
-    // Fica a PRIMEIRA atribuição do dia: é ela que reflete a ordem com que o
-    // dia foi planejado, sobre a fila inteira. As rodadas seguintes são
-    // recálculos sobre o que sobrou, com posições que não correspondem à
-    // decisão de ordem que de fato valeu.
+    // DEDUPLICA por (cnpj, dia): contar todas as atribuições infla "na fila" e
+    // derruba a taxa de contato. Repetição legítima: rodar o Alt+U mais de uma
+    // vez no dia (a fila encolhe, quem estava nas duas aparece duas vezes).
+    // Fica a PRIMEIRA do dia: reflete a ordem planejada sobre a fila inteira;
+    // as seguintes são recálculos sobre o que sobrou.
     const vistos = new Set();
     const filas = [];
     let atribuicoesRepetidas = 0;
@@ -438,11 +397,9 @@
       };
     }
 
-    // A tabela por faixa só junta registros da régua ATUAL: a numeração
-    // mudou entre versões (a faixa 5 da v1 é "Promessa não cumprida", a da
-    // v2 é "Dia da promessa") e somar as duas misturaria coisas diferentes
-    // sob o mesmo nome. Sem o Módulo 7 carregado não há como saber a versão
-    // atual -- aí entra tudo, como antes.
+    // A tabela por faixa só junta registros da régua ATUAL: a numeração mudou
+    // entre versões e somar misturaria faixas diferentes sob o mesmo nome. Sem o
+    // Módulo 7 a versão atual é desconhecida: entra tudo.
     const versaoAtual = window.filaPrioridadeDebug?.CONFIG?.VERSAO_REGUA ?? null;
     const daReguaAtual = versaoAtual == null ? linhas : linhas.filter((l) => l.versaoRegua === versaoAtual);
     const porFaixa = {};
@@ -463,8 +420,7 @@
   const pct = (v) => `${(v * 100).toFixed(1)}%`;
 
   /**
-   * Imprime a análise no console, com os limites de interpretação junto --
-   * não separados num documento que ninguém abre na hora de decidir.
+   * Imprime a análise no console, com os limites de interpretação junto.
    *
    * @param {object} [opcoes] Mesmas de analisar().
    */
@@ -526,30 +482,21 @@
   /* ---------------------------------------------------------------------
    * 7. DIAGNÓSTICO CENSURADO (window.__diag)
    * -----------------------------------------------------------------
-   * Tudo que é feito pra sair da tela e ir parar num chat, num e-mail ou num
-   * print PASSA POR AQUI. A censura não pode depender de alguém lembrar de
-   * apagar o CNPJ antes de colar -- basta esquecer uma vez.
+   * Tudo que sai da tela (chat, e-mail, print) PASSA POR AQUI. A censura não
+   * pode depender de alguém lembrar de apagar o CNPJ.
    *
-   * O QUE É PRESERVADO, porque é o que serve pra diagnosticar:
-   *   - identidade ESTÁVEL (o mesmo cliente vira sempre o mesmo apelido),
-   *     que é o que permite detectar duplicata e cruzar eventos -- foi
-   *     exatamente assim que o bug da fila gravada 2x apareceu;
-   *   - o FORMATO dos valores ("R$ #.###,##"), que revela erro de parsing
-   *     sem revelar o valor;
-   *   - tamanhos, contagens, situações, faixas, datas -- nada identifica.
+   * Preservado, porque serve pra diagnosticar: identidade ESTÁVEL (mesmo
+   * cliente, mesmo apelido: detecta duplicata e cruza eventos); o FORMATO dos
+   * valores ("R$ #.###,##"); tamanhos, contagens, situações, faixas, datas.
    *
-   * RESSALVA HONESTA: isto é PSEUDONIMIZAÇÃO, não anonimato criptográfico.
-   * O apelido é um hash com sal aleatório guardado só neste navegador, o que
-   * impede reverter por força bruta de fora -- mas o objetivo é não vazar
-   * dado de cliente por descuido, não resistir a adversário determinado.
+   * É PSEUDONIMIZAÇÃO, não anonimato: o apelido é hash com sal aleatório
+   * guardado só neste navegador. O objetivo é não vazar por descuido.
    * --------------------------------------------------------------------- */
   const CHAVE_SAL_DIAG = 'smarttable_sal_diagnostico';
 
   /**
-   * Sal aleatório por instalação. Sem ele o apelido seria só o hash do CNPJ
-   * -- e o espaço de CNPJs é pequeno o bastante pra alguém de fora testar
-   * todos e reverter. Com sal local, o apelido só faz sentido neste
-   * navegador, que é exatamente onde ele precisa fazer sentido.
+   * Sal aleatório por instalação. Sem ele o apelido seria só o hash do CNPJ, e
+   * o espaço de CNPJs é pequeno o bastante pra reverter testando todos.
    *
    * @returns {string}
    */
@@ -728,18 +675,9 @@
   /* ---------------------------------------------------------------------
    * 8. AUTOCONFERÊNCIA (window.__conferir)
    * -----------------------------------------------------------------
-   * Checa invariantes contra o estado REAL da página e do storage.
-   *
-   * POR QUE ISTO EXISTE, e por que não é "mais um teste": os bugs que
-   * chegaram a atrapalhar a cobrança de verdade não foram pegos pela suíte.
-   * Foram pegos quando o usuário exportou a fila e alguém olhou --
-   * a régua reordenando errado, o grupo de controle (hoje removido) nunca alcançando o fim
-   * da fila, o Alt+U gravando tudo duas vezes. Todos invisíveis em jsdom,
-   * porque moram em código que abre aba de fundo e depende de dado real.
-   *
-   * Esta função transforma aquele "exportar e pedir pra alguém olhar" num
-   * comando só, que o próprio operador roda. Ela não substitui os testes --
-   * cobre justamente o que eles não alcançam.
+   * Checa invariantes contra o estado REAL da página e do storage. Cobre o que
+   * a suíte jsdom não alcança (código que abre aba de fundo e depende de dado
+   * real): régua reordenando errado, Alt+U gravando duas vezes.
    * --------------------------------------------------------------------- */
 
   /**
@@ -749,19 +687,13 @@
    */
   /**
    * Dois clientes vizinhos da MESMA faixa estão na ordem da régua v3?
-   * Espelha compararPelaRegua do Módulo 7 (tests/diario.test.js confere que
-   * os dois concordam em milhares de pares): na faixa SCPC antes do
-   * aviso de suspensão, mais dias primeiro; nas demais, contato mais antigo (sem contato
-   * = antes de todos), depois maior valor vencido, depois mais dias.
-   *
-   * BUG REAL (v1.49.2, achado na revisão de comentários): até a v1.49.1 esta
-   * checagem ainda era a da régua v2 (contato, depois dias) e acusava como
-   * "invariante quebrado" uma fila v3 correta -- SCPC antes do aviso (então
-   * a faixa 14) e empates
-   * decididos pelo valor vencido.
+   * Espelha compararPelaRegua do Módulo 7 (tests/diario.test.js confere que os
+   * dois concordam): na faixa SCPC antes do aviso, mais dias primeiro; nas
+   * demais, contato mais antigo (sem contato = antes de todos), depois maior
+   * valor vencido, depois mais dias.
    *
    * @returns {boolean|null} true = em ordem; false = quebra; null = falta o
-   *   valor vencido (fila montada antes da v1.49.2) pra decidir o empate.
+   *   valor vencido (fila antiga) pra decidir o empate.
    */
   function vizinhosNaOrdemDaRegua(anterior, atual) {
     const faixaDiasPrimeiro = window.filaPrioridadeDebug?.FAIXA_SCPC_ANTES_DO_AVISO ?? 11;
@@ -785,15 +717,7 @@
     const observar = (condicao, mensagem) => { checagens += 1; if (!condicao) avisos.push(mensagem); };
 
     // --- 1. Módulos carregados ---------------------------------------
-    // CORRIGIDO (bug real, achado em revisão): esta checagem lia
-    // window.__contextoAdicionalDebug.FLAGS_DOS_MODULOS -- uma variável que
-    // foi removida do Módulo 6 quando "quais módulos existem" passou a ser
-    // respondido pelo registro central do Módulo 0 (registrarModuloCarregado/
-    // modulosFaltando, ver tests/registro-modulos.test.js). Como ela nunca
-    // mais existiu, o "if (flags)" sempre caía no else e __conferir() avisava
-    // "Módulo 6 não carregou" mesmo com ele carregado -- e nunca checava de
-    // fato quem estava faltando. Usa o registro do Módulo 0 diretamente, que
-    // é a fonte de verdade atual e nem depende do Módulo 6 ter carregado.
+    // Fonte de verdade: o registro do Módulo 0 (ver tests/registro-modulos.test.js).
     const util = window.__smartTableUtil;
     if (util && typeof util.modulosFaltando === 'function') {
       const faltando = util.modulosFaltando();
@@ -803,8 +727,7 @@
     }
 
     // --- 2. Contrato de data entre módulos ---------------------------
-    // O Módulo 4 já comparou data de vencimento (meia-noite) com esta
-    // (meio-dia) e omitiu relatório por engano. A convenção é meio-dia.
+    // A convenção é meio-dia; comparar com meia-noite já omitiu relatório (Módulo 4).
     const ctx = window.__contextoAdicional;
     if (ctx?.contatoRecente?.data instanceof Date) {
       exigir(
@@ -833,9 +756,8 @@
       let semValorPraDesempate = 0;
       let deReguaAnterior = 0;
       const versaoAtual = window.filaPrioridadeDebug?.CONFIG?.VERSAO_REGUA ?? null;
-      // Fila montada com OUTRA régua (o script atualizou depois do Alt+U): a ordem de faixa
-      // continua valendo (só cresce), mas o desempate dentro da faixa mudou de regra -- a
-      // faixa 10, por exemplo, era "SCPC último dia" na v3 e hoje é "SCPC antes do aviso".
+      // Fila de OUTRA régua (o script atualizou depois do Alt+U): a ordem de faixa
+      // continua valendo, mas o desempate dentro da faixa mudou de regra.
       const daOutraRegua = (x) => typeof x.versaoRegua === 'number' && versaoAtual !== null && x.versaoRegua !== versaoAtual;
       for (let i = 1; i < c.length; i += 1) {
         if (c[i].prioridadeTier < c[i - 1].prioridadeTier) quebrasFaixa += 1;
@@ -869,8 +791,7 @@
     const filasHoje = lerDia(hoje).filter((e) => e.t === 'fila');
 
     if (filasHoje.length > 0) {
-      // Uma rodada grava posições 1..N sem repetir. Posição repetida = a
-      // mesma rodada gravada duas vezes (foi exatamente o bug do Alt+U).
+      // Uma rodada grava posições 1..N sem repetir; repetida = rodada gravada duas vezes.
       const porRodada = new Map();
       filasHoje.forEach((e) => {
         const n = porRodada.get(e.p) ?? 0;
@@ -921,50 +842,38 @@
   /* ---------------------------------------------------------------------
    * 9. RITMO DO OPERADOR (window.__diag.qualidade / ritmo / filaDefasada)
    * -----------------------------------------------------------------
-   * PEDIDO DO USUÁRIO (28/09/2026, depois da discussão com o advogado do
-   * diabo): antes de mexer no fluxo pra "ganhar segundos", MEDIR onde o
-   * tempo do operador vai. Só o operador deste navegador conta (o usuário
-   * pediu "apenas eu"): o negociador com mais contatos gravados; qualquer
-   * outro entra só como contagem.
+   * Mede onde o tempo do operador vai, antes de mexer no fluxo. Decisão do
+   * usuário: só o operador deste navegador conta (o negociador com mais
+   * contatos gravados); os outros entram só como contagem.
    *
-   * O QUE CADA UM RESPONDE
-   *   - qualidade():    dá pra confiar nos números? (dias, eventos sem
-   *                     negociador, intervalos de zero minuto...). É o
-   *                     PORTÃO: sem 10 dias válidos, nada abaixo conclui.
-   *   - ritmo():        cobertura da fila (clientes distintos), cobertura
-   *                     por terço da fila (o que sobra é o fim dela?),
-   *                     intervalo entre contatos consecutivos e pausas,
-   *                     horários em blocos de 30 min e a fração de contatos
-   *                     depois do fim do expediente (17:15).
-   *   - filaDefasada(): (só na página da LISTA) quantos clientes da fila
-   *                     salva já não estão na lista de vencidos e ainda não
-   *                     foram contatados hoje.
+   *   - qualidade():    dá pra confiar nos números? É o PORTÃO: sem 10 dias
+   *                     válidos, nada abaixo conclui.
+   *   - ritmo():        cobertura da fila (total e por terço), intervalos entre
+   *                     contatos e pausas, horários em blocos de 30 min e fração
+   *                     de contatos depois do expediente (17:15).
+   *   - filaDefasada(): (só na página da LISTA) clientes da fila salva que já
+   *                     não estão na lista de vencidos nem foram contatados hoje.
    *
-   * LIMITES QUE ESTA MEDIÇÃO TEM (o advogado do diabo insistiu nisto):
-   *   - 'contato' marca a ABERTURA do WhatsApp, não o envio: a cobertura é
-   *     um TETO. O Alt+N (promessa) não conta como contato: vira "buraco".
-   *   - A resolução do relógio é 1 minuto; por isso p25/mediana/p75 e a
-   *     fração de intervalos de 0 ou 1 minuto, nunca só a mediana.
-   *   - O ciclo entre dois contatos mistura Alt+A, WhatsApp e tudo o mais:
-   *     este diagnóstico NÃO mede a espera do Alt+A nem o custo das
-   *     colagens (isso pede cronômetro manual).
-   *   - Dias antes e depois de mudança de fluxo (ex.: v1.52.0, Alt+S) entram
-   *     juntos; a leitura por recorte (segunda x demais) ajuda, a de versão
-   *     do script não existe no diário.
+   * LIMITES:
+   *   - 'contato' marca a ABERTURA do WhatsApp, não o envio: cobertura é um
+   *     TETO. O Alt+N (promessa) não conta como contato.
+   *   - Relógio de 1 minuto: por isso p25/mediana/p75 e a fração de intervalos
+   *     de 0 ou 1 minuto, nunca só a mediana.
+   *   - O ciclo entre contatos mistura Alt+A, WhatsApp e o mais: não mede a
+   *     espera do Alt+A nem o custo das colagens (cronômetro manual).
+   *   - Dias antes e depois de mudança de fluxo entram juntos; o diário não
+   *     guarda versão do script.
    *
-   * PRIVACIDADE (regra do projeto + red team): tudo sai por sanitizarSaida,
-   * que só deixa passar número, booleano, null e textos de uma lista fechada
-   * -- estrutural, não depende de o autor lembrar. Contagens por célula
-   * abaixo de 5 saem como "<5"; percentil só com 20 intervalos ou mais;
-   * nunca mínimo nem máximo; horários em blocos de 30 min; nada por dia
-   * nem por cliente. SOMENTE LEITURA: não grava nada (nem no diário, nem
-   * apaga a fila de ontem) e não imprime nenhum objeto de erro.
+   * PRIVACIDADE: tudo sai por sanitizarSaida, que só deixa passar número,
+   * booleano, null e textos de lista fechada (estrutural, não depende do autor
+   * lembrar). Contagem por célula abaixo de 5 sai "<5"; percentil só com 20
+   * intervalos ou mais; nunca mínimo nem máximo; horários em blocos de 30 min;
+   * nada por dia nem por cliente. SOMENTE LEITURA: não grava, não apaga a fila
+   * de ontem e não imprime objeto de erro.
    *
-   * ACEITO DE PROPÓSITO (revisão do guardião de privacidade): os horários do
-   * operador (primeiro/último contato, depois das 17:15) descrevem a jornada
-   * de UMA pessoa. O usuário pediu "apenas eu" e os dados são do navegador dele;
-   * se um dia esse diagnóstico for usado em máquina compartilhada, revisar.
-   * fila_total e lista_total saem exatos (agregados, sem identidade).
+   * ACEITO DE PROPÓSITO: os horários do operador descrevem a jornada de UMA
+   * pessoa (decisão do usuário, dados do navegador dele); em máquina
+   * compartilhada, revisar. fila_total e lista_total saem exatos (agregados).
    * --------------------------------------------------------------------- */
   const RITMO = Object.freeze({
     DIAS_MINIMOS: 10,
@@ -1267,9 +1176,8 @@
 
   /**
    * A fila salva, lida SEM efeitos: obterFila() do Módulo 3 apaga a fila de
-   * ontem (removeItem) e imprime o erro do JSON.parse (com CNPJs) -- o que
-   * quebraria "somente leitura" e a censura. Aqui o parse é próprio, silencioso,
-   * e usa o mesmo critério de dia (uma fila de outro dia não conta).
+   * ontem e imprime o erro do JSON.parse (com CNPJs), o que quebraria o
+   * "somente leitura" e a censura. Mesmo critério de dia.
    */
   function lerFilaSemEfeitos() {
     try {
