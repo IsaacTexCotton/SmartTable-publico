@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.63.0', data: '30/09/2026',
+      mudancas: [
+        'Organização interna, sem mudança no que você vê: o texto da mensagem do Alt+A (frases, promessa, acordo, grupo, pergunta final, variáveis) saiu do Módulo 4 para um módulo novo, o 19 (Mensagens de Cobrança). O código foi movido como estava; os testes de mensagens continuam os mesmos e passam.',
+        'Se o Tampermonkey atualizar o script pela metade e o módulo de mensagens faltar, aparece um aviso vermelho na tela e no console dizendo para atualizar o script (antes, um erro solto no meio do Alt+A).',
+        'Comentários enxutos em quase todos os módulos: o porquê fica no código, a história das mudanças fica no histórico do git.',
+      ],
+    },
+    {
       versao: '1.62.1', data: '29/09/2026',
       mudancas: [
         'Registrar e Enviar: se o WhatsApp não abrir (a página recusou o telefone ou a mensagem), não aparece mais "Contato registrado" em verde. Aparece um aviso vermelho dizendo que o contato FOI registrado no CRM e a mensagem não saiu; o contato fica aberto com a mensagem na caixa e o botão fica travado, para não registrar duas vezes.',

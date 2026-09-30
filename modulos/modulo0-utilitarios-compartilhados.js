@@ -671,6 +671,7 @@
     'Alertas Gerais',
     'Negociações',
     'Promessa Rápida',
+    'Mensagens de Cobrança',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
