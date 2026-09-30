@@ -1209,17 +1209,24 @@
                 }
             }
 
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.download = gerarNomeArquivo();
-            link.href = url;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            // Revogar de imediato pode abortar o download em alguns navegadores.
-            setTimeout(() => URL.revokeObjectURL(url), 10000);
+            // A cópia para a área de transferência basta (pedido do usuário,
+            // 30/09/2026: "o download do arquivo no Alt+A não é mais
+            // necessário"). O arquivo só é baixado como PLANO B, quando a
+            // cópia falhou (aba sem foco no tempo do teto, API indisponível):
+            // sem isso o operador ficaria sem a imagem.
+            if (!copiado) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.download = gerarNomeArquivo();
+                link.href = url;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                // Revogar de imediato pode abortar o download em alguns navegadores.
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+            }
 
-            return { copiado };
+            return { copiado, baixado: !copiado };
         } finally {
             iframe.remove();
         }
@@ -1367,6 +1374,7 @@
         return {
             total: dados.registros.length,
             copiado: resultado.copiado,
+            baixado: resultado.baixado,
             divergentes: dados.divergentes.length,
             ignorados: dados.ignorados.length,
             // Saldo que ficou FORA do "Valor total" (só existe cartão de total com 2+ títulos).
@@ -1390,13 +1398,14 @@
             const r = await gerarRelatorio();
 
             let msg = r.total + ' título(s) no relatório. ';
-            msg += r.copiado ? 'Imagem copiada e baixada.' : 'Imagem baixada.';
+            if (r.copiado) msg += 'Imagem copiada.';
             if (r.divergentes > 0) {
                 msg += ' ' + r.divergentes + ' com contagem divergente do sistema.';
             }
             // REVISÃO GERAL (29/09/2026, AUTORIZADO, lote D): o que ficou de
             // fora da imagem sem ninguém saber agora aparece no aviso.
             const atencao = [];
+            if (!r.copiado) atencao.push('A imagem NÃO foi copiada (o Ctrl+V não vai colar o relatório): o arquivo foi baixado no lugar');
             if (r.ignorados > 0) atencao.push(r.ignorados + ' linha(s) da tabela ficaram FORA do relatório (vencimento ilegível) -- confira a tabela');
             if (r.semValorNoTotal > 0) atencao.push(r.semValorNoTotal + ' saldo(s) não reconhecido(s) ficaram FORA do Valor total');
             if (r.avisoAcordos) atencao.push(r.avisoAcordos);

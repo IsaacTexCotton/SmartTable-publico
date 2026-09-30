@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.65.0', data: '30/09/2026',
+      mudancas: [
+        'Relatório (Alt+A e Alt+R): o arquivo .png não é mais baixado quando a imagem foi copiada para a área de transferência (a cópia já basta para colar no WhatsApp). O aviso passa a dizer só "Imagem copiada.".',
+        'Plano B: se a cópia falhar (a aba ficou sem foco até o tempo limite, por exemplo), o arquivo ainda é baixado, para você nunca ficar sem a imagem, e o aviso fica vermelho dizendo que a imagem NÃO foi copiada e que o arquivo foi baixado no lugar. Nesse caso o Ctrl+V não cola o relatório.',
+      ],
+    },
+    {
       versao: '1.64.0', data: '30/09/2026',
       mudancas: [
         'Organização interna, sem mudança no que você vê: o painel da Carteira (Alt+M) foi dividido em três módulos. O Módulo 14 ficou só com o desenho do painel e a carga inicial; o Módulo 22 (Carteira: Dados) guarda as regras, o escopo e o armazenamento (IndexedDB); o Módulo 23 (Carteira: Histórico) cuida da fotografia do dia, da cura, da ponte, da régua, do resultado do período, do CSV e do backup. O código foi movido como estava; os testes da Carteira e os E2E (F5, backup, restauração, duas abas) passam sem alteração.',
