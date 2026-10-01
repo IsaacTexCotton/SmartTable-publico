@@ -1184,6 +1184,9 @@
         versaoRegua: CONFIG.VERSAO_REGUA,
         clientes: clientesDaFila.map((c) => ({
           cnpj: c.cnpj,
+          // A URL deixa o painel (Módulo 11) levar ao cliente mesmo depois de
+          // ele sair da fila ao vivo por já ter sido cobrado.
+          url: c.url,
           prioridadeTier: c.prioridadeTier,
           prioridadeNome: c.prioridadeNome,
         })),
@@ -1415,7 +1418,7 @@
     const porCnpj = new Map();
     fila.clientes.forEach((c) => {
       if (c?.cnpj && c.prioridadeTier != null && !porCnpj.has(c.cnpj)) {
-        porCnpj.set(c.cnpj, { cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome });
+        porCnpj.set(c.cnpj, { cnpj: c.cnpj, url: c.url, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome });
       }
     });
     // Referência antiga de OUTRA régua: o número da faixa quer dizer outra coisa.
@@ -1428,10 +1431,10 @@
     const mantidos = (antigo?.clientes ?? [])
       .filter((c) => c?.cnpj && atendidos.has(c.cnpj) && !porCnpj.has(c.cnpj))
       .map((c) => {
-        if (mesmaRegua) return { cnpj: c.cnpj, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome };
+        if (mesmaRegua) return { cnpj: c.cnpj, url: c.url, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome };
         const faixa = faixaPorNome.get(c.prioridadeNome);
         if (faixa == null) { semFaixaNaReguaAtual += 1; return null; }
-        return { cnpj: c.cnpj, prioridadeTier: faixa, prioridadeNome: NOMES_PRIORIDADE[faixa] };
+        return { cnpj: c.cnpj, url: c.url, prioridadeTier: faixa, prioridadeNome: NOMES_PRIORIDADE[faixa] };
       })
       .filter(Boolean);
     if (semFaixaNaReguaAtual > 0) {

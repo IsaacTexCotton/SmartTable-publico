@@ -14,6 +14,9 @@
  * cores das faixas vêm do Módulo 7 (NOMES_PRIORIDADE/CORES_PRIORIDADE), sem
  * duplicar aqui.
  *
+ * Clicar numa faixa leva ao primeiro cliente não cobrado dela (ou ao primeiro
+ * da faixa, se todos já foram cobrados): ver irParaFaixa.
+ *
  * Não é ao vivo: como os outros painéis (Alt+O/D/H/L), calcula ao abrir.
  * Cada cliente é navegação de página cheia; reabrir é a atualização.
  *
@@ -46,6 +49,16 @@
 
   let painelEl = null;
   let botaoEl = null;
+
+  /**
+   * Para onde o clique na faixa leva, na ordem do snapshot do dia: o primeiro
+   * cliente ainda não cobrado; se todos já foram cobrados, o primeiro da faixa.
+   */
+  function escolherAlvo(clientes) {
+    const pendente = clientes.find((c) => !c.cobrado);
+    const escolhido = pendente || clientes[0];
+    return { cnpj: escolhido.cnpj, url: escolhido.url, todosCobrados: !pendente };
+  }
 
   /**
    * Agrupa o SNAPSHOT do dia (Módulo 7, CHAVE_SNAPSHOT_PROGRESSO) por
@@ -87,10 +100,12 @@
     snapshot.clientes.forEach((c) => {
       if (!c || c.prioridadeTier == null) return;
       const tier = c.prioridadeTier;
-      if (!porTier.has(tier)) porTier.set(tier, { total: 0, cobrados: 0, nomeGravado: c.prioridadeNome || null });
+      if (!porTier.has(tier)) porTier.set(tier, { total: 0, cobrados: 0, nomeGravado: c.prioridadeNome || null, clientes: [] });
       const registro = porTier.get(tier);
+      const cobrado = Boolean(c.cnpj && atendidos.has(c.cnpj));
       registro.total += 1;
-      if (c.cnpj && atendidos.has(c.cnpj)) registro.cobrados += 1;
+      if (cobrado) registro.cobrados += 1;
+      registro.clientes.push({ cnpj: c.cnpj || null, url: typeof c.url === 'string' ? c.url : null, cobrado });
     });
 
     // Snapshot de OUTRA régua (versão diferente ou sem versão gravada): os
@@ -106,12 +121,13 @@
     corPorNome.set('Sem contato ou movimentação há mais de um mês', coresAtuais[9]);
 
     const faixas = Array.from(porTier.entries())
-      .map(([tier, { total, cobrados, nomeGravado }]) => ({
+      .map(([tier, { total, cobrados, nomeGravado, clientes }]) => ({
         tier,
         nome: nomes[tier] || nomeGravado || `Faixa ${tier}`,
         cor: cores[tier] || corPorNome.get(nomeGravado) || CORES.apagado,
         total,
         cobrados,
+        alvo: escolherAlvo(clientes),
       }))
       .sort((a, b) => a.tier - b.tier);
 
@@ -177,12 +193,22 @@
   }
 
   function criarBarraFaixa(faixa, emAndamento) {
-    const bloco = criarDiv('', {
-      marginBottom: '10px',
+    // <button> de verdade: Enter/Espaço funcionam sem código extra.
+    const bloco = document.createElement('button');
+    bloco.type = 'button';
+    bloco.title = faixa.alvo.todosCobrados
+      ? 'Todos já cobrados: ir para o primeiro da faixa'
+      : 'Ir para o primeiro cliente ainda não cobrado da faixa';
+    Object.assign(bloco.style, {
+      display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left', font: 'inherit',
+      cursor: 'pointer', background: 'transparent', border: 'none', borderRadius: '6px',
+      margin: '0 0 10px', padding: '2px 0 2px 0',
       // Destaque visual da faixa do cliente atual.
-      paddingLeft: emAndamento ? '8px' : '0',
-      borderLeft: emAndamento ? `3px solid ${faixa.cor}` : 'none',
+      ...(emAndamento ? { paddingLeft: '8px', borderLeft: `3px solid ${faixa.cor}` } : {}),
     });
+    bloco.addEventListener('mouseenter', () => { bloco.style.background = CORES.linha; });
+    bloco.addEventListener('mouseleave', () => { bloco.style.background = 'transparent'; });
+    bloco.addEventListener('click', () => irParaFaixa(faixa.tier));
 
     const cabecalho = criarDiv('', {
       display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '10px',
@@ -260,6 +286,50 @@
     }
     fecharPainel();
     abrirPainel();
+  }
+
+  // Troca de página: nos testes o jsdom não navega, então o destino é trocável.
+  const ganchos = {
+    navegar: (url) => { window.location.href = url; },
+  };
+
+  /**
+   * Clique numa faixa: vai ao primeiro cliente não cobrado dela, ou ao primeiro
+   * da faixa se todos já foram cobrados. Se o cliente está na fila ao vivo, a
+   * posição da fila passa a ser a dele (como o Próximo/Voltar do Módulo 3 fazem)
+   * e o "Próximo" continua dali.
+   *
+   * @returns {{ok: boolean, motivo?: string, url?: string, todosCobrados?: boolean}}
+   */
+  function irParaFaixa(tier) {
+    const resultado = montarProgresso();
+    const faixa = resultado.disponivel ? resultado.faixas.find((f) => f.tier === tier) : null;
+    if (!faixa) return { ok: false, motivo: 'Essa faixa não está no progresso de hoje.' };
+
+    const { alvo } = faixa;
+    const filaDebug = window.filaDebug;
+    const fila = filaDebug?.obterFila?.();
+    const posicao = fila && alvo.cnpj ? fila.clientes.findIndex((c) => c.cnpj === alvo.cnpj) : -1;
+    const url = alvo.url || (posicao !== -1 ? fila.clientes[posicao].url : null);
+    if (!url) {
+      const motivo = 'Não tenho o endereço desse cliente (a referência de hoje é anterior a este recurso). Use "Usar a fila atual".';
+      window.__smartTableUtil?.toast?.(motivo);
+      return { ok: false, motivo };
+    }
+
+    if (posicao !== -1) {
+      fila.indiceAtual = posicao;
+      delete fila.indiceRegistrado;
+      delete fila.ultimoMotivo; // o "Voltar" não pode desfazer a contagem de um passo que não foi dado
+      filaDebug.salvarFila(fila);
+    }
+
+    fecharPainel();
+    window.__smartTableUtil?.toast?.(alvo.todosCobrados
+      ? `Faixa toda cobrada: indo para o primeiro (${faixa.nome}).`
+      : `Indo para o primeiro não cobrado: ${faixa.nome}.`);
+    ganchos.navegar(url);
+    return { ok: true, url, todosCobrados: alvo.todosCobrados };
   }
 
   function fecharPainel() {
@@ -391,6 +461,8 @@
     fecharPainel,
     estaAberto: () => painelEl !== null,
     montarProgresso,
+    irParaFaixa,
+    ganchos,
     CONFIG_PROGRESSO,
     obterBotao: () => botaoEl,
   };

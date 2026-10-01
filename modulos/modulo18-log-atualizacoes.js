@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.67.0', data: '01/10/2026',
+      mudancas: [
+        'Progresso da fila: cada faixa agora é clicável. O clique leva ao primeiro cliente ainda não cobrado da faixa; se todos já foram cobrados, leva ao primeiro cliente dela. Se o cliente está na fila de hoje, o "Próximo" continua a partir dele. Ao passar o mouse, a faixa ganha um fundo leve, e o texto do título diz para onde o clique vai.',
+        'A referência do progresso passa a guardar o endereço de cada cliente. A referência de hoje, gravada antes desta versão, não tem esse dado: para quem já saiu da fila, o aviso pede "Usar a fila atual", que grava a referência de novo.',
+      ],
+    },
+    {
       versao: '1.66.0', data: '30/09/2026',
       mudancas: [
         'Alt+B (busca rápida): ao apertar Enter, o SmartTable conta quantos clientes a busca acha antes de sair da página. Nenhum: a caixa continua aberta e avisa "Nenhum cliente com dívida encontrado com esses dados." (a lista do CRM só tem quem deve). Um: entra direto na página do cliente. De 2 a 5: abre uma lista no centro da tela com razão social, CNPJ, dias de atraso e valor vencido; as setas ↑ ↓ trocam o cliente, Enter abre, Esc volta ao campo e o clique num item também abre. Mais de 5: abre a lista nativa do CRM, como antes.',
