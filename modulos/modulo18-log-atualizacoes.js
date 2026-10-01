@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.69.0', data: '01/10/2026',
+      mudancas: [
+        'Mensagem de cobrança (Alt+A): cliente SCPC com algum título negativado, de qualquer dia de atraso, não recebe mais nenhuma menção ao título de último dia. Saem a frase "Em vermelho, o título no prazo final antes do SCPC" da legenda do relatório e a linha do título de último dia no texto sem imagem. A mensagem fica com o aviso do negativado e a pergunta final que segue o negativado.',
+        'O título de último dia continua grifado em vermelho na imagem do relatório; só a explicação por escrito saiu. Se o cliente também tem título em cartório, a legenda continua explicando o amarelo.',
+        'Antes, só valia para negativado de até 19 dias. Agora vale para qualquer negativado, e a pergunta final também segue o negativado (nos de mais de 19 dias, a mesma de quem só tem negativado). No 19º dia, sem a explicação das cores, o aviso sai por inteiro, igual ao de quem só tem negativado.',
+      ],
+    },
+    {
       versao: '1.68.0', data: '01/10/2026',
       mudancas: [
         'Fila por prioridade (Alt+U): a faixa "Sem contato ou movimentação há 14 dias ou mais" subiu para logo depois do Cluster Novo, ACIMA de "Segundo dia". O resto da ordem não mudou. Nova ordem do topo: Cartório último dia, Cluster Novo, Sem contato ou movimentação há 14 dias ou mais, Segundo dia, Sem nenhum contato, Dia da promessa, Promessa não cumprida, Aviso final antes da suspensão, Antes do aviso final.',

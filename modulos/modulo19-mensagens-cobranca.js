@@ -81,6 +81,11 @@
     return 1;
   }
 
+  /** Algum título NEGATIVADO_SCPC, de qualquer dia de atraso. */
+  function temNegativadoScpc(dados) {
+    return (dados?.registros ?? []).some((r) => r.situacaoKey === 'NEGATIVADO_SCPC');
+  }
+
   // Linha de contexto por situação (adaptada das frases padrão do usuário).
   // Retorna '' (sem linha extra), texto, ou null (sem mensagem automática).
   function obterLinhaContexto(escolhido, dados, omitirRelatorio) {
@@ -99,6 +104,9 @@
           : `O título vencido em ${datas[0]} está em aberto.`;
       }
       case 'ULTIMO_DIA': {
+        // Decisão do usuário (01/10/2026): com título negativado, a mensagem
+        // não menciona o de último dia; o aviso do negativado fala pelo cliente.
+        if (temNegativadoScpc(dados)) return '';
         const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
         // Sem "Lembramos que": esta linha pode vir logo após a de promessa
         // DIA_DA_PROMESSA, que já abre assim; abertura repetida soa robótica.
@@ -181,10 +189,12 @@
   /*
    * Decisão do usuário: cliente SCPC com título de ÚLTIMO DIA e título
    * NEGATIVADO -- a mensagem segue o negativado:
-   *   - vale qualquer dia de atraso do negativado até o 19º (acima disso o
-   *     título de último dia segue sendo o assunto);
-   *   - a frase "Em vermelho, o título no prazo final antes do SCPC" fica;
-   *   - o aviso do negativado ABRE (vem antes do vermelho);
+   *   - vale QUALQUER negativado, de qualquer dia de atraso (01/10/2026; até
+   *     então valia só até o 19º);
+   *   - nada na mensagem fala do título de último dia (01/10/2026): nem a
+   *     linha de situação, nem "Em vermelho, o título no prazo final" na
+   *     legenda. O vermelho continua na IMAGEM do relatório (decisão do usuário);
+   *   - o aviso do negativado abre a situação;
    *   - a PERGUNTA FINAL segue o negativado. Com vários, vale o mais urgente.
    *
    * Só a MENSAGEM muda: escolherTituloRepresentativo (Módulo 0) mantém
@@ -192,13 +202,11 @@
    * nota do contato no CRM.
    *
    * @returns {object|null} O negativado que manda, ou null (escolhido não é
-   *   de último dia, ou sem negativado até o 19º).
+   *   de último dia, ou sem negativado).
    */
   function tituloNegativadoQueManda(escolhido, dados) {
     if (escolhido?.situacaoKey !== 'ULTIMO_DIA') return null;
-    const candidatos = (dados?.registros ?? []).filter(
-      (r) => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal <= DIAS_ULTIMO_DIA_SUSPENSAO_SCPC
-    );
+    const candidatos = (dados?.registros ?? []).filter((r) => r.situacaoKey === 'NEGATIVADO_SCPC');
     return candidatos.length > 0 ? maisUrgenteEntreNegativados(candidatos) : null;
   }
 
@@ -636,7 +644,9 @@
    * @returns {string} Frase pronta, ou '' quando nenhum título tem cor.
    */
   function descreverCoresDoRelatorio(dados) {
-    const noUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
+    // Com título negativado a mensagem não fala do de último dia (o vermelho
+    // continua só na imagem).
+    const noUltimoDia = temNegativadoScpc(dados) ? 0 : dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
     const emCartorio = dados.registros.some((r) => r.situacaoKey === 'EM_CARTORIO');
     const destino = dados.fluxo === 'SCPC' ? 'do SCPC' : 'do cartório';
     const vermelho = `${noUltimoDia > 1 ? 'os títulos' : 'o título'} no prazo final antes ${destino}`;
