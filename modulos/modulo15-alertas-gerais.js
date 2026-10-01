@@ -28,7 +28,7 @@
     ID_PAINEL: 'smarttable-painel-alertas-gerais',
     ID_AVISO: 'smarttable-aviso-alertas-gerais',
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     MAX_DESCRICAO: 300,
     MAX_NO_AVISO: 3,
   };
@@ -247,7 +247,7 @@
     fecharPainel();
 
     painelEl = el('div', { id: CONFIG_ALERTAS_GERAIS.ID_PAINEL }, {
-      position: 'fixed', bottom: '112px', left: '16px', zIndex: CONFIG_ALERTAS_GERAIS.Z_INDEX,
+      position: 'fixed', bottom: '112px', left: '16px', zIndex: CONFIG_ALERTAS_GERAIS.Z_INDEX_POPUP,
       width: '340px', maxWidth: '92vw', maxHeight: '70vh', overflowY: 'auto', boxSizing: 'border-box',
       background: CORES.fundo, border: `1px solid ${CORES.borda}`, borderRadius: '10px', padding: '14px 16px',
       boxShadow: '0 8px 24px rgba(16,24,40,0.18)', fontFamily: 'system-ui, -apple-system, sans-serif', color: CORES.texto,

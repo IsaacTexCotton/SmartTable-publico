@@ -23,7 +23,7 @@
   const CONFIG_PAINEL = {
     ID_PAINEL: 'smarttable-painel-config',
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
   };
 
   const CORES = {
@@ -189,7 +189,7 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_PAINEL.Z_INDEX,
+      zIndex: CONFIG_PAINEL.Z_INDEX_POPUP,
       width: '420px',
       maxWidth: '90vw',
       maxHeight: '60vh',

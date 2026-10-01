@@ -785,7 +785,7 @@
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
       // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-      zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+      zIndex: window.__smartTableUtil?.Z_INDEX_POPUP,
       width: '420px',
       maxWidth: '90vw',
       maxHeight: '60vh',

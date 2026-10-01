@@ -30,7 +30,7 @@
   const CONFIG_CONSOLE = {
     ID_PAINEL: 'smarttable-console-diagnostico',
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     // Ring buffer só em memória, nunca em localStorage.
     LIMITE_LOG: 50,
   };
@@ -468,7 +468,7 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_CONSOLE.Z_INDEX,
+      zIndex: CONFIG_CONSOLE.Z_INDEX_POPUP,
       width: '440px',
       maxWidth: '92vw',
       maxHeight: '72vh',

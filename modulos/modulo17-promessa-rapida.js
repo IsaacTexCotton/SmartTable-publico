@@ -44,8 +44,8 @@
  *     #modal-aviso-promessa-mensagem).
  *
  * PAINEL (visual aprovado pelo usuário): diálogo central; o fundo cobre só a área
- * abaixo do cabeçalho do CRM (header z-50 e menu lateral z-40 ficam acima do z-30
- * daqui). Teclas: 1-9, H, A, D, T, Enter, Esc. O Tab fica preso no painel e, se o
+ * abaixo do cabeçalho do CRM e fica na camada dos popups (Módulo 0, z-55 desde a
+ * v1.69.1: cobre o menu lateral z-40 e o menu dos atalhos). Teclas: 1-9, H, A, D, T, Enter, Esc. O Tab fica preso no painel e, se o
  * foco cair no body, o painel reassume (senão 1, A e Enter morrem).
  * ========================================================================= */
 (function () {
@@ -66,7 +66,7 @@
     CHAVE_PONTE: 'smarttable_promessa_pendente_v1',
     VALIDADE_PONTE_MS: 3 * 60 * 1000,
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     // Esperas pelo CRM: modal, seção de promessa, valor calculado, resultado do salvar.
     TIMEOUT_MODAL_MS: 5000,
     TIMEOUT_VALOR_MS: 5000,
@@ -600,7 +600,7 @@
 
   /**
    * Folga à esquerda do fundo: 16px, e mais só se o painel centralizado de verdade encostaria no menu lateral do CRM
-   * (z-40, acima do fundo). Em 1600px o painel fica no centro exato; em telas estreitas se afasta do menu.
+   * (z-40; desde a v1.69.1 o fundo o cobre, e a folga segue como estava). Em 1600px o painel fica no centro exato; em telas estreitas se afasta do menu.
    */
   function folgaEsquerda() {
     const menu = window.__smartTableUtil?.margemMenuLateral?.() ?? 0;
@@ -634,7 +634,7 @@
     focoAnterior = quemAbriu;
 
     fundoEl = el('div', { id: CONFIG_PROMESSA.ID_FUNDO }, {
-      position: 'fixed', top: `${alturaDoCabecalho()}px`, left: '0', right: '0', bottom: '0', zIndex: CONFIG_PROMESSA.Z_INDEX,
+      position: 'fixed', top: `${alturaDoCabecalho()}px`, left: '0', right: '0', bottom: '0', zIndex: CONFIG_PROMESSA.Z_INDEX_POPUP,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: `16px 16px 16px ${folgaEsquerda()}px`, boxSizing: 'border-box',
       background: 'rgba(16, 24, 40, 0.35)',
     });

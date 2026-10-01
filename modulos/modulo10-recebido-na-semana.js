@@ -56,7 +56,7 @@
     ENDPOINT: '/api/crm/dashboard-consolidado',
     ID_PAINEL: 'smarttable-painel-recebido',
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
-    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     TIMEOUT_MS: 15000,
 
     // Quem aparece no painel, pelo PRIMEIRO NOME (ver primeiroNomeDeUsuario no
@@ -472,7 +472,7 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_RECEBIDO.Z_INDEX,
+      zIndex: CONFIG_RECEBIDO.Z_INDEX_POPUP,
       width: '460px',
       maxWidth: '92vw',
       maxHeight: '70vh',
@@ -687,7 +687,7 @@
       painelEl = criarDiv('O Módulo 0 não carregou — não dá pra calcular a semana.', {
         position: 'fixed', bottom: '112px', left: '16px', background: CORES.fundo,
         border: `1px solid ${CORES.borda}`, borderRadius: '10px', padding: '14px 16px',
-        color: CORES.erro, fontSize: '13px', zIndex: CONFIG_RECEBIDO.Z_INDEX,
+        color: CORES.erro, fontSize: '13px', zIndex: CONFIG_RECEBIDO.Z_INDEX_POPUP,
         fontFamily: 'system-ui, sans-serif',
       });
       painelEl.id = CONFIG_RECEBIDO.ID_PAINEL;

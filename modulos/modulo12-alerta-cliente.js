@@ -55,13 +55,14 @@
     // O BOTÃO fixo fica na camada baixa (a regra de geometria abaixo explica por quê).
     // Os POPUPS (aviso e painel) sobem por cima do menu dos atalhos do CRM e do
     // cabeçalho (ver Módulo 0).
-    Z_INDEX: 30,
-    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+    Z_INDEX_BOTAO: 30,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     INTERVALO_PADRAO_DIAS: 1,
     // Confirmado ao vivo: o cabeçalho do CRM (#sit-header) cobre a largura
-    // toda até y=80px, com z-index 50 (o mesmo dos modais). Subir o nosso
-    // z-index quebraria a regra de nunca competir com modal, então o botão
-    // fica geometricamente ABAIXO da faixa do cabeçalho (80px + folga).
+    // toda até y=80px, com z-index 50 (o mesmo dos modais). O botão fixo fica
+    // na camada baixa (Z_INDEX_BOTAO, 30) e, por isso, geometricamente ABAIXO da
+    // faixa do cabeçalho (80px + folga). Só aviso e painel usam a camada dos
+    // popups (Z_INDEX_POPUP).
     TOPO_BOTAO: '96px',
     TOPO_PAINEL: '150px',
     // Confirmado no HTML real do card: o onclick é o identificador mais
@@ -617,7 +618,7 @@
         cursor: 'pointer',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         boxShadow: '0 4px 14px rgba(0,0,0,0.2)',
-        zIndex: CONFIG_ALERTA.Z_INDEX,
+        zIndex: CONFIG_ALERTA.Z_INDEX_BOTAO,
       });
       document.body.appendChild(el);
       window.__smartTableUtil?.acompanharMenuLateral?.(el);

@@ -721,7 +721,7 @@
       position: 'fixed', bottom: '16px', left: '16px', background: CORES.fundo,
       border: `1px solid ${CORES.borda}`, borderRadius: '10px', padding: '14px 16px',
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)', fontFamily: 'system-ui, -apple-system, sans-serif',
-      fontSize: '13px', zIndex: CONFIG_CARTEIRA.Z_INDEX, width: '560px', maxWidth: '94vw',
+      fontSize: '13px', zIndex: CONFIG_CARTEIRA.Z_INDEX_POPUP, width: '560px', maxWidth: '94vw',
       maxHeight: '86vh', overflowY: 'auto', boxSizing: 'border-box',
     });
     meuPainel.appendChild(criarDiv('Carteira', { color: CORES.tinta, fontWeight: '700', fontSize: '15px' }));
