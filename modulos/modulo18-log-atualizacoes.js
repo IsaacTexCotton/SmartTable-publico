@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.68.0', data: '01/10/2026',
+      mudancas: [
+        'Fila por prioridade (Alt+U): a faixa "Sem contato ou movimentação há 14 dias ou mais" subiu para logo depois do Cluster Novo, ACIMA de "Segundo dia". O resto da ordem não mudou. Nova ordem do topo: Cartório último dia, Cluster Novo, Sem contato ou movimentação há 14 dias ou mais, Segundo dia, Sem nenhum contato, Dia da promessa, Promessa não cumprida, Aviso final antes da suspensão, Antes do aviso final.',
+        'Atenção: como vale a primeira faixa que se aplica, quem está há 14 dias ou mais sem contato ou movimentação passa na frente das faixas que ficaram abaixo dela, inclusive promessa do dia, promessa não cumprida e aviso final de suspensão. O Cartório último dia e o Cluster Novo continuam na frente.',
+        'Como a numeração das faixas mudou (3 a 9), a fila e a classificação de hoje feitas antes da atualização são refeitas: aperte Shift+Alt+U para montar de novo. O painel de progresso do dia continua mostrando as faixas com os nomes e as cores de antes.',
+      ],
+    },
+    {
       versao: '1.67.0', data: '01/10/2026',
       mudancas: [
         'Progresso da fila: cada faixa agora é clicável. O clique leva ao primeiro cliente ainda não cobrado da faixa; se todos já foram cobrados, leva ao primeiro cliente dela. Se o cliente está na fila de hoje, o "Próximo" continua a partir dele. Ao passar o mouse, a faixa ganha um fundo leve, e o texto do título diz para onde o clique vai.',

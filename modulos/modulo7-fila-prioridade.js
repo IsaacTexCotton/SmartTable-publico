@@ -21,22 +21,24 @@
  *      cartório, e por isso é a ÚNICA faixa isenta do teto DIAS_ATRASO_MAX em
  *      filtrarPorRegrasDaLista. Decisão do usuário: cliente novo com título em
  *      cartório tem que aparecer, porque a cobrança bloqueia o faturamento dele.
- *   3. Segundo dia de atraso (EM_ATRASO, dia 2 exato, e NENHUM título do
- *      cliente com mais dias, cartório incluído)
- *   4. Sem nenhum contato -- a aba Contatos está VAZIA: ninguém, de nenhum
- *      usuário, nunca registrou contato (confirmado com o usuário; é o
- *      semContatoAnterior do Módulo 6, o mesmo dado que faz o Alt+A se apresentar)
- *   5. Dia da promessa de pagamento (prometeu pagar HOJE e o título continua
- *      em aberto -- DIA_DA_PROMESSA, Módulo 6)
- *   6. Promessa não cumprida (vencida sem pagamento identificado e sem contato
- *      depois do vencimento -- QUEBRADA/PARCIAL, Módulo 6)
- *   7. Aviso final antes da suspensão (NEGATIVADO_SCPC, dia 19 exato -- mesmo
- *      limiar do Módulo 4)
- *   8. Antes do aviso final (NEGATIVADO_SCPC, dias 16 a 18)
- *   9. Sem contato OU sem movimentação há 14 dias ou mais (corridos; cliente
+ *   3. Sem contato OU sem movimentação há 14 dias ou mais (corridos; cliente
  *      "esquecido"). Entra se QUALQUER um chegar a 14: o contato mais recente
  *      da aba Contatos (de qualquer pessoa) ou a última movimentação da conta
- *      (lista de clientes).
+ *      (lista de clientes). Régua v7 (01/10/2026, decisão do usuário): sobe para
+ *      ACIMA do segundo dia; como a primeira faixa que se aplica vence, ela
+ *      também passa na frente das faixas 4 a 9 abaixo.
+ *   4. Segundo dia de atraso (EM_ATRASO, dia 2 exato, e NENHUM título do
+ *      cliente com mais dias, cartório incluído)
+ *   5. Sem nenhum contato -- a aba Contatos está VAZIA: ninguém, de nenhum
+ *      usuário, nunca registrou contato (confirmado com o usuário; é o
+ *      semContatoAnterior do Módulo 6, o mesmo dado que faz o Alt+A se apresentar)
+ *   6. Dia da promessa de pagamento (prometeu pagar HOJE e o título continua
+ *      em aberto -- DIA_DA_PROMESSA, Módulo 6)
+ *   7. Promessa não cumprida (vencida sem pagamento identificado e sem contato
+ *      depois do vencimento -- QUEBRADA/PARCIAL, Módulo 6)
+ *   8. Aviso final antes da suspensão (NEGATIVADO_SCPC, dia 19 exato -- mesmo
+ *      limiar do Módulo 4)
+ *   9. Antes do aviso final (NEGATIVADO_SCPC, dias 16 a 18)
  *  10. Atraso inicial, 3º ao 4º dia (EM_ATRASO) E NENHUM título do cliente com
  *      mais dias, cartório incluído (confirmado com o usuário: "também conta").
  *      Dia 1 NÃO é dia de cobrança (fica fora da lista); dia 2 tem faixa
@@ -60,14 +62,14 @@
  * filtrarPorRegrasDaLista. É decisão humana explícita e vence até a isenção do
  * Cluster Novo.
  *
- * POR QUE AS FAIXAS 4 E 5 FICAM ACIMA DE SCPC-ÚLTIMO-DIA E DO AVISO DE
+ * POR QUE AS FAIXAS 6 E 7 FICAM ACIMA DE SCPC-ÚLTIMO-DIA E DO AVISO DE
  * SUSPENSÃO (decisão explicada ao usuário): são clientes que JÁ SE
  * COMPROMETERAM -- quem prometeu pagar hoje só converte se for lembrado hoje
  * (janela de um dia), e quem quebrou a promessa é o contato de maior conversão.
  * O dado vem de window.__contextoAdicional.promessa, que o Módulo 6 já calcula
  * na mesma visita em aba de fundo.
  *
- * A metade "movimentação" da faixa 9 usa movimentacaoDataIso (window.CLIENTES),
+ * A metade "movimentação" da faixa 3 usa movimentacaoDataIso (window.CLIENTES),
  * o mesmo campo que exclui quem mexeu HOJE; aqui acha quem está PARADO.
  *
  * EXCLUSÕES (nunca entram, em nenhuma faixa):
@@ -137,7 +139,7 @@
     // Exclusões (confirmadas com o usuário).
     DIAS_ATRASO_MAX: 19,
     DIA_ATRASO_MIN_CONSIDERADO: 2, // dia 1 não é considerado dia de cobrança
-    // Prioridade 3: dia 2 de EM_ATRASO, sozinho (faixa própria, contato bem cedo).
+    // Prioridade 4: dia 2 de EM_ATRASO, sozinho (faixa própria, contato bem cedo).
     DIA_PRIORIDADE_SEGUNDO_DIA: 2,
     // Prioridade 10: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
     //
@@ -151,8 +153,8 @@
     // Sobe toda vez que a NUMERAÇÃO das faixas muda. Vai gravada em cada cliente
     // da fila (versaoRegua) e em cada registro do diário (campo r), pra fila ou
     // histórico com a numeração antiga nunca ser lido com os nomes da nova.
-    VERSAO_REGUA: 6,
-    // Prioridade 9: última movimentação OU último contato há tantos dias corridos
+    VERSAO_REGUA: 7,
+    // Prioridade 3: última movimentação OU último contato há tantos dias corridos
     // OU MAIS (>=). A Carteira (Módulo 14) tem limite próprio (30) e não acompanha.
     DIAS_MOVIMENTACAO_ANTIGA: 14,
     // Limiares do aviso de suspensão SCPC, vindos do Módulo 0. O Módulo 2
@@ -188,13 +190,13 @@
   const NOMES_PRIORIDADE = {
     1: 'Cartório — último dia',
     2: 'Cluster Novo',
-    3: 'Segundo dia',
-    4: 'Sem nenhum contato',
-    5: 'Dia da promessa de pagamento',
-    6: 'Promessa não cumprida',
-    7: 'Aviso final antes da suspensão',
-    8: 'Antes do aviso final (16º–18º dia)',
-    9: 'Sem contato ou movimentação há 14 dias ou mais',
+    3: 'Sem contato ou movimentação há 14 dias ou mais',
+    4: 'Segundo dia',
+    5: 'Sem nenhum contato',
+    6: 'Dia da promessa de pagamento',
+    7: 'Promessa não cumprida',
+    8: 'Aviso final antes da suspensão',
+    9: 'Antes do aviso final (16º–18º dia)',
     10: 'Atraso inicial (3º–4º dia)',
     11: 'SCPC antes do aviso de suspensão',
     12: 'SCPC — último dia',
@@ -212,22 +214,22 @@
   // (WCAG 1.4.11); só tons da escala do Untitled UI; maximiza a menor diferença
   // CIEDE2000 entre faixas (14,2 visão normal, 4,8 deuteranopia). Quando uma
   // faixa muda de posição a cor segue o NOME dela. Famílias: vermelho = último
-  // dia (1, 12), roxo = Cluster Novo, ciano/verde-azulado = contato (3, 4),
+  // dia (1, 12), roxo = Cluster Novo, ciano/verde-azulado = contato (4, 5),
   // verde = promessa no dia, rosa = promessa quebrada, índigo = janela SCPC
-  // (7, 8, 11), musgo = conta esquecida, laranja/âmbar/ocre = atraso e
+  // (8, 9, 11), musgo = conta esquecida, laranja/âmbar/ocre = atraso e
   // cartório (10, 13, 14), cinza = demais dias.
   // A cor nunca é o único sinal (WCAG 1.4.1): a faixa sempre tem número e nome.
   // tests/fila-prioridade.test.js confere contraste e que nenhuma cor se repete.
   const CORES_PRIORIDADE = {
     1: '#D92D20',
     2: '#9F1AB1',
-    3: '#088AB2',
-    4: '#125D56',
-    5: '#067647',
-    6: '#DD2590',
-    7: '#3538CD',
-    8: '#6172F3',
-    9: '#335015',
+    3: '#335015',
+    4: '#088AB2',
+    5: '#125D56',
+    6: '#067647',
+    7: '#DD2590',
+    8: '#3538CD',
+    9: '#6172F3',
     10: '#93370D',
     11: '#363F72',
     12: '#E31B54',
@@ -430,7 +432,7 @@
     return normalizarData(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   }
 
-  // Prioridade 9: data (movimentação ou contato) com DIAS_MOVIMENTACAO_ANTIGA
+  // Prioridade 3: data (movimentação ou contato) com DIAS_MOVIMENTACAO_ANTIGA
   // dias corridos OU MAIS (>=). hoje já vem normalizado de quem chama.
   function semMovimentoHaDuasSemanas(movimentacaoDataIso, hoje) {
     const data = dataDaMovimentacao(movimentacaoDataIso);
@@ -525,16 +527,16 @@
   // null inclui promessa já resolvida (título pago) ou com contato depois do
   // vencimento.
   //
-  // movimentacaoDataIso e hoje são opcionais; sem eles a faixa 9 não casa.
+  // movimentacaoDataIso e hoje são opcionais; sem eles a faixa 3 não casa.
   //
   // extras (opcional):
-  //   - semContato: aba Contatos vazia (faixa 4). Ausente = false.
+  //   - semContato: aba Contatos vazia (faixa 5). Ausente = false.
   //   - maiorAtrasoDoCliente: maior diasAtrasoReal entre TODOS os títulos,
-  //     cartório incluído (faixas 3 e 10). Ausente = o do título escolhido.
+  //     cartório incluído (faixas 4 e 10). Ausente = o do título escolhido.
   //   - ultimoContatoIso: AAAA-MM-DD do contato mais recente, de qualquer
-  //     pessoa (faixa 9). Ausente = só a movimentação decide.
+  //     pessoa (faixa 3). Ausente = só a movimentação decide.
   //   - temTituloEmCartorio: há título EM_CARTORIO entre os em cobrança (faixa 13).
-  //   - temNegativadoNoDiaDaSuspensao: há título NEGATIVADO_SCPC no 19º dia (faixa 7).
+  //   - temNegativadoNoDiaDaSuspensao: há título NEGATIVADO_SCPC no 19º dia (faixa 8).
   function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje, extras = {}) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
     const { situacaoKey, diasAtrasoReal } = escolhido;
@@ -542,7 +544,12 @@
 
     if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
     if (ehClusterNovo(cluster)) return 2;
-    // Faixa 3 exige que NENHUM título do cliente tenha mais dias (cartório
+    // Mesma régua (>= 14 dias corridos) pras duas datas (AAAA-MM-DD). Contato
+    // ausente nunca casa sozinho (quem nunca teve contato cai na faixa 5, salvo
+    // movimentação antiga). Vem logo depois do Cluster Novo, ANTES do segundo dia
+    // (régua v7): quem casa aqui não chega às faixas 4 a 9.
+    if (semMovimentoHaDuasSemanas(movimentacaoDataIso, hoje) || semMovimentoHaDuasSemanas(extras.ultimoContatoIso, hoje)) return 3;
+    // Faixa 4 exige que NENHUM título do cliente tenha mais dias (cartório
     // conta): o título escolhido deixa o cartório de fora, e sem isso um cliente
     // com título de 2 dias + outro em cartório há semanas entraria aqui.
     if (
@@ -550,27 +557,24 @@
       diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA &&
       maiorAtrasoDoCliente <= diasAtrasoReal
     ) {
-      return 3;
+      return 4;
     }
-    if (extras.semContato === true) return 4;
-    if (tipoPromessa === 'DIA_DA_PROMESSA') return 5;
-    if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 6;
-    if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC) return 7;
+    if (extras.semContato === true) return 5;
+    if (tipoPromessa === 'DIA_DA_PROMESSA') return 6;
+    if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 7;
+    if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC) return 8;
     // Último dia + outro título negativado no 19º dia (decisão do usuário): o
     // escolhido é o de último dia (Módulo 0), mas a mensagem do Alt+A já fala da
     // suspensão de hoje (Módulo 4, tituloNegativadoQueManda), então a fila trata
-    // como faixa 7, não 12. Negativados de 1 a 18 dias ficam de fora (não decididos).
-    if (situacaoKey === 'ULTIMO_DIA' && extras.temNegativadoNoDiaDaSuspensao === true) return 7;
+    // como faixa 8, não 12. Negativados de 1 a 18 dias ficam de fora (não decididos).
+    if (situacaoKey === 'ULTIMO_DIA' && extras.temNegativadoNoDiaDaSuspensao === true) return 8;
     if (
       situacaoKey === 'NEGATIVADO_SCPC' &&
       diasAtrasoReal >= CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC &&
       diasAtrasoReal < CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
     ) {
-      return 8;
+      return 9;
     }
-    // Mesma régua (>= 14 dias corridos) pras duas datas (AAAA-MM-DD). Contato
-    // ausente nunca casa sozinho: quem nunca teve contato já ficou na faixa 4.
-    if (semMovimentoHaDuasSemanas(movimentacaoDataIso, hoje) || semMovimentoHaDuasSemanas(extras.ultimoContatoIso, hoje)) return 9;
     // O atraso inicial vem ANTES dos dois SCPC (decisão do usuário). As três
     // situações são exclusivas (cada uma é a do MESMO título escolhido): o que
     // ordena é o número devolvido, não a ordem destas checagens.
@@ -672,7 +676,7 @@
 
     // Acordos (decisão do usuário): todos os títulos vencidos em acordo
     // ATIVA/CONCLUIDA -> fora da fila se as parcelas estão em dia; parcela
-    // atrasada -> faixa 6 (a de "promessa não cumprida"). Misto: régua normal pelos demais.
+    // atrasada -> faixa 7 (a de "promessa não cumprida"). Misto: régua normal pelos demais.
     let prioridadeForcada = null;
     let registrosParaEscolha = dadosTitulos;
     if ((dadosTitulos.registros?.length ?? 0) === 0 && (dadosTitulos.emAcordo?.length ?? 0) > 0) {
@@ -704,7 +708,7 @@
       return { cliente, excluidoPorPromessaFutura: true };
     }
 
-    // Promessa ATIVA calculada pelo Módulo 6 nesta aba (decide as faixas 5 e 6).
+    // Promessa ATIVA calculada pelo Módulo 6 nesta aba (decide as faixas 6 e 7).
     // Diferente de `promessas` (leitura crua, usada só pra excluir promessa futura).
     const contextoPromessa = (aba.__contextoAdicional && aba.__contextoAdicional.promessa) || null;
 
@@ -1426,7 +1430,7 @@
     // nome, sai da conta (misturar números de duas réguas errava a faixa em silêncio).
     const mesmaRegua = antigo?.versaoRegua === CONFIG.VERSAO_REGUA;
     const faixaPorNome = new Map(Object.entries(NOMES_PRIORIDADE).map(([faixa, nome]) => [nome, Number(faixa)]));
-    faixaPorNome.set('Sem contato ou movimentação há mais de um mês', 9); // nome da faixa 9 até a régua v4
+    faixaPorNome.set('Sem contato ou movimentação há mais de um mês', 3); // nome da faixa até a régua v4
     let semFaixaNaReguaAtual = 0;
     const mantidos = (antigo?.clientes ?? [])
       .filter((c) => c?.cnpj && atendidos.has(c.cnpj) && !porCnpj.has(c.cnpj))
