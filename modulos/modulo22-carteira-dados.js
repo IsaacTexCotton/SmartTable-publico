@@ -78,7 +78,8 @@
     CHAVE_MIGRAR: 'smarttable_carteira_v2',
     CHAVES_ANTIGAS: ['smarttable_carteira_v1', 'smarttable_carteira_v2'],
     ID_PAINEL: 'smarttable-painel-carteira',
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
 
     // Primeiro nome, minúsculas, sem acento -- mesmo critério do Alt+D.
     // Aplicado na LEITURA: a captura grava a lista inteira.

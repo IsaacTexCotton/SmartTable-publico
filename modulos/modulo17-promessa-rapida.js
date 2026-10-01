@@ -65,7 +65,8 @@
     // Ponte pro reload: { cnpj, titulos, data, criadoEm }. Só isso.
     CHAVE_PONTE: 'smarttable_promessa_pendente_v1',
     VALIDADE_PONTE_MS: 3 * 60 * 1000,
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
     // Esperas pelo CRM: modal, seção de promessa, valor calculado, resultado do salvar.
     TIMEOUT_MODAL_MS: 5000,
     TIMEOUT_VALOR_MS: 5000,

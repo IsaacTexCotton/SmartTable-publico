@@ -22,9 +22,8 @@
 
   const CONFIG_PAINEL = {
     ID_PAINEL: 'smarttable-painel-config',
-    // Igual ao painel de novidades (Módulo 4): ABAIXO dos modais do CRM
-    // (z-50), senão nosso elemento corta o modal. Sem exceção.
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
   };
 
   const CORES = {

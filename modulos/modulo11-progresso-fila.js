@@ -33,8 +33,10 @@
   const CONFIG_PROGRESSO = {
     ID_BOTAO: 'smarttable-gatilho-progresso',
     ID_PAINEL: 'smarttable-painel-progresso',
-    // Igual aos painéis dos Módulos 9/10: abaixo dos modais do CRM (z-50).
+    // O gatilho (botão fixo na borda) fica na camada baixa; só o PAINEL sobe por cima do
+    // menu dos atalhos do CRM e do cabeçalho (ver Módulo 0).
     Z_INDEX: 30,
+    Z_INDEX_PAINEL: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
   };
 
   const CORES = {
@@ -357,7 +359,7 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_PROGRESSO.Z_INDEX,
+      zIndex: CONFIG_PROGRESSO.Z_INDEX_PAINEL,
       width: '300px',
       maxWidth: '92vw',
       maxHeight: '70vh',

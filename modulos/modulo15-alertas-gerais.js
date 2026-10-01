@@ -27,8 +27,8 @@
     ID_BOTAO: 'smarttable-botao-alertas-gerais',
     ID_PAINEL: 'smarttable-painel-alertas-gerais',
     ID_AVISO: 'smarttable-aviso-alertas-gerais',
-    // Abaixo dos modais do CRM, como os outros painéis.
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
     MAX_DESCRICAO: 300,
     MAX_NO_AVISO: 3,
   };

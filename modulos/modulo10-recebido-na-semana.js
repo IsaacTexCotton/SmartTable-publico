@@ -55,8 +55,8 @@
   const CONFIG_RECEBIDO = {
     ENDPOINT: '/api/crm/dashboard-consolidado',
     ID_PAINEL: 'smarttable-painel-recebido',
-    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
     TIMEOUT_MS: 15000,
 
     // Quem aparece no painel, pelo PRIMEIRO NOME (ver primeiroNomeDeUsuario no

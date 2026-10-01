@@ -52,8 +52,11 @@
     ID_BOTAO: 'smarttable-botao-alerta-cliente',
     ID_PAINEL: 'smarttable-painel-alerta-cliente',
     ID_AVISO: 'smarttable-aviso-observacao-cliente',
-    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
+    // O BOTÃO fixo fica na camada baixa (a regra de geometria abaixo explica por quê).
+    // Os POPUPS (aviso e painel) sobem por cima do menu dos atalhos do CRM e do
+    // cabeçalho (ver Módulo 0).
     Z_INDEX: 30,
+    Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
     INTERVALO_PADRAO_DIAS: 1,
     // Confirmado ao vivo: o cabeçalho do CRM (#sit-header) cobre a largura
     // toda até y=80px, com z-index 50 (o mesmo dos modais). Subir o nosso
@@ -371,7 +374,7 @@
       boxShadow: '0 10px 34px rgba(0,0,0,0.28)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_ALERTA.Z_INDEX,
+      zIndex: CONFIG_ALERTA.Z_INDEX_POPUP,
       width: '360px',
       maxWidth: '90vw',
     });
@@ -443,7 +446,7 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      zIndex: CONFIG_ALERTA.Z_INDEX,
+      zIndex: CONFIG_ALERTA.Z_INDEX_POPUP,
       width: '300px',
       maxWidth: '92vw',
     });

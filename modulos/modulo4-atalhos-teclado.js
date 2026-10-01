@@ -784,8 +784,8 @@
       boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '13px',
-      // Mesmo z-index do banner de grupo (Módulo 5): ABAIXO dos modais do CRM (z-50).
-      zIndex: 30,
+      // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+      zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
       width: '420px',
       maxWidth: '90vw',
       maxHeight: '60vh',

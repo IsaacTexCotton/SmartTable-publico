@@ -29,8 +29,8 @@
 
   const CONFIG_CONSOLE = {
     ID_PAINEL: 'smarttable-console-diagnostico',
-    // Mesmo z-index dos outros painéis nossos: ABAIXO dos modais do CRM (z-50).
-    Z_INDEX: 30,
+    // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
+    Z_INDEX: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
     // Ring buffer só em memória, nunca em localStorage.
     LIMITE_LOG: 50,
   };

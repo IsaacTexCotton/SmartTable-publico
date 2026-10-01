@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.69.1', data: '01/10/2026',
+      mudancas: [
+        'Corrigido: os popups do SmartTable passavam POR BAIXO do menu dos atalhos do módulo do CRM (a faixa com Dashboard, Clientes, Promessas...). O painel da Carteira, por exemplo, ficava coberto pelo menu. Agora os painéis (Configurações, Recebido na semana, Carteira, Progresso da fila, Console de diagnóstico, Alertas gerais, novidades), o aviso e o painel de Observação do cliente e a tela da Promessa rápida abrem por cima dele.',
+        'Os popups ficam acima do menu, do cabeçalho e dos modais comuns do CRM, mas ainda abaixo dos modais de confirmação, do aviso de grupo e da senha do CRM. Os botões fixos (a barra do Progresso na borda direita e o botão Alerta) não mudaram de camada.',
+      ],
+    },
+    {
       versao: '1.69.0', data: '01/10/2026',
       mudancas: [
         'Mensagem de cobrança (Alt+A): cliente SCPC com algum título negativado, de qualquer dia de atraso, não recebe mais nenhuma menção ao título de último dia. Saem a frase "Em vermelho, o título no prazo final antes do SCPC" da legenda do relatório e a linha do título de último dia no texto sem imagem. A mensagem fica com o aviso do negativado e a pergunta final que segue o negativado.',

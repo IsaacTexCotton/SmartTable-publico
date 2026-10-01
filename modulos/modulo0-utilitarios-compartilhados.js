@@ -758,7 +758,17 @@
   // ============================================================
   // EXPORT
   // ============================================================
+  // Camada dos POPUPS nossos (painéis, avisos, sobreposição da promessa). O menu dos
+  // atalhos do módulo (#sit-quicknav, z-40) fica DENTRO do cabeçalho do CRM
+  // (#sit-header, fixed, z-50), então para a página inteira o menu vale 50, o
+  // mesmo dos modais. Confirmado no CRM real (diagnóstico censurado, 2026-10-01).
+  // 55 passa por cima do menu e do cabeçalho, e fica abaixo dos modais z-60 do
+  // CRM (confirmação, upsell de grupo, senha) e do toast z-70 dele. Botões fixos
+  // (gatilho do progresso, botão Alerta) NÃO usam esta camada.
+  const Z_INDEX_POPUP = 55;
+
   window.__smartTableUtil = {
+    Z_INDEX_POPUP,
     normalizarData,
     toast,
     colocarNaPilha,
