@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.71.0', data: '02/10/2026',
+      mudancas: [
+        'Novo: "Meta da semana" dentro do Alt+D (Entrou na semana), logo depois do Total recuperado. Você digita a meta da semana (o valor dos dois, Isaac e Bianca) e o painel mostra quanto já foi recebido (o "Os dois" do Total recuperado), quanto falta, quantos dias úteis restam (contando hoje, sem fim de semana nem feriado) e o ritmo por dia útil para chegar lá.',
+        'O ritmo se ajusta sozinho: se hoje entra menos, amanhã ele sobe. Se hoje não é dia útil, ele vale para o próximo dia útil. Batida a meta, o bloco mostra quanto passou, e sem dia útil restante mostra só o que falta.',
+        'Atenção: as promessas pagas hoje só aparecem amanhã (a verificação é de madrugada), então o ritmo usa o que o painel já enxerga naquele momento. O aviso está na própria tela. Se o total não puder ser lido, a meta fica indisponível, sem número parcial.',
+        'A meta é um valor só, que vale até você mudar (deixe o campo vazio e salve para apagar), e o bloco só aparece na semana atual. Fica guardada neste navegador: cada um (você e a Bianca) digita a sua. Módulo novo: o 26 (Meta Semanal).',
+      ],
+    },
+    {
       versao: '1.70.1', data: '02/10/2026',
       mudancas: [
         'Corrigido nos lembretes de bloqueio (Alt+E): se o SmartTable não conseguisse ler uma linha da tabela de títulos, ou lesse a tabela antes de ela terminar de carregar, um cliente que já estava bloqueado recebia o aviso "Liberar do bloqueio" por engano. Agora, com leitura incompleta, ele não avalia nem grava nada e avisa por mensagem que não conseguiu ler. Cliente que quitou tudo continua recebendo o aviso de liberar normalmente.',

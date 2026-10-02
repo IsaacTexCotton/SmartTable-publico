@@ -999,6 +999,13 @@
         return;
       }
 
+      // Mesma exceção pro Alt+D: o painel "Entrou na semana" tem o campo da meta (Módulo 26).
+      if (e.code === CONFIG_ATALHOS.TECLA_RECEBIDO_SEMANA && window.__recebidoSemana?.estaAberto?.()) {
+        e.preventDefault();
+        window.__recebidoSemana.fecharPainel();
+        return;
+      }
+
       // Mesma exceção pro Alt+E: o painel das regras tem campo de texto e checkbox, e
       // com o foco neles estaDigitando() barraria o próprio toggle. Só FECHA; abrir
       // continua exigindo que o operador não esteja digitando em outro lugar.

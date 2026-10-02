@@ -43,6 +43,7 @@
  * ONDE COLAR: depois do Módulo 0 (usa semanaSabadoASexta, dataIso,
  * primeiroNomeDeUsuario e formatarMoeda de lá). Usa o calendário do Módulo 1
  * (`window.__avisoCobranca.feriados`) quando presente.
+ * O Módulo 26 (meta semanal), se carregado, desenha o bloco "Meta da semana" depois do total.
  * Expõe: window.__recebidoSemana (ver o fim do arquivo).
  * ========================================================================= */
 (function () {
@@ -670,11 +671,22 @@
   }
 
   /** @param {HTMLElement} corpo @param {object} resumo */
-  function desenharResumo(corpo, resumo, { semanaAnterior: anterior = false } = {}) {
+  function desenharResumo(corpo, resumo, { semanaAnterior: anterior = false, semana = null } = {}) {
     corpo.textContent = '';
     resumo.metricas.forEach((metrica) => corpo.appendChild(criarBlocoMetrica(metrica)));
 
     corpo.appendChild(criarBlocoTotal(resumo));
+    // Meta da semana (Módulo 26, opcional): só na semana ATUAL, contra o mesmo total.
+    if (!anterior && semana && window.__metaSemanal?.criarBloco) {
+      try {
+        corpo.appendChild(window.__metaSemanal.criarBloco({
+          resumo, semana, hojeIso: util().dataIso(relogio.agora()), ehDiaUtilIso,
+        }));
+      } catch (erro) {
+        // A meta nunca derruba o painel de recebimentos.
+        console.warn('[Recebido na semana] Meta semanal:', erro?.name);
+      }
+    }
     // "Promessas feitas hoje" é do dia de hoje: não faz sentido na semana anterior.
     if (!anterior) corpo.appendChild(criarBlocoFeitasHoje(resumo.feitasHoje));
   }
@@ -723,7 +735,7 @@
         console.warn('[Recebido na semana] Promessas:', rPromessas.reason?.message);
         promessas = { erro: `Não consegui ler as promessas: ${rPromessas.reason?.message ?? 'erro desconhecido'}` };
       }
-      desenharResumo(corpo, montarResumo(rDados.value, promessas), { semanaAnterior: anterior });
+      desenharResumo(corpo, montarResumo(rDados.value, promessas), { semanaAnterior: anterior, semana });
     } catch (erro) {
       if (!painelEl || !corpo.isConnected) return;
       corpo.textContent = '';
@@ -761,6 +773,7 @@
     apurarPromessasFeitasNoDia,
     promessaEntraNaSemana,
     diaUtilAnteriorIso,
+    ehDiaUtilIso,
     diaDoPagamentoDaPromessa,
     montarResumo,
     valorDaPessoa,

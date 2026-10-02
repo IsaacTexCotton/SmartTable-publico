@@ -678,6 +678,7 @@
     'Carteira: Histórico',
     'Busca Rápida',
     'Lembretes de Bloqueio',
+    'Meta Semanal',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
