@@ -36,8 +36,15 @@
  *   smarttable_lembretes_bloqueio_estados_v1  estado por regra e hash do cliente
  *   smarttable_lembretes_bloqueio_clusters_v1 cluster por hash do cliente
  *
- * ONDE COLAR: depois dos Módulos 0, 1, 12 e 22 (usa o hash do 22 e o
- * simular() do 1) e ANTES do Módulo 4 (que liga o Alt+E).
+ * LEITURA CONFIÁVEL: só avalia com a leitura completa. Linha da tabela ilegível
+ * (`ignorados` do Módulo 1), tabela ainda sem linhas enquanto a página diz que há
+ * títulos abertos (`__TITULOS_ABERTOS__`), acordos ainda sendo lidos ou lidos com erro
+ * (Módulo 16): nada é avaliado nem gravado, e o operador é avisado por toast. Leitura
+ * parcial NUNCA vira "deixou de casar" (isso mandaria liberar um cliente que deve
+ * continuar bloqueado). Em aba escondida (as da fila do Alt+U) espera ficar visível.
+ *
+ * ONDE COLAR: depois dos Módulos 0, 1, 12, 16 e 22 (usa o hash do 22, o simular() do 1
+ * e a espera dos acordos do 16) e ANTES do Módulo 4 (que liga o Alt+E).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -63,6 +70,8 @@
     TIMEOUT_TABELA_MS: 20000,
     INTERVALO_TABELA_MS: 500,
     MS_CONFIRMAR_EXCLUSAO: 4000,
+    // Menos que isto embaixo do aviso do Alerta: o nosso sobe para o topo.
+    ALTURA_MINIMA_EMBAIXO_PX: 140,
   };
 
   // A chave é o que se compara; o rótulo e a frase são o que o operador lê.
@@ -71,7 +80,7 @@
     { chave: 'carteira', rotulo: 'Carteira' },
   ];
   const SITUACOES = [
-    { chave: 'EM_CARTORIO', rotulo: 'Em cartório', frase: 'com título em cartório' },
+    { chave: 'EM_CARTORIO', rotulo: 'Em cartório', descricao: 'título em cartório' },
   ];
 
   const CORES = {
@@ -143,6 +152,8 @@
   }
 
   const hojeIso = (hoje) => util().dataIso(util().normalizarData(hoje ?? new Date()));
+
+  const ehDataIso = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
   function diasEntreIso(de, ate) {
     return Math.round((Date.parse(`${ate}T12:00:00`) - Date.parse(`${de}T12:00:00`)) / 86400000);
@@ -223,21 +234,25 @@
     return chave ? (lerEstados()[regraId]?.[chave]?.e ?? null) : null;
   }
 
-  /** estado null apaga. @returns {boolean} false se não gravou. */
-  function definirEstado(regraId, cnpj, estado, hoje) {
+  /**
+   * estado null apaga. `nome` é o bloqueio em que o cliente foi inserido: renomear a regra
+   * depois não pode mudar o que o aviso de liberar diz.
+   * @returns {boolean} false se não gravou.
+   */
+  function definirEstado(regraId, cnpj, estado, nome) {
     const chave = chaveDoCliente(cnpj);
     if (!chave) return false;
     const estados = lerEstados();
     const doCliente = { ...(estados[regraId] || {}) };
-    if (estado) doCliente[chave] = { e: estado, d: hojeIso(hoje) };
+    if (estado) doCliente[chave] = nome ? { e: estado, n: String(nome) } : { e: estado };
     else delete doCliente[chave];
     if (Object.keys(doCliente).length > 0) estados[regraId] = doCliente;
     else delete estados[regraId];
     return salvarEstados(estados);
   }
 
-  /** O operador diz que inseriu o cliente no bloqueio. */
-  const confirmarBloqueio = (regraId, cnpj, hoje) => definirEstado(regraId, cnpj, 'bloqueado', hoje);
+  /** O operador diz que inseriu o cliente no bloqueio `nome`. */
+  const confirmarBloqueio = (regraId, cnpj, nome) => definirEstado(regraId, cnpj, 'bloqueado', nome);
   /** O operador diz que liberou o cliente do bloqueio: zera o estado. */
   const confirmarLiberacao = (regraId, cnpj) => definirEstado(regraId, cnpj, null);
 
@@ -268,12 +283,18 @@
     let podou = false;
     Object.keys(clientes).forEach((chave) => {
       const visto = clientes[chave]?.v;
-      if (typeof visto !== 'string' || diasEntreIso(visto, dia) > CONFIG_LEMBRETES.DIAS_GUARDAR_CLUSTER) {
+      if (!ehDataIso(visto) || diasEntreIso(visto, dia) > CONFIG_LEMBRETES.DIAS_GUARDAR_CLUSTER) {
         delete clientes[chave];
         podou = true;
       }
     });
-    if (guardados > 0 || podou) gravar(CONFIG_LEMBRETES.CHAVE_CLUSTERS, { versao: 1, clientes });
+    if (guardados > 0 || podou) {
+      if (!gravar(CONFIG_LEMBRETES.CHAVE_CLUSTERS, { versao: 1, clientes })) {
+        // Sem isto o aviso diria "não apareceu na lista", o que seria falso e não se resolve reabrindo a lista.
+        util()?.toast?.('Lembretes de bloqueio: não consegui guardar o cluster dos clientes (o navegador recusou a gravação).', 8000);
+        return 0;
+      }
+    }
     return guardados;
   }
 
@@ -284,7 +305,7 @@
   function clusterDoCliente(cnpj, hoje) {
     const chave = chaveDoCliente(cnpj);
     const reg = chave ? objetoSimples(lerObjeto(CONFIG_LEMBRETES.CHAVE_CLUSTERS).clientes)[chave] : null;
-    if (!reg || typeof reg.c !== 'string' || typeof reg.v !== 'string') return { cluster: null, idadeDias: null, desatualizado: false };
+    if (!reg || typeof reg.c !== 'string' || !ehDataIso(reg.v)) return { cluster: null, idadeDias: null, desatualizado: false };
     const idadeDias = diasEntreIso(reg.v, hojeIso(hoje));
     return { cluster: reg.c, idadeDias, desatualizado: idadeDias > CONFIG_LEMBRETES.DIAS_CLUSTER_VALIDO };
   }
@@ -300,19 +321,46 @@
    * SITUAÇÃO DOS TÍTULOS (a que o Módulo 1 já calcula)
    * --------------------------------------------------------------------- */
 
-  /** @returns {Set<string>|null} situações presentes nesta página; null se não deu para ler. */
-  function situacoesDaPagina() {
+  const SELETOR_LINHAS_DA_TABELA = '#tabela-titulos-ds table tbody tr';
+
+  /**
+   * Lê as situações dos títulos desta página SÓ quando a leitura está completa.
+   * @returns {{situacoes: Set<string>}|{erro: 'sem-tabela'|'sem-linhas'|'ilegivel'}}
+   *   sem-tabela e sem-linhas podem se resolver esperando; ilegivel não (a linha continua ilegível).
+   */
+  function lerSituacoesDaPagina() {
+    let dados;
     try {
-      const dados = window.__avisoCobranca?.simular?.();
-      if (!dados) return null;
-      const presentes = new Set();
-      [...(dados.registros || []), ...(dados.naoCobrar || []), ...(dados.foraDoRelatorio || [])].forEach((r) => {
-        if (r?.situacaoKey) presentes.add(r.situacaoKey);
-      });
-      return presentes;
+      dados = window.__avisoCobranca?.simular?.();
     } catch {
-      return null;
+      return { erro: 'sem-tabela' };
     }
+    if (!dados) return { erro: 'sem-tabela' };
+    // Linha com vencimento ilegível: o título pode ser justamente o que está em cartório.
+    if (Array.isArray(dados.ignorados) && dados.ignorados.length > 0) return { erro: 'ilegivel' };
+
+    // Tabela já existe mas ainda não tem linhas: só vale como "sem títulos" se a página confirma
+    // (lista de abertos vazia). Com títulos abertos e nenhuma linha, a tabela ainda está sendo montada.
+    if (document.querySelectorAll(SELETOR_LINHAS_DA_TABELA).length === 0) {
+      let abertos;
+      try {
+        abertos = util()?.lerVariavelDoScript?.(document, '__TITULOS_ABERTOS__');
+      } catch {
+        abertos = undefined;
+      }
+      if (!Array.isArray(abertos) || abertos.length > 0) return { erro: 'sem-linhas' };
+    }
+
+    const presentes = new Set();
+    [...(dados.registros || []), ...(dados.naoCobrar || []), ...(dados.foraDoRelatorio || [])].forEach((r) => {
+      if (r?.situacaoKey) presentes.add(r.situacaoKey);
+    });
+    return { situacoes: presentes };
+  }
+
+  /** @returns {Set<string>|null} situações presentes nesta página; null se a leitura não está completa. */
+  function situacoesDaPagina() {
+    return lerSituacoesDaPagina().situacoes ?? null;
   }
 
   /* ---------------------------------------------------------------------
@@ -337,9 +385,9 @@
     const pendencias = [];
     let mudou = false;
 
-    const marcar = (regraId, estado) => {
+    const marcar = (regraId, estado, nome) => {
       estados[regraId] = { ...(estados[regraId] || {}) };
-      if (estado) estados[regraId][chave] = { e: estado, d: hojeIso(hoje) };
+      if (estado) estados[regraId][chave] = nome ? { e: estado, n: nome } : { e: estado };
       else delete estados[regraId][chave];
       if (Object.keys(estados[regraId]).length === 0) delete estados[regraId];
       mudou = true;
@@ -366,18 +414,22 @@
         return;
       }
 
+      // O aviso de liberar cita o bloqueio em que o cliente FOI inserido, mesmo que a regra tenha sido renomeada.
+      const nomeInserido = estados[regra.id]?.[chave]?.n || base.bloqueio;
       if (atual === 'bloqueado') {
-        marcar(regra.id, 'liberar');
-        pendencias.push({ ...base, tipo: 'liberar' });
+        marcar(regra.id, 'liberar', nomeInserido);
+        pendencias.push({ ...base, bloqueio: nomeInserido, tipo: 'liberar' });
       } else if (atual === 'liberar') {
-        pendencias.push({ ...base, tipo: 'liberar' });
+        pendencias.push({ ...base, bloqueio: nomeInserido, tipo: 'liberar' });
       } else if (atual === 'bloquear') {
         // Nunca chegou a ser bloqueado por aqui e já saiu da regra: não há o que liberar.
         marcar(regra.id, null);
       }
     });
 
-    if (mudou) salvarEstados(estados);
+    if (mudou && !salvarEstados(estados)) {
+      util()?.toast?.('Lembretes de bloqueio: não consegui salvar o estado deste cliente (o navegador recusou a gravação).', 8000);
+    }
     return pendencias;
   }
 
@@ -424,7 +476,8 @@
 
   function textoDaPendencia(p) {
     const cluster = rotuloDoCluster(p.cluster);
-    const frase = situacaoDe(p.situacao)?.frase ?? '';
+    const descricao = situacaoDe(p.situacao)?.descricao ?? '';
+    const frase = `com ${descricao}`;
     if (p.tipo === 'bloquear') {
       return {
         titulo: `🔒 Inserir este cliente no bloqueio "${p.bloqueio}"`,
@@ -444,7 +497,7 @@
       : 'ele não apareceu na lista de clientes neste navegador, então não sei o cluster dele';
     return {
       titulo: `⚠ Não consegui conferir a regra "${p.bloqueio}"`,
-      linha: `Este cliente tem título em cartório, mas ${quando}. Abra a lista de clientes para atualizar e entre nele de novo.`,
+      linha: `Este cliente tem ${descricao}, mas ${quando}. Abra a lista de clientes para atualizar e entre nele de novo.`,
       cor: CORES.alerta,
     };
   }
@@ -452,15 +505,26 @@
   /** Embaixo do aviso do Alerta (Módulo 12), se ele estiver aberto; senão, no mesmo lugar dele. */
   function posicionarAviso(el) {
     el.style.left = '50%';
+    el.style.overflowY = 'auto';
     const idAlerta = window.__alertaCliente?.CONFIG_ALERTA?.ID_AVISO;
     const alerta = idAlerta ? document.getElementById(idAlerta) : null;
     const base = alerta?.getBoundingClientRect?.();
-    if (base && base.bottom > 0) {
-      el.style.top = `${Math.round(base.bottom + 12)}px`;
+    const topo = base ? Math.round(base.bottom + 12) : 0;
+    if (base && base.bottom > 0 && window.innerHeight - topo - 16 >= CONFIG_LEMBRETES.ALTURA_MINIMA_EMBAIXO_PX) {
+      el.style.top = `${topo}px`;
       el.style.transform = 'translateX(-50%)';
+      // Em tela baixa o aviso rola em vez de empurrar "Já bloqueei" para fora da tela.
+      el.style.maxHeight = `calc(100vh - ${topo}px - 16px)`;
+    } else if (base && base.bottom > 0) {
+      // O aviso do Alerta ocupa quase a tela (observação longa): embaixo dele não sobra lugar, e um aviso de
+      // altura zero seria invisível. Sobe para o topo (por cima, pois entra depois no DOM): visível e clicável.
+      el.style.top = '12px';
+      el.style.transform = 'translateX(-50%)';
+      el.style.maxHeight = '80vh';
     } else {
       el.style.top = '42%';
       el.style.transform = 'translate(-50%, -50%)';
+      el.style.maxHeight = '80vh';
     }
   }
 
@@ -489,6 +553,8 @@
       zIndex: CONFIG_LEMBRETES.Z_INDEX_POPUP,
       width: '380px',
       maxWidth: '90vw',
+      // Sem isto o max-height (ver posicionarAviso) não conta o preenchimento e o aviso passa da tela.
+      boxSizing: 'border-box',
     });
 
     pendencias.forEach((p) => {
@@ -511,7 +577,7 @@
       } else {
         const jaFiz = criarBotao(p.tipo === 'bloquear' ? 'Já bloqueei' : 'Já liberei', 'ja-fiz', true);
         jaFiz.addEventListener('click', () => {
-          const gravou = p.tipo === 'bloquear' ? confirmarBloqueio(p.regraId, cnpj) : confirmarLiberacao(p.regraId, cnpj);
+          const gravou = p.tipo === 'bloquear' ? confirmarBloqueio(p.regraId, cnpj, p.bloqueio) : confirmarLiberacao(p.regraId, cnpj);
           // Falha de gravação NÃO apaga o lembrete: o operador acharia que ficou registrado.
           if (!gravou) {
             util()?.toast?.('Não consegui salvar (o navegador recusou a gravação). O lembrete continua.', 8000);
@@ -725,40 +791,52 @@
    * CARGA DA PÁGINA
    * --------------------------------------------------------------------- */
 
-  /** Espera a tabela de títulos (montada por outro script, depois deste). null no teto. */
+  /**
+   * Espera a leitura COMPLETA da tabela de títulos (montada por outro script, depois deste).
+   * @returns {Promise<{situacoes: Set<string>}|{erro: string}>} no teto, o último erro.
+   */
   async function aguardarSituacoes() {
-    if (typeof window.__avisoCobranca?.simular !== 'function') return null;
+    if (typeof window.__avisoCobranca?.simular !== 'function') return { erro: 'sem-tabela' };
     const limite = Date.now() + CONFIG_LEMBRETES.TIMEOUT_TABELA_MS;
     for (;;) {
-      const presentes = situacoesDaPagina();
-      if (presentes) return presentes;
-      if (Date.now() >= limite) return null;
+      const leitura = lerSituacoesDaPagina();
+      // "ilegivel" não melhora esperando: a linha continua ilegível.
+      if (leitura.situacoes || leitura.erro === 'ilegivel') return leitura;
+      if (Date.now() >= limite) return leitura;
       await util().esperar(CONFIG_LEMBRETES.INTERVALO_TABELA_MS);
     }
   }
 
   /**
    * Na página de um cliente: avalia as regras e mostra o aviso. Sem regra
-   * pronta, não faz nada. Não avalia sem confirmar os acordos (o título em
-   * acordo sai da conta): melhor pedir para reabrir do que avisar errado.
+   * pronta, não faz nada. Só avalia com a leitura completa (acordos e títulos):
+   * melhor pedir para reabrir do que avisar, ou gravar, errado.
    */
   async function avaliarPaginaDoCliente({ hoje } = {}) {
     const cnpj = cnpjDaPagina();
     if (!cnpj || !obterRegras().some(regraPronta)) return [];
+    const avisar = (texto) => util()?.toast?.(`Lembretes de bloqueio: ${texto}`, 8000);
 
     if (window.__negociacoes?.aguardar) {
       const acordosLidos = await window.__negociacoes.aguardar();
       if (acordosLidos === false) {
-        util()?.toast?.('Lembretes de bloqueio: ainda estou lendo os acordos deste cliente. Entre nele de novo em instantes.', 8000);
+        avisar('ainda estou lendo os acordos deste cliente. Entre nele de novo em instantes.');
+        return [];
+      }
+      // A espera termina "ok" mesmo quando algum acordo não pôde ser lido: o título em acordo sairia da conta.
+      if (window.__negociacoes.avisoPendente?.()) {
+        avisar('não consegui ler algum acordo deste cliente, então não avalio agora. Confira o aviso do CRM e entre nele de novo.');
         return [];
       }
     }
-    const situacoes = await aguardarSituacoes();
-    if (!situacoes) {
-      util()?.toast?.('Lembretes de bloqueio: não consegui ler os títulos deste cliente. Entre nele de novo.', 8000);
+    const leitura = await aguardarSituacoes();
+    if (!leitura.situacoes) {
+      avisar(leitura.erro === 'ilegivel'
+        ? 'não consegui ler alguma linha da tabela de títulos deste cliente, então não avalio agora.'
+        : 'não consegui ler os títulos deste cliente. Entre nele de novo.');
       return [];
     }
-    const pendencias = avaliarCliente({ cnpj, situacoes, hoje });
+    const pendencias = avaliarCliente({ cnpj, situacoes: leitura.situacoes, hoje });
     mostrarAviso(pendencias, cnpj);
     return pendencias;
   }
@@ -772,10 +850,24 @@
     } catch (erro) {
       console.warn('[Lembretes de bloqueio] Não consegui guardar o cluster da lista.', erro?.name);
     }
-    if (cnpjDaPagina()) {
-      avaliarPaginaDoCliente().catch((erro) => {
-        console.warn(`[Lembretes de bloqueio] Falha ao avaliar o cliente ${util()?.apelidoParaLog?.(cnpjDaPagina()) ?? 'cli.????'}.`, erro?.name);
-      });
+    if (!cnpjDaPagina()) return;
+
+    const avaliar = () => avaliarPaginaDoCliente().catch((erro) => {
+      console.warn(`[Lembretes de bloqueio] Falha ao avaliar o cliente ${util()?.apelidoParaLog?.(cnpjDaPagina()) ?? 'cli.????'}.`, erro?.name);
+      // Falha inesperada não pode deixar o lembrete sumir sem sinal.
+      util()?.toast?.('Lembretes de bloqueio: erro ao avaliar este cliente (veja o console). Entre nele de novo.', 8000);
+    });
+    // As abas de fundo da fila do Alt+U (Módulo 7) também carregam esta página: só quem está à vista avalia
+    // (senão uma aba de fundo regrava o estado por cima do que o operador acabou de confirmar em outra).
+    if (document.visibilityState === 'hidden') {
+      const aoFicarVisivel = () => {
+        if (document.visibilityState === 'hidden') return;
+        document.removeEventListener('visibilitychange', aoFicarVisivel);
+        avaliar();
+      };
+      document.addEventListener('visibilitychange', aoFicarVisivel);
+    } else {
+      avaliar();
     }
   }
 
@@ -805,6 +897,7 @@
     clusterDoCliente,
     resumoDoCache,
     situacoesDaPagina,
+    lerSituacoesDaPagina,
     avaliarCliente,
     avaliarPaginaDoCliente,
     mostrarAviso,

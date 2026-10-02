@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.70.1', data: '02/10/2026',
+      mudancas: [
+        'Corrigido nos lembretes de bloqueio (Alt+E): se o SmartTable não conseguisse ler uma linha da tabela de títulos, ou lesse a tabela antes de ela terminar de carregar, um cliente que já estava bloqueado recebia o aviso "Liberar do bloqueio" por engano. Agora, com leitura incompleta, ele não avalia nem grava nada e avisa por mensagem que não conseguiu ler. Cliente que quitou tudo continua recebendo o aviso de liberar normalmente.',
+        'Também não avalia quando algum acordo do cliente não pôde ser lido (o título em acordo sai da conta) e não avalia nas abas de fundo que o Alt+U abre: espera a aba ficar à vista, para uma aba de fundo não regravar o que você acabou de confirmar em outra.',
+        'O aviso de "Liberar" passa a citar o bloqueio em que o cliente foi inserido, mesmo que você tenha renomeado a regra depois. O aviso agora rola em tela baixa em vez de cortar os botões, e sobe para o topo se o aviso do Alerta ocupar quase a tela. Falhas de gravação (cluster, estado, regras) e erros inesperados agora aparecem por mensagem, não só no console.',
+      ],
+    },
+    {
       versao: '1.70.0', data: '02/10/2026',
       mudancas: [
         'Novo: Alt+E abre as "Regras de lembrete". Cada regra junta um cluster (Novo ou Carteira), uma situação de título (por ora, em cartório) e o nome de um bloqueio. Exemplo: todo cliente Novo com título em cartório, ao entrar nele, o SmartTable avisa para inserir no bloqueio que você nomeou.',

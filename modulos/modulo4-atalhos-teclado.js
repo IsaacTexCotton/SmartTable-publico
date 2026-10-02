@@ -161,7 +161,7 @@
     { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },
-    { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio: avisa ao entrar no cliente que é hora de bloquear ou liberar (só avisa, não bloqueia nada)' },
+    { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
