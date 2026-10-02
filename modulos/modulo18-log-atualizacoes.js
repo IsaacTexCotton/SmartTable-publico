@@ -24,6 +24,16 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.70.0', data: '02/10/2026',
+      mudancas: [
+        'Novo: Alt+E abre as "Regras de lembrete". Cada regra junta um cluster (Novo ou Carteira), uma situação de título (por ora, em cartório) e o nome de um bloqueio. Exemplo: todo cliente Novo com título em cartório, ao entrar nele, o SmartTable avisa para inserir no bloqueio que você nomeou.',
+        'O lembrete só AVISA: não bloqueia nada no CRM, não trava o Alt+A nem o Alt+S. "Em cartório" é a mesma situação que o relatório pinta de amarelo, e vale qualquer título do cliente nessa situação.',
+        'O aviso tem "Já bloqueei" e "Lembrar depois". Quando o cliente deixa de cair na regra (o título saiu do cartório, por exemplo), vem o aviso inverso, "Liberar do bloqueio", com "Já liberei". Se ele voltar a cair na regra depois de liberado, o aviso de bloquear volta. O aviso aparece só quando você ENTRA no cliente.',
+        'O cluster do cliente só aparece na lista de clientes, não na página dele. Por isso, a cada vez que a lista abre, o SmartTable guarda o cluster de cada cliente neste navegador (sem nome nem CNPJ, só um código). Se a regra casa e o cluster do cliente não é conhecido ou tem mais de 7 dias, o aviso diz que não conseguiu conferir, em vez de ficar quieto: abra a lista para atualizar.',
+        'Tudo fica só neste navegador (as regras, o estado de cada cliente e o cluster). Módulo novo: o 25 (Lembretes de Bloqueio). Se o Tampermonkey não carregar o Alt+E, é cache do script: atualize o SmartTable.',
+      ],
+    },
+    {
       versao: '1.69.1', data: '01/10/2026',
       mudancas: [
         'Corrigido: os popups do SmartTable passavam POR BAIXO do menu dos atalhos do módulo do CRM (a faixa com Dashboard, Clientes, Promessas...). O painel da Carteira, por exemplo, ficava coberto pelo menu. Agora os painéis (Configurações, Recebido na semana, Carteira, Progresso da fila, Console de diagnóstico, Alertas gerais, novidades), o aviso e o painel de Observação do cliente e a tela da Promessa rápida abrem por cima dele.',

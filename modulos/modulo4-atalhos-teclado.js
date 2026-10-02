@@ -114,6 +114,7 @@
     TECLA_CARTEIRA: 'KeyM',
     TECLA_CONSOLE_DIAGNOSTICO: 'KeyK',
     TECLA_PROMESSA_RAPIDA: 'KeyN',
+    TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
     // existir, botão de relatório reabilitar), não um tempo fixo.
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
@@ -160,6 +161,7 @@
     { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },
+    { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio: avisa ao entrar no cliente que é hora de bloquear ou liberar (só avisa, não bloqueia nada)' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
@@ -703,7 +705,7 @@
 
   /**
    * Pontes pros painéis dos módulos 9 (Alt+O), 10 (Alt+D), 13 (Alt+K), 14
-   * (Alt+M) e 17 (Alt+N): checam a existência em vez de assumir; módulo que
+   * (Alt+M), 17 (Alt+N) e 25 (Alt+E): checam a existência em vez de assumir; módulo que
    * não carregou (cache antigo, @require 404) avisa e não derruba os outros.
    */
   function alternarPainelRecebido() {
@@ -731,6 +733,16 @@
     if (!painel || typeof painel.alternarPainel !== 'function') {
       console.warn('[Atalhos] O Módulo 14 (carteira) não carregou -- Alt+M sem efeito.');
       window.__smartTableUtil?.toast?.('Painel da carteira não carregou (veja o console).');
+      return;
+    }
+    painel.alternarPainel();
+  }
+
+  function alternarLembretesBloqueio() {
+    const painel = window.__lembretesBloqueio;
+    if (!painel || typeof painel.alternarPainel !== 'function') {
+      console.warn('[Atalhos] O Módulo 25 (lembretes de bloqueio) não carregou -- Alt+E sem efeito.');
+      window.__smartTableUtil?.toast?.('Lembretes de bloqueio não carregou (veja o console).');
       return;
     }
     painel.alternarPainel();
@@ -987,6 +999,15 @@
         return;
       }
 
+      // Mesma exceção pro Alt+E: o painel das regras tem campo de texto e checkbox, e
+      // com o foco neles estaDigitando() barraria o próprio toggle. Só FECHA; abrir
+      // continua exigindo que o operador não esteja digitando em outro lugar.
+      if (e.code === CONFIG_ATALHOS.TECLA_LEMBRETES_BLOQUEIO && window.__lembretesBloqueio?.estaAberto?.()) {
+        e.preventDefault();
+        window.__lembretesBloqueio.fecharPainel();
+        return;
+      }
+
       if (estaDigitando()) return;
 
       switch (e.code) {
@@ -1057,6 +1078,10 @@
         case CONFIG_ATALHOS.TECLA_PROMESSA_RAPIDA:
           e.preventDefault();
           alternarPromessaRapida();
+          break;
+        case CONFIG_ATALHOS.TECLA_LEMBRETES_BLOQUEIO:
+          e.preventDefault();
+          alternarLembretesBloqueio();
           break;
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();

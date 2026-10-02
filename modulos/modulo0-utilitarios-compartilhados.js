@@ -677,6 +677,7 @@
     'Carteira: Dados',
     'Carteira: Histórico',
     'Busca Rápida',
+    'Lembretes de Bloqueio',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
