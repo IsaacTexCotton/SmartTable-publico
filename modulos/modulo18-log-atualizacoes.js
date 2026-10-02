@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.74.0', data: '02/10/2026',
+      mudancas: [
+        'Novo: botão "Contatos do Google" na lista de clientes (ao lado dos outros botões da barra). Ele abre um painel com os clientes da lista cujo contato do Google é DIFERENTE do "Responsável financeiro" do CRM, sem você entrar cliente por cliente: o SmartTable lê o responsável de cada cliente que tem contato (só desses, sem abrir aba) e mostra "No CRM" e "No Google" lado a lado, com "Abrir cliente" em cada linha.',
+        'O casamento agora também confere a razão social: o contato é comparado com a razão social e o nome fantasia do cliente, e cada linha diz "CNPJ e razão conferem", "Razão diferente: conferir" ou "Só o CNPJ". A comparação ignora LTDA, LTA, ME e "de/da/do" e perdoa um erro de digitação (junihno = juninho). Para isso importe o CSV de novo no Alt+J (a razão do contato passa a ser guardada).',
+        'Novo: interruptores "Nome do responsável" e "Celular" (no Alt+J e no painel da lista) para escolher o que comparar e preencher: só nomes, só celulares ou os dois (sempre pelo menos um ligado). Valem também para o aviso ao abrir o cliente. O celular de 10 dígitos do CRM (sem o 9 da frente) agora é reconhecido como o mesmo número do contato com 11 dígitos. Módulo novo: o 29 (Contatos do Google: Lista).',
+      ],
+    },
+    {
       versao: '1.73.1', data: '02/10/2026',
       mudancas: [
         'Corrigido nos Contatos do Google (Alt+J): "Preencher" agora trata nome e celular juntos. Se o CRM já tem OUTRO nome e você não marcou "Substituir o que já está no CRM", nada é digitado (antes só o celular era preenchido e o número de uma pessoa ficava sob o nome de outra, com o selo WHATS apontando para ele). O aviso diz qual nome está no CRM.',

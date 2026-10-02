@@ -47,6 +47,10 @@
     VERSAO_BANCO: 1,
     TABELA: 'raizes',
     CHAVE_META: 'smarttable_contatos_google_meta_v1',
+    // Interruptores Nome / Celular (o que comparar e preencher); só preferência, nenhum dado de contato.
+    CHAVE_MODO: 'smarttable_contatos_google_modo_v1',
+    // Razão social do contato guardada com no máximo isto (o resto é cortado).
+    MAX_RAZAO: 120,
     ID_PAINEL: 'smarttable-contatos-google-painel',
     ID_AVISO: 'smarttable-contatos-google-aviso',
     // maxlength do campo "Nome do responsável" no modal do CRM (confirmado no diagnóstico).
@@ -124,7 +128,7 @@
   }
 
   /**
-   * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome }.
+   * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome, razao }.
    * Raiz = 8 caracteres (com ou sem pontos, "12.345.678"), logo seguida de uma UF válida; a
    * razão pode ter " - " dentro (a raiz é a primeira que vem com UF depois) e, sem razão, a raiz
    * ainda identifica a empresa sem ambiguidade. Depois da UF:
@@ -142,7 +146,8 @@
       let grupo = null;
       if (resto.length > 0 && /^GP(\s|$)/i.test(resto[0])) grupo = resto.shift();
       const nome = resto.join(' - ').trim();
-      return { raiz, uf, grupo, nome: nome || null };
+      const razao = partes.slice(0, i).join(' - ').trim().slice(0, CONFIG_CONTATOS.MAX_RAZAO);
+      return { raiz, uf, grupo, nome: nome || null, razao: razao || null };
     }
     return null;
   }
@@ -178,7 +183,7 @@
    * Google exporta (confirmado pelo cabeçalho do usuário); sem elas, erro com o motivo.
    * O nome do contato pode estar em First/Middle/Last Name juntos, em File As ou em Organization Name.
    *
-   * @returns {{erro: string} | {contatos: Array<{raiz: string, uf: string, grupo: string|null, nome: string|null, celulares: string[]}>,
+   * @returns {{erro: string} | {contatos: Array<{raiz: string, uf: string, grupo: string|null, razao: string|null, nome: string|null, celulares: string[]}>,
    *   resumo: {lidos: number, reconhecidos: number, foraDoPadrao: number, foraVazio: number, foraSemRaiz: number,
    *   foraRaizSemUf: number, semNome: number, semCelular: number, nomeLongo: number}}}
    */
@@ -228,10 +233,10 @@
       if (!nome) resumo.semNome += 1;
       if (celulares.length === 0) resumo.semCelular += 1;
       resumo.reconhecidos += 1;
-      const chave = [achado.raiz, achado.uf, achado.grupo, nome, celulares.join(',')].join('|');
+      const chave = [achado.raiz, achado.uf, achado.grupo, achado.razao, nome, celulares.join(',')].join('|');
       if (vistos.has(chave)) return;
       vistos.add(chave);
-      contatos.push({ raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, nome, celulares });
+      contatos.push({ raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares });
     });
     return { contatos, resumo };
   }
@@ -252,29 +257,150 @@
   const mesmoNome = (a, b) => Boolean(semAcento(a)) && semAcento(a) === semAcento(b);
 
   /**
+   * Chave para dizer se dois celulares são o MESMO número: DDD + os 8 últimos dígitos. O CRM tem celulares
+   * de 10 dígitos (sem o 9 da frente), e o Google traz 11: "(DD) 9999-9999" e "(DD) 99999-9999" são o mesmo.
+   * null se não for celular (vazio, fixo de outro tamanho, lixo).
+   */
+  function chaveDoCelular(valor) {
+    const d = digitosDoCelular(valor);
+    if (d.length === 11 && d[2] === '9') return d.slice(0, 2) + d.slice(3);
+    if (d.length === 10) return d;
+    return null;
+  }
+  const mesmoCelular = (a, b) => chaveDoCelular(a) !== null && chaveDoCelular(a) === chaveDoCelular(b);
+
+  /* ---------------------------------------------------------------------
+   * RAZÃO SOCIAL (confirma ou desconfia da raiz do CNPJ)
+   * --------------------------------------------------------------------- */
+
+  // Termos que não distinguem uma empresa da outra (tipo societário e ligações).
+  // "LTA", "LTD" e "LDA" são jeitos de escrever LTDA que aparecem nos contatos e no CRM.
+  const RUIDO_DA_RAZAO = new Set(['LTDA', 'LTA', 'LTD', 'LDA', 'ME', 'EPP', 'EIRELI', 'SA', 'S', 'A', 'CIA', 'COMPANHIA', 'DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'EM']);
+
+  function termosDaRazao(texto) {
+    const termos = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      .replace(/[^A-Z0-9]+/g, ' ').split(' ').filter((t) => t && !RUIDO_DA_RAZAO.has(t));
+    return new Set(termos);
+  }
+
+  /** Uma letra a mais, a menos, trocada ou duas vizinhas invertidas ("JUNIHNO" x "JUNINHO"): erro de digitação. */
+  function umaLetraDeDiferenca(a, b) {
+    if (a === b) return true;
+    if (a.length === b.length) {
+      const dif = [];
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) dif.push(i);
+      if (dif.length === 1) return true;
+      return dif.length === 2 && dif[1] === dif[0] + 1 && a[dif[0]] === b[dif[1]] && a[dif[1]] === b[dif[0]];
+    }
+    const [curto, longo] = a.length < b.length ? [a, b] : [b, a];
+    let i = 0;
+    while (i < curto.length && curto[i] === longo[i]) i++;
+    return curto.slice(i) === longo.slice(i + 1);
+  }
+
+  /** Mesmo termo: igual, ou (com 5+ letras nos dois lados) com um erro de digitação. */
+  const mesmoTermo = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && umaLetraDeDiferenca(a, b));
+
+  /**
+   * A razão do contato (abreviada, às vezes com duas razões separadas por "/" e com erro de digitação) é a
+   * do cliente? Compara os termos significativos (sem LTDA, ME, de, da...; um erro de uma letra em termo de
+   * 5+ letras conta como igual): o trecho do contato precisa estar quase todo dentro da razão do cliente (ou
+   * o contrário), com pelo menos 2 termos em comum, ou 1 termo de 5+ letras quando um dos lados só tem esse
+   * termo. Devolve true, false, ou null se faltar razão de um dos lados (não dá para dizer).
+   * @param {string|null} razaoContato
+   * @param {...string} razoesDoCliente razão social e nome fantasia (qualquer uma serve)
+   */
+  function razaoConfere(razaoContato, ...razoesDoCliente) {
+    const clientes = razoesDoCliente.map(termosDaRazao).filter((t) => t.size > 0);
+    const trechos = String(razaoContato ?? '').split('/').map(termosDaRazao).filter((t) => t.size > 0);
+    if (clientes.length === 0 || trechos.length === 0) return null;
+    return trechos.some((trecho) => clientes.some((cliente) => {
+      const comuns = [...trecho].filter((t) => [...cliente].some((c) => mesmoTermo(t, c)));
+      const menor = Math.min(trecho.size, cliente.size);
+      if (comuns.length / menor < 0.75) return false;
+      return comuns.length >= 2 || (menor === 1 && comuns[0].length >= 5);
+    }));
+  }
+
+  /**
+   * Lê `__RESPONSAVEL__ = { nome: null|'texto', celular: null|'texto' }` do HTML de uma página de cliente
+   * baixada por fetch (formato confirmado no diagnóstico do usuário em 02/10/2026: objeto JavaScript simples,
+   * NÃO JSON). Só aceita esse formato: qualquer outra coisa é erro, nunca um palpite.
+   * @returns {{nome: string, celular: string} | {erro: 'sem-variavel'|'formato'}}
+   */
+  function lerResponsavelDoHtml(html) {
+    const texto = String(html ?? '');
+    const m = /__RESPONSAVEL__\s*=\s*\{/.exec(texto);
+    if (!m) return { erro: 'sem-variavel' };
+    const re = /\s*(nome|celular)\s*:\s*(null|'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)")\s*(,|\})/y;
+    re.lastIndex = m.index + m[0].length;
+    const campos = {};
+    for (;;) {
+      const c = re.exec(texto);
+      if (!c) return { erro: 'formato' };
+      const bruto = c[3] ?? c[4];
+      if (bruto !== undefined && /\\[^\\'"]/.test(bruto)) return { erro: 'formato' };
+      if (c[1] in campos) return { erro: 'formato' };
+      campos[c[1]] = bruto === undefined ? '' : bruto.replace(/\\(['"\\])/g, '$1');
+      if (c[5] === '}') break;
+    }
+    return 'nome' in campos && 'celular' in campos ? { nome: campos.nome, celular: campos.celular } : { erro: 'formato' };
+  }
+
+  /* ---------------------------------------------------------------------
+   * INTERRUPTORES: NOME e CELULAR (o que comparar e preencher)
+   * --------------------------------------------------------------------- */
+
+  /** @returns {{nome: boolean, celular: boolean}} sempre com pelo menos um ligado. */
+  function lerModo() {
+    try {
+      const m = JSON.parse(window.localStorage.getItem(CONFIG_CONTATOS.CHAVE_MODO) || 'null');
+      if (m && typeof m.nome === 'boolean' && typeof m.celular === 'boolean' && (m.nome || m.celular)) return { nome: m.nome, celular: m.celular };
+    } catch { /* sem preferência gravada: os dois */ }
+    return { nome: true, celular: true };
+  }
+
+  /** Grava o modo. Desligar os dois não vale: devolve false e mantém o anterior. */
+  function definirModo(modo) {
+    if (!modo || !(modo.nome || modo.celular)) return false;
+    try {
+      window.localStorage.setItem(CONFIG_CONTATOS.CHAVE_MODO, JSON.stringify({ nome: Boolean(modo.nome), celular: Boolean(modo.celular) }));
+    } catch { return false; }
+    return true;
+  }
+
+  /**
    * O que este contato ainda tem a oferecer ao CRM? crm = { nome, celular } (null = não deu para ler).
    * Nome conta se o contato tem nome diferente do que está no CRM; celular conta se o contato tem
-   * algum celular e o do CRM não é nenhum deles.
+   * algum celular e o do CRM não é nenhum deles. `modo` (padrão: o dos interruptores) liga/desliga cada um.
+   * @returns {{nome: boolean, celular: boolean}} o que há de novo; tudo false = nada a oferecer.
    */
-  function temNovidade(item, crm) {
-    if (!crm) return Boolean(item.nome) || item.celulares.length > 0;
-    const nomeNovo = Boolean(item.nome) && !mesmoNome(item.nome, crm.nome);
-    const celularNovo = item.celulares.length > 0 && !item.celulares.includes(digitosDoCelular(crm.celular));
-    return nomeNovo || celularNovo;
+  function novidadesDoContato(item, crm, modo = lerModo()) {
+    const nome = modo.nome && Boolean(item.nome) && (!crm || !mesmoNome(item.nome, crm.nome));
+    const celular = modo.celular && item.celulares.length > 0 && (!crm || !item.celulares.some((c) => mesmoCelular(c, crm.celular)));
+    return { nome, celular };
+  }
+
+  function temNovidade(item, crm, modo = lerModo()) {
+    const n = novidadesDoContato(item, crm, modo);
+    return n.nome || n.celular;
   }
 
   /**
    * O que "Preencher" deve digitar no modal, olhando o que o MODAL mostra agora (a fonte da verdade).
    * Nome e celular andam JUNTOS: se o CRM já tem OUTRO nome e o usuário não marcou "Substituir", nada é
    * digitado (só o celular deixaria o número de uma pessoa sob o nome de outra, e o celular é o do WhatsApp).
+   * Os interruptores `modo` Nome/Celular limitam o que pode ser digitado.
    * @returns {{nome: boolean, celular: boolean, motivo?: 'outro-nome'|'nada'}}
    */
-  function decidirPreenchimento(item, celular, nomeAtual, celularAtual, substituir) {
+  function decidirPreenchimento(item, celular, nomeAtual, celularAtual, substituir, modo = lerModo()) {
     const nomeVazio = String(nomeAtual ?? '').trim() === '';
     const celularVazio = String(celularAtual ?? '').trim() === '';
-    if (item.nome && !nomeVazio && !mesmoNome(item.nome, nomeAtual) && !substituir) return { nome: false, celular: false, motivo: 'outro-nome' };
-    const nome = Boolean(item.nome) && (nomeVazio || (substituir && !mesmoNome(item.nome, nomeAtual)));
-    const cel = Boolean(celular) && (celularVazio || (substituir && digitosDoCelular(celularAtual) !== celular));
+    const querNome = modo.nome && Boolean(item.nome);
+    const querCelular = modo.celular && Boolean(celular);
+    if (querCelular && item.nome && !nomeVazio && !mesmoNome(item.nome, nomeAtual) && !substituir) return { nome: false, celular: false, motivo: 'outro-nome' };
+    const nome = querNome && (nomeVazio || (substituir && !mesmoNome(item.nome, nomeAtual)));
+    const cel = querCelular && (celularVazio || (substituir && !mesmoCelular(celularAtual, celular)));
     return nome || cel ? { nome, celular: cel } : { nome: false, celular: false, motivo: 'nada' };
   }
 
@@ -337,7 +463,7 @@
     const mapa = new Map();
     contatos.forEach((c) => {
       if (!mapa.has(c.raiz)) mapa.set(c.raiz, []);
-      mapa.get(c.raiz).push({ uf: c.uf, grupo: c.grupo, nome: c.nome, celulares: c.celulares });
+      mapa.get(c.raiz).push({ uf: c.uf, grupo: c.grupo, razao: c.razao ?? null, nome: c.nome, celulares: c.celulares });
     });
     return mapa;
   };
@@ -411,7 +537,7 @@
     }
     try {
       const { raizes, naMemoria } = await guardarContatos(lido.contatos);
-      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes };
+      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes, comRazao: true };
       if (naMemoria) metaNaMemoria = { versao: 1, ...meta };
       else gravarMeta(meta);
       return { resumo: lido.resumo, raizes, naMemoria };
@@ -499,7 +625,7 @@
       avisar('O modal do responsável mudou: não achei os campos. Preencha à mão.', 8000);
       return { ok: false, motivo: 'sem-campos' };
     }
-    const decisao = decidirPreenchimento(item, celular, nomeEl.value, celEl.value, substituir);
+    const decisao = decidirPreenchimento(item, celular, nomeEl.value, celEl.value, substituir, lerModo());
     if (decisao.motivo === 'outro-nome') {
       const nomeAtual = nomeEl.value.trim();
       window.fecharModalResponsavel?.();
@@ -587,6 +713,7 @@
       }));
     }
 
+    const modo = lerModo();
     itens.forEach((item) => {
       const cartao = criarDiv('', { borderLeft: `5px solid ${CORES.destaque}`, padding: '4px 0 4px 10px', marginBottom: '10px' });
       cartao.dataset.papel = 'contato';
@@ -603,9 +730,13 @@
         cartao.appendChild(criarDiv('Celular no contato: ' + celularesDoItem.join(' · '), { color: CORES.texto, fontSize: '12px', marginBottom: '6px' }));
       }
 
-      // "Substituir" só aparece quando há algo no CRM que o contato trocaria.
-      const trocaria = Boolean(nomeCrm && item.nome && !mesmoNome(nomeCrm, item.nome))
-        || Boolean(celCrm && item.celulares.length > 0 && !item.celulares.includes(digitosDoCelular(celCrm)));
+      // "Substituir" aparece quando, com ele, "Preencher" faria algo diferente (mesma regra do preenchimento).
+      const celularesOferecidos = modo.celular && item.celulares.length > 0 ? item.celulares : [null];
+      const trocaria = Boolean(crm) && celularesOferecidos.some((c) => {
+        const sem = decidirPreenchimento(item, c, nomeCrm, celCrm, false, modo);
+        const com = decidirPreenchimento(item, c, nomeCrm, celCrm, true, modo);
+        return sem.nome !== com.nome || sem.celular !== com.celular || sem.motivo !== com.motivo;
+      });
       let substituirEl = null;
       if (trocaria) {
         const rotulo = document.createElement('label');
@@ -623,13 +754,14 @@
         const r = preencherModal(item, celular, Boolean(substituirEl?.checked));
         if (r.ok) fecharAviso();
       };
-      if (item.celulares.length === 0) {
+      if (!(modo.celular && item.celulares.length > 0)) {
         const b = criarBotao('Preencher o nome', 'preencher', true);
         b.addEventListener('click', () => aoPreencher(null));
         botoes.appendChild(b);
       } else {
         item.celulares.forEach((c) => {
-          const b = criarBotao(item.nome ? `Preencher · ${formatarCelular(c)}` : `Preencher o celular · ${formatarCelular(c)}`, 'preencher', true);
+          const comNome = modo.nome && item.nome;
+          const b = criarBotao(comNome ? `Preencher · ${formatarCelular(c)}` : `Preencher o celular · ${formatarCelular(c)}`, 'preencher', true);
           b.addEventListener('click', () => aoPreencher(c));
           botoes.appendChild(b);
         });
@@ -702,6 +834,46 @@
     return partes.join(' · ');
   }
 
+  /**
+   * Os dois interruptores (Nome / Celular): o que o aviso do cliente e a lista de diferenças comparam e
+   * preenchem. Pelo menos um fica ligado. `aoMudar` roda depois de gravar (a lista recalcula sem baixar de novo).
+   */
+  function criarInterruptoresDoModo(aoMudar) {
+    const caixa = criarDiv('', { display: 'flex', gap: '16px', alignItems: 'center', margin: '0 0 8px', flexWrap: 'wrap' });
+    caixa.dataset.papel = 'modo';
+    caixa.appendChild(criarDiv('Comparar e preencher:', { color: CORES.texto, fontSize: '12px' }));
+    const campos = {};
+    [['nome', 'Nome do responsável'], ['celular', 'Celular']].forEach(([chave, rotulo]) => {
+      const label = document.createElement('label');
+      Object.assign(label.style, { display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: CORES.texto, fontSize: '12.5px' });
+      const el = document.createElement('input');
+      el.type = 'checkbox';
+      el.dataset.campo = `modo-${chave}`;
+      el.checked = lerModo()[chave];
+      campos[chave] = el;
+      label.appendChild(el);
+      label.appendChild(document.createTextNode(rotulo));
+      caixa.appendChild(label);
+    });
+    const dica = criarDiv('Pelo menos um precisa ficar ligado.', { color: CORES.aviso, fontSize: '11.5px', display: 'none' });
+    dica.dataset.papel = 'dica-modo';
+    caixa.appendChild(dica);
+    Object.values(campos).forEach((el) => el.addEventListener('change', () => {
+      const novo = { nome: campos.nome.checked, celular: campos.celular.checked };
+      if (!definirModo(novo)) {
+        // Os dois desligados não valem: volta o que estava gravado.
+        const atual = lerModo();
+        campos.nome.checked = atual.nome;
+        campos.celular.checked = atual.celular;
+        dica.style.display = 'block';
+        return;
+      }
+      dica.style.display = 'none';
+      if (typeof aoMudar === 'function') aoMudar(lerModo());
+    }));
+    return caixa;
+  }
+
   function abrirPainel() {
     util()?.fecharOutrosPaineis?.('contatosGoogle');
     fecharPainel();
@@ -738,6 +910,12 @@
     const status = criarDiv(descreverGuardados(), { color: CORES.texto, margin: '0 0 8px' });
     status.dataset.papel = 'status';
     painelEl.appendChild(status);
+    if (lerMeta() && !lerMeta().comRazao) {
+      painelEl.appendChild(criarDiv('Estes contatos foram importados sem a razão social: importe o CSV de novo para a lista de diferenças comparar também a razão.', {
+        color: CORES.aviso, fontSize: '12px', marginBottom: '8px',
+      }));
+    }
+    painelEl.appendChild(criarInterruptoresDoModo());
     if (usandoMemoria) {
       painelEl.appendChild(criarDiv('O navegador não deixou usar o armazenamento local: os contatos valem só nesta aba.', { color: CORES.aviso, fontSize: '12px', marginBottom: '8px' }));
     }
@@ -852,6 +1030,16 @@
     contatosDoCsv,
     raizDoCnpj,
     temNovidade,
+    novidadesDoContato,
+    decidirPreenchimento,
+    chaveDoCelular,
+    mesmoCelular,
+    mesmoNome,
+    razaoConfere,
+    lerResponsavelDoHtml,
+    lerModo,
+    definirModo,
+    criarInterruptoresDoModo,
     importarCsv,
     guardarContatos,
     buscarPorRaiz,

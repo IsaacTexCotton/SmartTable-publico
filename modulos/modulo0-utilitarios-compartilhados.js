@@ -681,6 +681,7 @@
     'Meta Semanal',
     'Copiar Títulos',
     'Contatos do Google',
+    'Contatos do Google: Lista',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
