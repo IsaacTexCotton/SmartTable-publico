@@ -244,14 +244,17 @@
       };
     }
     cand.crm = conferido.crm;
+    // Resposta incerta e o valor novo é "o mesmo" que o antigo para a comparação (só caixa/acento/formato): a releitura
+    // não prova nada, então não dá para dizer que gravou nem que não gravou.
+    if (r.erro && mesmoCrm(esperado, anterior)) {
+      return { ok: false, tipo: 'aviso', texto: `${comPonto(r.erro)} Não dá para saber se o CRM gravou (o valor novo só difere em maiúsculas, acento ou formato). Abra o cliente e confira.` };
+    }
     if (mesmoCrm(conferido.crm, esperado)) return { ok: true, conferido: conferido.crm, viaConferencia: Boolean(r.erro) };
     if (r.erro && mesmoCrm(conferido.crm, anterior)) {
       return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Conferi relendo a página: o CRM não gravou.` };
     }
-    return {
-      ok: false, tipo: 'aviso',
-      texto: `${r.erro ? comPonto(r.erro) + ' ' : 'O CRM respondeu, mas '}a página mostra: ${textoDoCrm(conferido.crm)}. Abra o cliente e confira.`.replace(/^ /, ''),
-    };
+    const mostra = `página mostra: ${textoDoCrm(conferido.crm)}. Abra o cliente e confira.`;
+    return { ok: false, tipo: 'aviso', texto: r.erro ? `${comPonto(r.erro)} A ${mostra}` : `O CRM respondeu, mas a ${mostra}` };
   }
 
   /**
@@ -358,7 +361,10 @@
     return m;
   }
 
-  /** Cancela a confirmação armada (e a mensagem dela). */
+  /** O painel que este estado desenhou ainda é o painel na tela? (Fechar e reabrir cria um painel e um estado novos.) */
+  const painelDoEstadoAberto = (estado) => painelEl !== null && painelEl === estado.painel;
+
+  /** Cancela a confirmação armada (e a mensagem dela) e o relógio que a faria expirar. */
   function desarmar(estado) {
     clearTimeout(estado.relogioDaConfirmacao);
     if (estado.armado) estado.mensagens.delete(estado.armado.item);
@@ -428,8 +434,8 @@
   function terminarGravacao(estado, item, r) {
     gravando = false;
     estado.mensagens.set(item, { tipo: r.tipo, texto: r.texto });
-    if (painelEl) estado.redesenhar();
-    else util()?.toast?.(r.texto, 9000); // o painel foi fechado no meio: o resultado não pode se perder
+    if (painelDoEstadoAberto(estado)) estado.redesenhar();
+    else util()?.toast?.(r.texto, 9000); // o painel foi fechado (ou fechado e reaberto) no meio: o resultado não pode se perder
   }
 
   /** Clique num botão da linha: pede confirmação quando precisa; senão grava. */
@@ -447,13 +453,13 @@
       estado.relogioDaConfirmacao = setTimeout(() => {
         if (estado.armado && estado.armado.item === l.item) {
           desarmar(estado);
-          if (painelEl) estado.redesenhar();
+          if (painelDoEstadoAberto(estado)) estado.redesenhar();
         }
       }, CONFIG_LISTA.TEMPO_CONFIRMAR_MS);
       estado.redesenhar();
       return;
     }
-    estado.armado = null;
+    desarmar(estado); // solta o relógio da confirmação também (a mensagem é trocada logo abaixo)
     gravando = true;
     estado.mensagens.set(l.item, { tipo: 'aviso', texto: 'Gravando...' });
     estado.redesenhar();
@@ -468,6 +474,7 @@
 
   async function aoClicarDesfazer(estado, entrada) {
     if (gravando) return;
+    desarmar(estado); // o CRM vai mudar: a confirmação armada mostraria um de → para defasado
     gravando = true;
     estado.mensagens.set(entrada.item, { tipo: 'aviso', texto: 'Desfazendo...' });
     estado.redesenhar();
@@ -562,7 +569,7 @@
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
-    const estado = { levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
+    const estado = { painel: painelEl, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado';
     const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };
@@ -663,6 +670,7 @@
     calcularLinhas,
     acoesDaLinha,
     planejarAcao,
+    conferirDepoisDoPut,
     gravarLinha,
     desfazerGravacao,
     criarBotaoDaLista,

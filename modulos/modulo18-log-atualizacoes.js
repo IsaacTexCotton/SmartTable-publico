@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.75.2', data: '02/10/2026',
+      mudancas: [
+        'Corrigido nos botões da lista "Contatos do Google": se você fecha o painel e abre de novo enquanto uma gravação está em andamento, o resultado ("Gravado..." ou "abra o cliente e confira") agora aparece num aviso, em vez de se perder no painel antigo.',
+        'Corrigido: o relógio de uma confirmação antiga não derruba mais uma confirmação nova (antes, depois de uma gravação recusada, uma segunda confirmação podia sumir antes do tempo), e o "Desfazer" agora cancela a confirmação armada em outra linha, que mostraria um "de → para" defasado.',
+        'Textos: quando a resposta do CRM não é JSON (login, erro 502...) o aviso agora diz "o CRM não respondeu como esperado (sessão expirada ou CRM instável)", sem afirmar que a sessão expirou; a frase "A página mostra..." sai com a maiúscula certa; e, se o valor novo só difere do antigo em maiúsculas, acento ou formato, o SmartTable diz que não dá para saber se gravou, em vez de afirmar.',
+      ],
+    },
+    {
       versao: '1.75.1', data: '02/10/2026',
       mudancas: [
         'Corrigido nos botões da lista "Contatos do Google": com mais de um celular no contato, o "Confirmar" agora grava o MESMO número que a confirmação mostrou (antes a lista era redesenhada e o seletor voltava ao primeiro número). Mudar o número depois de armar a confirmação cancela a confirmação.',

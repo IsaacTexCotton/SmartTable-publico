@@ -356,7 +356,7 @@
    * global de `fetch` do layout põe o header do token CSRF sozinho (confirmado também na LISTA). Os DOIS campos vão juntos:
    * quem chama passa o valor atual do que NÃO quer mudar. Só é usado com clique explícito do usuário (lista, Módulo 29).
    * @returns {Promise<{ok: true} | {erro: string, incerto?: true}>} `incerto`: a resposta NÃO veio do CRM (rede, tempo
-   *   esgotado, corpo que não é JSON, sessão expirada): o PUT pode ou não ter sido aplicado, e quem chama precisa conferir
+   *   esgotado, corpo que não é JSON: sessão expirada, 502...): o PUT pode ou não ter sido aplicado, e quem chama precisa conferir
    *   relendo a página. Sem `incerto`, o próprio CRM respondeu que não gravou.
    */
   async function gravarResponsavelNoCrm(cnpj, nome, celular) {
@@ -371,7 +371,8 @@
         body: JSON.stringify({ clienteCodigo: cnpj, responsavelNome: nome, responsavelCelular: celular }),
       });
       if (String(r.headers?.get?.('content-type') || '').indexOf('application/json') === -1) {
-        return { erro: 'Sessão expirada. Recarregue a página e faça login novamente.', incerto: true };
+        // O CRM só devolve JSON quando ele mesmo processou: qualquer outra coisa (login, 502, 503...) não prova o que houve.
+        return { erro: 'O CRM não respondeu como esperado (sessão expirada ou CRM instável).', incerto: true };
       }
       // Ler o corpo ANTES de olhar r.ok: o 400 de validação traz a mensagem.
       const json = await r.json();
