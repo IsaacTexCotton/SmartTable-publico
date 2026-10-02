@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.71.1', data: '02/10/2026',
+      mudancas: [
+        'Corrigido na Meta da semana (Alt+D): o Enter do teclado numérico agora salva a meta (antes só o Enter principal salvava), e depois de salvar ou apagar o foco volta ao campo, para continuar pelo teclado.',
+        'Corrigido: a soma do recebido podia sair com uma diferença minúscula de arredondamento (por exemplo, R$ 99.999,99999999999 contra uma meta de R$ 100.000), e a meta não aparecia como batida. Agora o recebido é arredondado ao centavo antes da comparação. O mesmo cuidado vale para o ritmo: faltando R$ 1,10 em um dia, o ritmo é R$ 1,10, e não R$ 1,11.',
+        'O percentual só chega a 100% quando a meta foi batida: recebido de 99,6% da meta aparece como 99% (antes aparecia 100%, com R$ 400 ainda faltando). Se você abre o Alt+D perto da meia-noite, o dia usado na conta é o da abertura.',
+      ],
+    },
+    {
       versao: '1.71.0', data: '02/10/2026',
       mudancas: [
         'Novo: "Meta da semana" dentro do Alt+D (Entrou na semana), logo depois do Total recuperado. Você digita a meta da semana (o valor dos dois, Isaac e Bianca) e o painel mostra quanto já foi recebido (o "Os dois" do Total recuperado), quanto falta, quantos dias úteis restam (contando hoje, sem fim de semana nem feriado) e o ritmo por dia útil para chegar lá.',

@@ -61,7 +61,7 @@
     barra: '#d1e7dd',
   };
 
-  const util = () => window.__smartTableUtil ?? null;
+  const util = () => window.__smartTableUtil;
   const arredondar = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   /** Arredonda PARA CIMA no centavo (e tolera o ruído de ponto flutuante). */
   const paraCimaNoCentavo = (n) => Math.ceil(Math.round(n * 1e6) / 1e4) / 100;
@@ -162,7 +162,9 @@
    *   percentual: number, hojeUtil: boolean, diasUteis: number, primeiroDiaUtil: string|null,
    *   ritmo: number|null}} ritmo null = não sobra dia útil na semana.
    */
-  function calcularMeta({ meta, recebido, hojeIso, fimIso, ehDiaUtilIso }) {
+  function calcularMeta({ meta, recebido: recebidoBruto, hojeIso, fimIso, ehDiaUtilIso }) {
+    // A soma de várias parcelas em ponto flutuante pode dar 99999,99999999999 onde a conta exata dá 100000.
+    const recebido = arredondar(recebidoBruto);
     const batida = recebido >= meta;
     const { quantidade, primeiro } = diasUteisAte(hojeIso, fimIso, ehDiaUtilIso);
     const falta = batida ? 0 : arredondar(meta - recebido);
@@ -175,7 +177,8 @@
       falta,
       excedente: batida ? arredondar(recebido - meta) : 0,
       batida,
-      percentual: Math.round((recebido / meta) * 100),
+      // 100% só quando a meta foi batida: 99,6% não pode aparecer como 100% com dinheiro ainda faltando.
+      percentual: batida ? Math.round((recebido / meta) * 100) : Math.min(99, Math.round((recebido / meta) * 100)),
       hojeUtil: !!ehDiaUtilIso(hojeIso),
       diasUteis: quantidade,
       primeiroDiaUtil: primeiro,
@@ -215,7 +218,7 @@
     const bloco = criarDiv('', { marginTop: '14px', paddingTop: '10px', borderTop: `1px solid ${CORES.linha}` });
     bloco.dataset.papel = 'meta-semanal';
 
-    const desenhar = () => {
+    const desenhar = (devolverFoco = false) => {
       bloco.textContent = '';
       bloco.appendChild(criarDiv('Meta da semana', { color: CORES.tinta, fontWeight: '600', fontSize: '13px' }));
       bloco.appendChild(criarDiv('o Total recuperado dos dois contra a meta que você digita', {
@@ -249,6 +252,8 @@
       formulario.appendChild(campo);
       formulario.appendChild(salvar);
       bloco.appendChild(formulario);
+      // O bloco é redesenhado ao salvar: sem isto o foco iria para o body e o teclado ficaria sem destino.
+      if (devolverFoco) campo.focus();
 
       const erro = criarDiv('', { color: CORES.erro, fontSize: '11.5px', marginBottom: '4px', display: 'none' });
       erro.dataset.papel = 'erro-meta';
@@ -257,7 +262,7 @@
       const aoSalvar = () => {
         const texto = campo.value.trim();
         if (texto === '') {
-          if (salvarMeta(null)) desenhar();
+          if (salvarMeta(null)) desenhar(true);
           else util()?.toast?.('Não consegui apagar a meta (o navegador recusou a gravação).', 8000);
           return;
         }
@@ -272,11 +277,11 @@
           erro.style.display = 'block';
           return;
         }
-        desenhar();
+        desenhar(true);
       };
       salvar.addEventListener('click', aoSalvar);
       campo.addEventListener('keydown', (e) => {
-        if (e.code === 'Enter') { e.preventDefault(); aoSalvar(); }
+        if (e.key === 'Enter') { e.preventDefault(); aoSalvar(); }
       });
 
       if (resumo.totalIndisponivel) {

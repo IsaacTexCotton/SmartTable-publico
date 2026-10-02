@@ -671,7 +671,7 @@
   }
 
   /** @param {HTMLElement} corpo @param {object} resumo */
-  function desenharResumo(corpo, resumo, { semanaAnterior: anterior = false, semana = null } = {}) {
+  function desenharResumo(corpo, resumo, { semanaAnterior: anterior = false, semana = null, hojeIso = null } = {}) {
     corpo.textContent = '';
     resumo.metricas.forEach((metrica) => corpo.appendChild(criarBlocoMetrica(metrica)));
 
@@ -680,7 +680,7 @@
     if (!anterior && semana && window.__metaSemanal?.criarBloco) {
       try {
         corpo.appendChild(window.__metaSemanal.criarBloco({
-          resumo, semana, hojeIso: util().dataIso(relogio.agora()), ehDiaUtilIso,
+          resumo, semana, hojeIso: hojeIso ?? util().dataIso(relogio.agora()), ehDiaUtilIso,
         }));
       } catch (erro) {
         // A meta nunca derruba o painel de recebimentos.
@@ -709,8 +709,11 @@
     }
 
     const anterior = semanaAnterior;
+    // O "hoje" é o da abertura, o mesmo da semana: uma resposta que chega depois da meia-noite não troca o dia.
+    const agora = relogio.agora();
+    const hojeIso = u.dataIso(agora);
     // Semana anterior: a semana que contém o mesmo dia da semana passada.
-    const referencia = new Date(relogio.agora());
+    const referencia = new Date(agora);
     if (anterior) referencia.setDate(referencia.getDate() - 7);
     const semana = u.semanaSabadoASexta(referencia);
     // Trocar de semana pelo botão refaz o painel (o de antes sai sem devolver nada a ninguém).
@@ -735,7 +738,7 @@
         console.warn('[Recebido na semana] Promessas:', rPromessas.reason?.message);
         promessas = { erro: `Não consegui ler as promessas: ${rPromessas.reason?.message ?? 'erro desconhecido'}` };
       }
-      desenharResumo(corpo, montarResumo(rDados.value, promessas), { semanaAnterior: anterior, semana });
+      desenharResumo(corpo, montarResumo(rDados.value, promessas), { semanaAnterior: anterior, semana, hojeIso });
     } catch (erro) {
       if (!painelEl || !corpo.isConnected) return;
       corpo.textContent = '';
