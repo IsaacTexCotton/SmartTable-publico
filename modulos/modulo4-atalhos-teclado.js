@@ -115,6 +115,7 @@
     TECLA_CONSOLE_DIAGNOSTICO: 'KeyK',
     TECLA_PROMESSA_RAPIDA: 'KeyN',
     TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
+    TECLA_COPIAR_TITULOS: 'KeyT',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
     // existir, botão de relatório reabilitar), não um tempo fixo.
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
@@ -162,6 +163,7 @@
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },
     { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
+    { tecla: 'Alt+T', descricao: 'Copiar os títulos do cliente um por um (número, depois parcela) para o Win+V: escolha os títulos e aperte Alt+T para copiar o próximo. Shift+Alt+T reabre a escolha' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
@@ -748,6 +750,16 @@
     painel.alternarPainel();
   }
 
+  function acionarCopiarTitulos(opcoes) {
+    const copiador = window.__copiarTitulos;
+    if (!copiador || typeof copiador.aoAtalho !== 'function') {
+      console.warn('[Atalhos] O Módulo 27 (copiar títulos) não carregou -- Alt+T sem efeito.');
+      window.__smartTableUtil?.toast?.('Copiar títulos não carregou (veja o console).');
+      return;
+    }
+    copiador.aoAtalho(opcoes);
+  }
+
   function alternarPainelConfiguracoes() {
     const painel = window.__painelConfiguracoes;
     if (!painel || typeof painel.alternarPainel !== 'function') {
@@ -985,6 +997,17 @@
         return;
       }
 
+      // Shift+Alt+T: reabre a escolha de títulos do Alt+T no meio da lista (recomeçar
+      // ou recopiar o último). Alt+T sozinho segue copiando o próximo valor.
+      if (
+        e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.repeat &&
+        e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && !estaDigitando()
+      ) {
+        e.preventDefault();
+        acionarCopiarTitulos({ painel: true });
+        return;
+      }
+
       // Só Alt sozinho (sem Ctrl/Shift/Meta), pra não colidir com navegador/CRM.
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.repeat) return;
@@ -1012,6 +1035,14 @@
       if (e.code === CONFIG_ATALHOS.TECLA_LEMBRETES_BLOQUEIO && window.__lembretesBloqueio?.estaAberto?.()) {
         e.preventDefault();
         window.__lembretesBloqueio.fecharPainel();
+        return;
+      }
+
+      // Mesma exceção pro Alt+T: o painel dos títulos tem caixas de marcar, e com o foco
+      // nelas estaDigitando() barraria o próprio toggle. Só FECHA.
+      if (e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && window.__copiarTitulos?.estaAberto?.()) {
+        e.preventDefault();
+        window.__copiarTitulos.fecharPainel();
         return;
       }
 
@@ -1089,6 +1120,10 @@
         case CONFIG_ATALHOS.TECLA_LEMBRETES_BLOQUEIO:
           e.preventDefault();
           alternarLembretesBloqueio();
+          break;
+        case CONFIG_ATALHOS.TECLA_COPIAR_TITULOS:
+          e.preventDefault();
+          acionarCopiarTitulos();
           break;
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();

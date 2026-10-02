@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.72.0', data: '02/10/2026',
+      mudancas: [
+        'Novo: Alt+T copia os títulos do cliente um por um para a área de transferência (e para o Win+V), no lugar de copiar número por número à mão. Alt+T abre uma lista com os títulos da tabela, na ordem em que aparecem; escolha "Todos", "Vencidos" ou "Selecionar" (marque um a um) e clique em Começar.',
+        'O número do título e a parcela vão separados. "Começar" já copia o número do primeiro título; cada Alt+T seguinte copia o próximo valor: parcela, depois o número do título seguinte, e assim por diante. Um aviso mostra qual valor foi copiado e qual vem depois. Acabando a lista, o Alt+T volta a abrir a escolha.',
+        'Shift+Alt+T reabre a escolha no meio da lista, para recomeçar ou recopiar o último valor sem avançar. Se a cópia falhar (a aba sem foco), o Alt+T não pula o valor: aperte de novo. A lista em andamento fica só na memória da página (recarregar a página a zera). Módulo novo: o 27 (Copiar Títulos).',
+      ],
+    },
+    {
       versao: '1.71.1', data: '02/10/2026',
       mudancas: [
         'Corrigido na Meta da semana (Alt+D): o Enter do teclado numérico agora salva a meta (antes só o Enter principal salvava), e depois de salvar ou apagar o foco volta ao campo, para continuar pelo teclado.',

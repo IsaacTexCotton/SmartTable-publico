@@ -679,6 +679,7 @@
     'Busca Rápida',
     'Lembretes de Bloqueio',
     'Meta Semanal',
+    'Copiar Títulos',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
