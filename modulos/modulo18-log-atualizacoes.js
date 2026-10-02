@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.73.0', data: '02/10/2026',
+      mudancas: [
+        'Novo: Alt+J abre "Contatos do Google". Você escolhe o CSV exportado do Google Contatos ("Google CSV"); o arquivo é lido no próprio navegador e os contatos no padrão RAZÃO - RAIZ DO CNPJ - UF - GP n - nome ficam guardados só neste navegador. O painel mostra só contagens (lidos, no padrão, fora do padrão e por quê). Importar de novo substitui tudo, e há um botão para apagar.',
+        'Ao abrir um cliente, o SmartTable procura os contatos pela raiz do CNPJ e, se houver nome ou celular a oferecer, mostra um aviso: "Preencher" abre o "Responsável financeiro" do CRM, digita o nome e o celular e deixa você CONFERIR e clicar em Salvar (quem grava é o CRM). Com vários contatos na mesma raiz, todos aparecem e você escolhe.',
+        'Só preenche o que está vazio no modal; para trocar o que já está lá, marque "Substituir o que já está no CRM". O celular só entra se for celular de verdade (DDD + 9 dígitos), porque ele é o número que o CRM usa para abrir o WhatsApp. Depois do Salvar o SmartTable confere se o CRM guardou. Módulo novo: o 28 (Contatos do Google).',
+      ],
+    },
+    {
       versao: '1.72.0', data: '02/10/2026',
       mudancas: [
         'Novo: Alt+T copia os títulos do cliente um por um para a área de transferência (e para o Win+V), no lugar de copiar número por número à mão. Alt+T abre uma lista com os títulos da tabela, na ordem em que aparecem; escolha "Todos", "Vencidos" ou "Selecionar" (marque um a um) e clique em Começar.',

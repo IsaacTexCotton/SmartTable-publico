@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.72.0
+// @version      1.73.0
 // @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento (normal e por prioridade), atalhos de teclado, alerta de grupo econômico, contexto adicional (promessas/contatos), promessa rápida (Alt+N), painel da carteira e console de diagnóstico.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
@@ -35,6 +35,7 @@
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo21-envio-copia.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo24-busca-rapida.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo27-copiar-titulos.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo28-contatos-google.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo4-atalhos-teclado.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo6-contexto-adicional.js
 // ==/UserScript==

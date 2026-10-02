@@ -116,6 +116,7 @@
     TECLA_PROMESSA_RAPIDA: 'KeyN',
     TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
     TECLA_COPIAR_TITULOS: 'KeyT',
+    TECLA_CONTATOS_GOOGLE: 'KeyJ',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
     // existir, botão de relatório reabilitar), não um tempo fixo.
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
@@ -163,6 +164,7 @@
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },
     { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
+    { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
     { tecla: 'Alt+T', descricao: 'Copiar os títulos do cliente um por um (número, depois parcela) para o Win+V: escolha os títulos e aperte Alt+T para copiar o próximo. Shift+Alt+T reabre a escolha' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
@@ -760,6 +762,16 @@
     copiador.aoAtalho(opcoes);
   }
 
+  function alternarContatosGoogle() {
+    const painel = window.__contatosGoogle;
+    if (!painel || typeof painel.alternarPainel !== 'function') {
+      console.warn('[Atalhos] O Módulo 28 (contatos do Google) não carregou -- Alt+J sem efeito.');
+      window.__smartTableUtil?.toast?.('Contatos do Google não carregou (veja o console).');
+      return;
+    }
+    painel.alternarPainel();
+  }
+
   function alternarPainelConfiguracoes() {
     const painel = window.__painelConfiguracoes;
     if (!painel || typeof painel.alternarPainel !== 'function') {
@@ -1038,6 +1050,14 @@
         return;
       }
 
+      // Mesma exceção pro Alt+J: o painel dos contatos tem o seletor de arquivo (um INPUT) e
+      // com o foco nele estaDigitando() barraria o próprio toggle. Só FECHA.
+      if (e.code === CONFIG_ATALHOS.TECLA_CONTATOS_GOOGLE && window.__contatosGoogle?.estaAberto?.()) {
+        e.preventDefault();
+        window.__contatosGoogle.fecharPainel();
+        return;
+      }
+
       // Mesma exceção pro Alt+T: o painel dos títulos tem caixas de marcar, e com o foco
       // nelas estaDigitando() barraria o próprio toggle. Só FECHA.
       if (e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && window.__copiarTitulos?.estaAberto?.()) {
@@ -1124,6 +1144,10 @@
         case CONFIG_ATALHOS.TECLA_COPIAR_TITULOS:
           e.preventDefault();
           acionarCopiarTitulos();
+          break;
+        case CONFIG_ATALHOS.TECLA_CONTATOS_GOOGLE:
+          e.preventDefault();
+          alternarContatosGoogle();
           break;
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();

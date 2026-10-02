@@ -680,6 +680,7 @@
     'Lembretes de Bloqueio',
     'Meta Semanal',
     'Copiar Títulos',
+    'Contatos do Google',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
