@@ -15,11 +15,22 @@
  *   2. Para cada contato, compara com o CRM (nome e/ou celular, conforme os interruptores) e
  *      mostra só as DIFERENÇAS, com a confiança do casamento: raiz do CNPJ + razão social
  *      (a razão do cliente e o nome fantasia contra a razão guardada no contato).
- *   3. "Abrir cliente" abre a página dele em outra aba; lá o aviso do Módulo 28 oferece o
- *      "Preencher" (o usuário confere e salva; o CRM grava). Nada é gravado em lote.
+ *   3. Cada linha tem botões "Adicionar/Trocar nome", "Adicionar/Trocar número" e "ambos": ao clicar,
+ *      o SmartTable GRAVA o responsável no CRM (PUT /api/crm/cliente-responsavel, como a própria página
+ *      do cliente faz) sem abrir o cliente. É a única escrita do módulo, só com clique explícito, uma
+ *      linha por vez, e com estas proteções:
+ *        - relê a página do cliente imediatamente antes e RECUSA se o CRM mudou desde a leitura;
+ *        - "Adicionar" só onde o campo do CRM está vazio; onde há outro valor o botão diz "Trocar" e
+ *          pede um segundo clique, mostrando "de" e "para";
+ *        - colocar um celular sob um NOME DIFERENTE (o celular é o do WhatsApp) também pede confirmação;
+ *        - depois de gravar, relê a página para CONFERIR e mostra "Gravado" ou o aviso do que o CRM tem;
+ *        - cada gravação fica numa lista "Gravados" com "Desfazer" (devolve o que havia, se o CRM não
+ *          mudou depois).
+ *      "Abrir cliente" continua em cada linha para quem prefere conferir no modal.
  *
  * Erro nunca passa em silêncio: página que não deu para baixar ou ler vira "sem leitura" na
- * contagem e na lista (com "Abrir cliente"). Nada de dado de cliente vai para o console.
+ * contagem e na lista (com "Abrir cliente"); falha de gravação aparece na própria linha. Nada de
+ * dado de cliente vai para o console.
  *
  * ONDE COLAR: depois do Módulo 28 (e do 3, que dá a barra de filtros da lista) e ANTES do 4.
  * ========================================================================= */
@@ -36,6 +47,8 @@
     // Páginas de cliente baixadas ao mesmo tempo.
     SIMULTANEAS: 4,
     TIMEOUT_PAGINA_MS: 15000,
+    // O "Clique de novo para confirmar" volta ao normal depois disto.
+    TEMPO_CONFIRMAR_MS: 6000,
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
   };
 
@@ -56,6 +69,8 @@
 
   let painelEl = null;
   let controlador = null;
+  // Uma gravação por vez, mesmo se o painel for fechado e reaberto no meio: a flag só cai quando a gravação termina.
+  let gravando = false;
 
   const naListaDeClientes = () => /^\/crm\/clientes\/?$/.test(window.location.pathname);
 
@@ -156,6 +171,108 @@
   }
 
   /* ---------------------------------------------------------------------
+   * GRAVAR NO CRM (Adicionar / Trocar / Desfazer)
+   * --------------------------------------------------------------------- */
+
+  const comPonto = (t) => String(t).replace(/[.!?]?\s*$/, '.');
+  const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
+  const mesmoCrm = (a, b) => String(a.nome ?? '').trim() === String(b.nome ?? '').trim() && soDigitos(a.celular) === soDigitos(b.celular);
+  const textoDoCrm = (crm) => `${String(crm.nome ?? '').trim() || 'sem nome'} · ${String(crm.celular ?? '').trim() || 'sem celular'}`;
+
+  /** Botões de uma linha: depende do que difere e de o campo do CRM estar vazio ("Adicionar") ou ter outro valor ("Trocar"). */
+  function acoesDaLinha(l) {
+    const verboNome = String(l.crm.nome ?? '').trim() ? 'Trocar' : 'Adicionar';
+    const verboCelular = String(l.crm.celular ?? '').trim() ? 'Trocar' : 'Adicionar';
+    const acoes = [];
+    if (l.novidades.nome) acoes.push({ acao: 'nome', rotulo: `${verboNome} nome` });
+    if (l.novidades.celular) acoes.push({ acao: 'celular', rotulo: `${verboCelular} número` });
+    if (l.novidades.nome && l.novidades.celular) {
+      acoes.push({ acao: 'ambos', rotulo: verboNome === 'Adicionar' && verboCelular === 'Adicionar' ? 'Adicionar ambos' : 'Trocar ambos' });
+    }
+    return acoes;
+  }
+
+  /**
+   * O que a ação exigiria: nada, ou uma confirmação (um segundo clique).
+   *   'trocar'     = há valor diferente no CRM que seria substituído;
+   *   'outro-nome' = o celular entraria sob um nome diferente do do contato.
+   * @returns {{modo: {nome: boolean, celular: boolean}, precisa: null|'trocar'|'outro-nome'}}
+   */
+  function planejarAcao(l, acao, celular) {
+    const modo = { nome: acao !== 'celular', celular: acao !== 'nome' };
+    const sem = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', false, modo);
+    // "Ambos" troca o nome junto com o celular: não mistura pessoas, é uma troca (confirmação de "trocar", com de → para).
+    if (sem.motivo === 'outro-nome' && !modo.nome) return { modo, precisa: 'outro-nome' };
+    const com = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', true, modo);
+    return { modo, precisa: sem.nome !== com.nome || sem.celular !== com.celular ? 'trocar' : null };
+  }
+
+  /** Texto da confirmação (o que muda de verdade). */
+  function textoDaConfirmacao(l, plano, celular) {
+    if (plano.precisa === 'outro-nome') {
+      return `O CRM tem outro responsável (${String(l.crm.nome).trim()}). Colocar o celular de ${l.item.nome} sob esse nome? Clique de novo para confirmar.`;
+    }
+    const decisao = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', true, plano.modo);
+    const partes = [];
+    if (decisao.nome) partes.push(`nome "${String(l.crm.nome).trim() || 'vazio'}" → "${l.item.nome}"`);
+    if (decisao.celular) partes.push(`celular "${String(l.crm.celular).trim() || 'vazio'}" → "${G().formatarCelular(celular)}"`);
+    return `Trocar no CRM: ${partes.join(' e ')}. Clique de novo para confirmar.`;
+  }
+
+  /**
+   * Grava uma linha (um cliente). Devolve { ok: true, ... } ou { ok: false, tipo, texto } para a própria linha.
+   * `confirmado`: o usuário já deu o segundo clique (permite trocar valor existente e celular sob outro nome).
+   * `estado.feitos` recebe a gravação (para o "Desfazer"); o responsável lido de novo vai para `cand.crm`.
+   */
+  async function gravarLinha(estado, l, acao, celular, confirmado, sinal) {
+    const cand = estado.levantamento.candidatos.find((c) => c.cliente === l.cliente);
+    const fresco = await lerPaginaDoCliente(l.cliente, sinal);
+    if (!fresco.crm) return { ok: false, tipo: 'erro', texto: `Não consegui reler o responsável antes de gravar (${MENSAGEM_ERRO[fresco.erro] ?? 'erro'}). Nada foi gravado.` };
+    if (!mesmoCrm(fresco.crm, l.crm)) {
+      cand.crm = fresco.crm;
+      return { ok: false, tipo: 'aviso', texto: `O CRM mudou desde a leitura (agora: ${textoDoCrm(fresco.crm)}). A linha foi atualizada: confira e clique de novo. Nada foi gravado.`, redesenhar: true };
+    }
+    const modo = { nome: acao !== 'celular', celular: acao !== 'nome' };
+    const decisao = G().decidirPreenchimento(l.item, celular, fresco.crm.nome ?? '', fresco.crm.celular ?? '', confirmado, modo);
+    if (decisao.motivo) return { ok: false, tipo: 'aviso', texto: 'Nada a gravar com o que está ligado (o CRM já tem esses valores ou falta confirmar).' };
+    const enviar = {
+      nome: decisao.nome ? l.item.nome : String(fresco.crm.nome ?? ''),
+      celular: decisao.celular ? G().formatarCelular(celular) : String(fresco.crm.celular ?? ''),
+    };
+    const r = await G().gravarResponsavelNoCrm(l.cliente.cnpj, enviar.nome, enviar.celular);
+    if (r.erro) return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Nada foi alterado.` };
+    const conferido = await lerPaginaDoCliente(l.cliente, sinal);
+    if (!conferido.crm) {
+      return { ok: false, tipo: 'aviso', texto: `O CRM aceitou, mas não consegui reler a página para conferir (${MENSAGEM_ERRO[conferido.erro] ?? 'erro'}). Abra o cliente e confira.` };
+    }
+    cand.crm = conferido.crm;
+    if (!mesmoCrm(conferido.crm, enviar)) {
+      return { ok: false, tipo: 'aviso', texto: `O CRM respondeu, mas a página mostra: ${textoDoCrm(conferido.crm)}. Abra o cliente e confira.`, redesenhar: true };
+    }
+    estado.feitos.push({ cliente: l.cliente, cand, antes: { nome: String(fresco.crm.nome ?? ''), celular: String(fresco.crm.celular ?? '') }, depois: enviar });
+    return { ok: true, tipo: 'ok', texto: `Gravado: ${textoDoCrm(enviar)}.`, redesenhar: true };
+  }
+
+  /** Devolve o que o CRM tinha antes, se ele ainda está como ficou depois da gravação. */
+  async function desfazerGravacao(estado, entrada, sinal) {
+    const fresco = await lerPaginaDoCliente(entrada.cliente, sinal);
+    if (!fresco.crm) return { ok: false, tipo: 'erro', texto: `Não consegui reler o responsável (${MENSAGEM_ERRO[fresco.erro] ?? 'erro'}). Nada foi desfeito.` };
+    if (!mesmoCrm(fresco.crm, entrada.depois)) {
+      entrada.cand.crm = fresco.crm;
+      return { ok: false, tipo: 'aviso', texto: `O CRM mudou depois da gravação (agora: ${textoDoCrm(fresco.crm)}). Não desfiz para não apagar uma alteração nova.`, redesenhar: true };
+    }
+    const r = await G().gravarResponsavelNoCrm(entrada.cliente.cnpj, entrada.antes.nome, entrada.antes.celular);
+    if (r.erro) return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Nada foi desfeito.` };
+    const conferido = await lerPaginaDoCliente(entrada.cliente, sinal);
+    if (conferido.crm) entrada.cand.crm = conferido.crm;
+    if (!conferido.crm || !mesmoCrm(conferido.crm, entrada.antes)) {
+      return { ok: false, tipo: 'aviso', texto: 'Mandei desfazer, mas não consegui conferir o resultado. Abra o cliente e confira.', redesenhar: true };
+    }
+    estado.feitos.splice(estado.feitos.indexOf(entrada), 1);
+    return { ok: true, tipo: 'ok', texto: `Desfeito: ${textoDoCrm(entrada.antes)}.`, redesenhar: true };
+  }
+
+  /* ---------------------------------------------------------------------
    * INTERFACE
    * --------------------------------------------------------------------- */
 
@@ -200,11 +317,49 @@
     null: { texto: 'Só o CNPJ (sem razão para comparar)', cor: CORES.apagado },
   };
 
-  function textoDoCrm(crm) {
-    return `${crm.nome.trim() || 'sem nome'} · ${crm.celular.trim() || 'sem celular'}`;
+  const MENSAGEM_ERRO = {
+    http: 'o CRM recusou a página (sessão expirada?)',
+    rede: 'a página não carregou',
+    'sem-variavel': 'a página não trouxe o responsável',
+    formato: 'o responsável veio num formato desconhecido',
+    'sem-endereco': 'o cliente não tem endereço na lista',
+  };
+
+  const COR_DA_MENSAGEM = { ok: CORES.destaque, aviso: CORES.aviso, erro: CORES.erro };
+
+  /** Os botões de uma linha: Adicionar/Trocar nome, número, ambos, e "Abrir cliente". */
+  function criarAcoes(l, estado) {
+    const caixa = criarDiv('', { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'stretch', minWidth: '150px' });
+    let seletor = null;
+    if (l.novidades.celular && l.item.celulares.length > 1) {
+      seletor = document.createElement('select');
+      seletor.dataset.campo = 'celular-escolhido';
+      Object.assign(seletor.style, { fontSize: '11.5px', padding: '2px', border: `1px solid ${CORES.borda}`, borderRadius: '4px' });
+      l.item.celulares.forEach((c) => {
+        const op = document.createElement('option');
+        op.value = c;
+        op.textContent = G().formatarCelular(c);
+        seletor.appendChild(op);
+      });
+      caixa.appendChild(seletor);
+    }
+    const celularEscolhido = () => (seletor ? seletor.value : l.item.celulares[0] ?? null);
+    acoesDaLinha(l).forEach(({ acao, rotulo }) => {
+      const chave = `${acao}`;
+      const armado = estado.armado && estado.armado.cliente === l.cliente && estado.armado.acao === chave;
+      const b = criarBotao(armado ? 'Confirmar' : rotulo, `acao-${acao}`, acao === 'ambos' || armado);
+      b.dataset.rotulo = rotulo;
+      if (armado) b.style.background = CORES.erro;
+      b.disabled = gravando;
+      if (gravando) b.style.opacity = '0.5';
+      b.addEventListener('click', () => aoClicarAcao(estado, l, acao, celularEscolhido()));
+      caixa.appendChild(b);
+    });
+    caixa.appendChild(criarLinkAbrir(l.cliente));
+    return caixa;
   }
 
-  function desenharLinha(l) {
+  function desenharLinha(l, estado) {
     const cel = l.item.celulares.map((c) => G().formatarCelular(c)).join(' · ');
     const linha = criarDiv('', {
       display: 'grid', gridTemplateColumns: 'minmax(150px,1.3fr) minmax(150px,1.2fr) minmax(150px,1.2fr) minmax(130px,.9fr) auto',
@@ -220,19 +375,68 @@
     linha.appendChild(criarDiv(`No Google: ${l.item.nome || '(sem nome)'}${cel ? ' · ' + cel : ''}`, { color: CORES.texto, fontSize: '12px' }));
     const conf = ROTULO_CONFIANCA[String(l.confere)];
     linha.appendChild(criarDiv(conf.texto, { color: conf.cor, fontSize: '11.5px', fontWeight: '600' }));
-    linha.appendChild(criarLinkAbrir(l.cliente));
+    linha.appendChild(criarAcoes(l, estado));
+    const msg = estado.mensagens.get(l.cliente);
+    if (msg) {
+      const m = criarDiv(msg.texto, { gridColumn: '1 / -1', color: COR_DA_MENSAGEM[msg.tipo], fontSize: '12px', fontWeight: '600' });
+      m.dataset.papel = 'mensagem';
+      linha.appendChild(m);
+    }
     return linha;
   }
 
-  const MENSAGEM_ERRO = {
-    http: 'o CRM recusou a página (sessão expirada?)',
-    rede: 'a página não carregou',
-    'sem-variavel': 'a página não trouxe o responsável',
-    formato: 'o responsável veio num formato desconhecido',
-    'sem-endereco': 'o cliente não tem endereço na lista',
-  };
+  /** Clique num botão da linha: pede confirmação quando precisa; senão grava. */
+  async function aoClicarAcao(estado, l, acao, celular) {
+    if (gravando) return;
+    const plano = planejarAcao(l, acao, celular);
+    const jaArmado = estado.armado && estado.armado.cliente === l.cliente && estado.armado.acao === acao;
+    if (plano.precisa && !jaArmado) {
+      clearTimeout(estado.relogioDaConfirmacao);
+      estado.armado = { cliente: l.cliente, acao };
+      estado.mensagens.set(l.cliente, { tipo: 'aviso', texto: textoDaConfirmacao(l, plano, celular) });
+      // Um clique casual depois não pode gravar: a confirmação expira.
+      estado.relogioDaConfirmacao = setTimeout(() => {
+        if (estado.armado && estado.armado.cliente === l.cliente) {
+          estado.armado = null;
+          estado.mensagens.delete(l.cliente);
+          if (painelEl) estado.redesenhar();
+        }
+      }, CONFIG_LISTA.TEMPO_CONFIRMAR_MS);
+      estado.redesenhar();
+      return;
+    }
+    estado.armado = null;
+    gravando = true;
+    estado.mensagens.set(l.cliente, { tipo: 'aviso', texto: 'Gravando...' });
+    estado.redesenhar();
+    let r;
+    try {
+      r = await gravarLinha(estado, l, acao, celular, Boolean(plano.precisa), controlador?.signal);
+    } catch {
+      r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao gravar. Abra o cliente e confira.' };
+    }
+    gravando = false;
+    estado.mensagens.set(l.cliente, { tipo: r.tipo, texto: r.texto });
+    if (painelEl) estado.redesenhar();
+  }
 
-  function desenharResultado(destino, calculo) {
+  async function aoClicarDesfazer(estado, entrada) {
+    if (gravando) return;
+    gravando = true;
+    estado.mensagens.set(entrada.cliente, { tipo: 'aviso', texto: 'Desfazendo...' });
+    estado.redesenhar();
+    let r;
+    try {
+      r = await desfazerGravacao(estado, entrada, controlador?.signal);
+    } catch {
+      r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao desfazer. Abra o cliente e confira.' };
+    }
+    gravando = false;
+    estado.mensagens.set(entrada.cliente, { tipo: r.tipo, texto: r.texto });
+    if (painelEl) estado.redesenhar();
+  }
+
+  function desenharResultado(destino, calculo, estado) {
     destino.textContent = '';
     const r = calculo.resumo;
     destino.appendChild(criarDiv(
@@ -244,8 +448,35 @@
     }
     const lista = criarDiv('', { borderTop: `1px solid ${CORES.linha}` });
     lista.dataset.papel = 'diferencas';
-    calculo.linhas.forEach((l) => lista.appendChild(desenharLinha(l)));
+    calculo.linhas.forEach((l) => lista.appendChild(desenharLinha(l, estado)));
     destino.appendChild(lista);
+
+    if (estado.feitos.length > 0) {
+      const caixa = criarDiv('', { marginTop: '12px' });
+      caixa.dataset.papel = 'gravados';
+      caixa.appendChild(criarDiv(`Gravados nesta abertura (${estado.feitos.length}):`, { color: CORES.destaque, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }));
+      estado.feitos.forEach((entrada) => {
+        const linha = criarDiv('', { display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'center', padding: '5px 2px', borderBottom: `1px solid ${CORES.linha}` });
+        linha.dataset.papel = 'gravado';
+        const texto = criarDiv('', { fontSize: '12px', color: CORES.texto });
+        texto.appendChild(criarDiv(entrada.cliente.razaoSocial || '(sem razão social)', { color: CORES.tinta, fontWeight: '700' }));
+        texto.appendChild(criarDiv(`Agora: ${textoDoCrm(entrada.depois)} · Antes: ${textoDoCrm(entrada.antes)}`, {}));
+        linha.appendChild(texto);
+        const desfazer = criarBotao('Desfazer', 'desfazer', false);
+        desfazer.disabled = gravando;
+        desfazer.addEventListener('click', () => aoClicarDesfazer(estado, entrada));
+        linha.appendChild(desfazer);
+        const msg = estado.mensagens.get(entrada.cliente);
+        if (msg) {
+          const m = criarDiv(msg.texto, { gridColumn: '1 / -1', color: COR_DA_MENSAGEM[msg.tipo], fontSize: '12px', fontWeight: '600' });
+          m.dataset.papel = 'mensagem';
+          linha.appendChild(m);
+        }
+        caixa.appendChild(linha);
+      });
+      destino.appendChild(caixa);
+    }
+
     if (calculo.semLeitura.length > 0) {
       const caixa = criarDiv('', { marginTop: '10px' });
       caixa.dataset.papel = 'sem-leitura';
@@ -287,14 +518,15 @@
       width: '920px', maxWidth: '92vw', maxHeight: '75vh', overflowY: 'auto', boxSizing: 'border-box',
     });
     painelEl.appendChild(criarDiv('Contatos do Google: diferenças do responsável', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
-    painelEl.appendChild(criarDiv('Clientes desta lista cujo contato do Google difere do "Responsável financeiro" do CRM. "Abrir cliente" abre a página dele, onde você confere e salva.', {
+    painelEl.appendChild(criarDiv('Clientes desta lista cujo contato do Google difere do "Responsável financeiro" do CRM. Os botões gravam no CRM, um cliente por vez: o celular é o número que o CRM usa para abrir o WhatsApp. "Abrir cliente" abre a página dele para conferir no modal.', {
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
-    let levantamento = null;
+    const estado = { levantamento: null, feitos: [], mensagens: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado';
-    const recalcular = () => { if (levantamento) desenharResultado(resultado, calcularLinhas(levantamento)); };
+    const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };
+    estado.redesenhar = recalcular;
     painelEl.appendChild(G().criarInterruptoresDoModo(recalcular));
     const andamento = criarDiv('Lendo...', { color: CORES.texto, fontSize: '12px', margin: '4px 0' });
     andamento.dataset.papel = 'andamento';
@@ -309,6 +541,7 @@
     document.body.appendChild(painelEl);
     util()?.acompanharMenuLateral?.(painelEl);
 
+    let levantamento = null;
     try {
       levantamento = await levantar({
         sinal: controlador.signal,
@@ -332,7 +565,8 @@
       return;
     }
     andamento.textContent = '';
-    desenharResultado(resultado, calcularLinhas(levantamento));
+    estado.levantamento = levantamento;
+    recalcular();
   }
 
   function alternarPainel() {
@@ -387,6 +621,10 @@
     lerPaginaDoCliente,
     levantar,
     calcularLinhas,
+    acoesDaLinha,
+    planejarAcao,
+    gravarLinha,
+    desfazerGravacao,
     criarBotaoDaLista,
     abrirPainel,
     fecharPainel,

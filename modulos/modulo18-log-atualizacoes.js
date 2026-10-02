@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.75.0', data: '02/10/2026',
+      mudancas: [
+        'Novo na lista "Contatos do Google": botões "Adicionar nome", "Adicionar número" e "Adicionar ambos" em cada linha. Eles gravam o responsável financeiro direto no CRM, sem abrir o cliente, um cliente por vez. Onde o campo do CRM já tem outro valor o botão diz "Trocar" e pede um segundo clique, mostrando de → para (a confirmação some sozinha em 6 segundos).',
+        'Proteções: antes de gravar o SmartTable lê a página do cliente de novo e RECUSA se o CRM mudou desde a leitura; colocar só o celular sob um nome diferente também pede confirmação (o celular é o número do WhatsApp); depois de gravar ele lê de novo para conferir e só então mostra "Gravado" (se o CRM respondeu ok mas a página não mostra o valor, avisa); o campo que você não escolheu vai com o valor atual do CRM, sem mudar; e só uma gravação acontece por vez.',
+        'Cada gravação entra em "Gravados nesta abertura" com "Desfazer", que devolve o que havia antes (se o CRM ainda estiver como ficou). Se o contato tiver mais de um celular, você escolhe qual gravar. Falhas (o CRM recusou o valor, sessão expirada, sem rede) aparecem na própria linha, com "Nada foi alterado". Não existe gravação em lote.',
+      ],
+    },
+    {
       versao: '1.74.0', data: '02/10/2026',
       mudancas: [
         'Novo: botão "Contatos do Google" na lista de clientes (ao lado dos outros botões da barra). Ele abre um painel com os clientes da lista cujo contato do Google é DIFERENTE do "Responsável financeiro" do CRM, sem você entrar cliente por cliente: o SmartTable lê o responsável de cada cliente que tem contato (só desses, sem abrir aba) e mostra "No CRM" e "No Google" lado a lado, com "Abrir cliente" em cada linha.',

@@ -347,6 +347,34 @@
     return 'nome' in campos && 'celular' in campos ? { nome: campos.nome, celular: campos.celular } : { erro: 'formato' };
   }
 
+  /**
+   * Grava o responsável no CRM da MESMA forma que o `salvarResponsavel` da página do cliente (lido no diagnóstico do
+   * usuário, 02/10/2026): PUT /api/crm/cliente-responsavel com { clienteCodigo, responsavelNome, responsavelCelular }; o
+   * `clienteCodigo` é o CNPJ com máscara, igual ao `window.__CLIENTE_CNPJ__`, ao `cnpj` da URL e ao da lista. O wrapper
+   * global de `fetch` do layout põe o header do token CSRF sozinho (confirmado também na LISTA). Os DOIS campos vão juntos:
+   * quem chama passa o valor atual do que NÃO quer mudar. Só é usado com clique explícito do usuário (lista, Módulo 29).
+   * @returns {Promise<{ok: true} | {erro: string}>}
+   */
+  async function gravarResponsavelNoCrm(cnpj, nome, celular) {
+    try {
+      const r = await window.fetch('/api/crm/cliente-responsavel', {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ clienteCodigo: cnpj, responsavelNome: nome, responsavelCelular: celular }),
+      });
+      if (String(r.headers?.get?.('content-type') || '').indexOf('application/json') === -1) {
+        return { erro: 'Sessão expirada. Recarregue a página e faça login novamente.' };
+      }
+      // Ler o corpo ANTES de olhar r.ok: o 400 de validação traz a mensagem.
+      const json = await r.json();
+      if (!r.ok || !json.success) return { erro: (json.error && json.error.message) || 'Não foi possível salvar.' };
+      return { ok: true };
+    } catch {
+      return { erro: 'Falha de rede ao salvar.' };
+    }
+  }
+
   /* ---------------------------------------------------------------------
    * INTERRUPTORES: NOME e CELULAR (o que comparar e preencher)
    * --------------------------------------------------------------------- */
@@ -1037,6 +1065,7 @@
     mesmoNome,
     razaoConfere,
     lerResponsavelDoHtml,
+    gravarResponsavelNoCrm,
     lerModo,
     definirModo,
     criarInterruptoresDoModo,
