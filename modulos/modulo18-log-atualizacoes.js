@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.75.1', data: '02/10/2026',
+      mudancas: [
+        'Corrigido nos botões da lista "Contatos do Google": com mais de um celular no contato, o "Confirmar" agora grava o MESMO número que a confirmação mostrou (antes a lista era redesenhada e o seletor voltava ao primeiro número). Mudar o número depois de armar a confirmação cancela a confirmação.',
+        'Corrigido: a confirmação agora vale para cada contato, não para o cliente inteiro. Se a mesma empresa tem dois contatos, clicar no segundo não grava direto com a confirmação do primeiro. A confirmação "celular sob outro nome" agora mostra também o celular antigo que será trocado, e qualquer outro clique cancela a confirmação armada (sem deixar o texto "clique de novo" sobrando).',
+        'Corrigido: se a resposta do CRM ao gravar falhar (rede cortada, sem resposta em 30 segundos, sessão expirada), o SmartTable não diz mais "nada foi alterado": ele lê a página de novo e informa o que de fato ficou (gravou, não gravou, ou "abra o cliente e confira"). Fechar o painel no meio de uma gravação não corta mais a conferência: o resultado aparece num aviso. A conferência também tolera o CRM normalizar o nome (maiúsculas) ou guardar o celular só com dígitos.',
+      ],
+    },
+    {
       versao: '1.75.0', data: '02/10/2026',
       mudancas: [
         'Novo na lista "Contatos do Google": botões "Adicionar nome", "Adicionar número" e "Adicionar ambos" em cada linha. Eles gravam o responsável financeiro direto no CRM, sem abrir o cliente, um cliente por vez. Onde o campo do CRM já tem outro valor o botão diz "Trocar" e pede um segundo clique, mostrando de → para (a confirmação some sozinha em 6 segundos).',

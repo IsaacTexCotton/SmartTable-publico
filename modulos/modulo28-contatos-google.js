@@ -57,6 +57,8 @@
     MAX_NOME: 150,
     // Quanto esperar o CRM atualizar o responsável depois do Salvar.
     TIMEOUT_CONFIRMACAO_MS: 8000,
+    // Quanto esperar o CRM responder ao PUT do responsável (a página do CRM não tem teto; aqui a tela não pode travar).
+    TIMEOUT_GRAVACAO_MS: 30000,
     // Quanto esperar a página definir window.__RESPONSAVEL__ antes de seguir sem ele (o momento não foi confirmado).
     TIMEOUT_RESPONSAVEL_MS: 2500,
     INTERVALO_RESPONSAVEL_MS: 100,
@@ -353,25 +355,32 @@
    * `clienteCodigo` é o CNPJ com máscara, igual ao `window.__CLIENTE_CNPJ__`, ao `cnpj` da URL e ao da lista. O wrapper
    * global de `fetch` do layout põe o header do token CSRF sozinho (confirmado também na LISTA). Os DOIS campos vão juntos:
    * quem chama passa o valor atual do que NÃO quer mudar. Só é usado com clique explícito do usuário (lista, Módulo 29).
-   * @returns {Promise<{ok: true} | {erro: string}>}
+   * @returns {Promise<{ok: true} | {erro: string, incerto?: true}>} `incerto`: a resposta NÃO veio do CRM (rede, tempo
+   *   esgotado, corpo que não é JSON, sessão expirada): o PUT pode ou não ter sido aplicado, e quem chama precisa conferir
+   *   relendo a página. Sem `incerto`, o próprio CRM respondeu que não gravou.
    */
   async function gravarResponsavelNoCrm(cnpj, nome, celular) {
+    const ctl = new window.AbortController();
+    const relogio = setTimeout(() => ctl.abort(), CONFIG_CONTATOS.TIMEOUT_GRAVACAO_MS);
     try {
       const r = await window.fetch('/api/crm/cliente-responsavel', {
         method: 'PUT',
         credentials: 'same-origin',
+        signal: ctl.signal,
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ clienteCodigo: cnpj, responsavelNome: nome, responsavelCelular: celular }),
       });
       if (String(r.headers?.get?.('content-type') || '').indexOf('application/json') === -1) {
-        return { erro: 'Sessão expirada. Recarregue a página e faça login novamente.' };
+        return { erro: 'Sessão expirada. Recarregue a página e faça login novamente.', incerto: true };
       }
       // Ler o corpo ANTES de olhar r.ok: o 400 de validação traz a mensagem.
       const json = await r.json();
       if (!r.ok || !json.success) return { erro: (json.error && json.error.message) || 'Não foi possível salvar.' };
       return { ok: true };
     } catch {
-      return { erro: 'Falha de rede ao salvar.' };
+      return { erro: ctl.signal.aborted ? 'O CRM não respondeu a tempo.' : 'Falha de rede ao salvar.', incerto: true };
+    } finally {
+      clearTimeout(relogio);
     }
   }
 

@@ -89,6 +89,7 @@
     if (!endereco) return { erro: 'sem-endereco' };
     const ctl = new window.AbortController();
     const aoCancelar = () => ctl.abort();
+    if (sinalDeFora?.aborted) ctl.abort(); // já cancelado antes de começar (o evento "abort" não repete)
     sinalDeFora?.addEventListener?.('abort', aoCancelar);
     const relogio = setTimeout(() => ctl.abort(), CONFIG_LISTA.TIMEOUT_PAGINA_MS);
     try {
@@ -176,8 +177,11 @@
 
   const comPonto = (t) => String(t).replace(/[.!?]?\s*$/, '.');
   const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
-  const mesmoCrm = (a, b) => String(a.nome ?? '').trim() === String(b.nome ?? '').trim() && soDigitos(a.celular) === soDigitos(b.celular);
   const textoDoCrm = (crm) => `${String(crm.nome ?? '').trim() || 'sem nome'} · ${String(crm.celular ?? '').trim() || 'sem celular'}`;
+  const modoDaAcao = (acao) => ({ nome: acao !== 'celular', celular: acao !== 'nome' });
+  /** Mesmo responsável? Nome sem acento/caixa/espaços sobrando (o CRM pode normalizar ao gravar) e celular pelos dígitos. */
+  const mesmoCrm = (a, b) => (String(a.nome ?? '').trim() === String(b.nome ?? '').trim() || G().mesmoNome(a.nome, b.nome))
+    && soDigitos(a.celular) === soDigitos(b.celular);
 
   /** Botões de uma linha: depende do que difere e de o campo do CRM estar vazio ("Adicionar") ou ter outro valor ("Trocar"). */
   function acoesDaLinha(l) {
@@ -199,7 +203,7 @@
    * @returns {{modo: {nome: boolean, celular: boolean}, precisa: null|'trocar'|'outro-nome'}}
    */
   function planejarAcao(l, acao, celular) {
-    const modo = { nome: acao !== 'celular', celular: acao !== 'nome' };
+    const modo = modoDaAcao(acao);
     const sem = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', false, modo);
     // "Ambos" troca o nome junto com o celular: não mistura pessoas, é uma troca (confirmação de "trocar", com de → para).
     if (sem.motivo === 'outro-nome' && !modo.nome) return { modo, precisa: 'outro-nome' };
@@ -207,50 +211,75 @@
     return { modo, precisa: sem.nome !== com.nome || sem.celular !== com.celular ? 'trocar' : null };
   }
 
-  /** Texto da confirmação (o que muda de verdade). */
+  /** Texto da confirmação: o que muda de verdade (de → para), inclusive o celular que seria substituído. */
   function textoDaConfirmacao(l, plano, celular) {
-    if (plano.precisa === 'outro-nome') {
-      return `O CRM tem outro responsável (${String(l.crm.nome).trim()}). Colocar o celular de ${l.item.nome} sob esse nome? Clique de novo para confirmar.`;
-    }
     const decisao = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', true, plano.modo);
+    const celularAntigo = String(l.crm.celular ?? '').trim();
+    const trocaCelular = decisao.celular && celularAntigo ? ` (troca o celular "${celularAntigo}" por "${G().formatarCelular(celular)}")` : '';
+    if (plano.precisa === 'outro-nome') {
+      return `O CRM tem outro responsável (${String(l.crm.nome).trim()}). Colocar o celular de ${l.item.nome} sob esse nome${trocaCelular}? Clique de novo para confirmar.`;
+    }
     const partes = [];
     if (decisao.nome) partes.push(`nome "${String(l.crm.nome).trim() || 'vazio'}" → "${l.item.nome}"`);
-    if (decisao.celular) partes.push(`celular "${String(l.crm.celular).trim() || 'vazio'}" → "${G().formatarCelular(celular)}"`);
+    if (decisao.celular) partes.push(`celular "${celularAntigo || 'vazio'}" → "${G().formatarCelular(celular)}"`);
     return `Trocar no CRM: ${partes.join(' e ')}. Clique de novo para confirmar.`;
   }
 
   /**
-   * Grava uma linha (um cliente). Devolve { ok: true, ... } ou { ok: false, tipo, texto } para a própria linha.
+   * Depois de mandar o PUT, o que fazer com a resposta e com a releitura da página. Serve à gravação e ao "Desfazer".
+   * `r` é a resposta de gravarResponsavelNoCrm; `esperado` o que a página deve mostrar; `anterior` o que havia antes.
+   * As leituras daqui NÃO usam o sinal do painel: fechar o painel não pode cortar a conferência de um PUT já enviado.
+   * @returns {Promise<{ok: true, conferido: object, viaConferencia: boolean} | {ok: false, tipo: string, texto: string}>}
+   */
+  async function conferirDepoisDoPut(l, cand, r, esperado, anterior, verbo) {
+    if (r.erro && !r.incerto) return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Nada foi ${verbo}.` };
+    const conferido = await lerPaginaDoCliente(l.cliente);
+    if (!conferido.crm) {
+      const motivo = MENSAGEM_ERRO[conferido.erro] ?? 'erro';
+      return {
+        ok: false, tipo: 'aviso',
+        texto: r.erro
+          ? `${comPonto(r.erro)} E não consegui reler a página para saber se o CRM gravou (${motivo}). Abra o cliente e confira.`
+          : `O CRM aceitou, mas não consegui reler a página para conferir (${motivo}). Abra o cliente e confira.`,
+      };
+    }
+    cand.crm = conferido.crm;
+    if (mesmoCrm(conferido.crm, esperado)) return { ok: true, conferido: conferido.crm, viaConferencia: Boolean(r.erro) };
+    if (r.erro && mesmoCrm(conferido.crm, anterior)) {
+      return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Conferi relendo a página: o CRM não gravou.` };
+    }
+    return {
+      ok: false, tipo: 'aviso',
+      texto: `${r.erro ? comPonto(r.erro) + ' ' : 'O CRM respondeu, mas '}a página mostra: ${textoDoCrm(conferido.crm)}. Abra o cliente e confira.`.replace(/^ /, ''),
+    };
+  }
+
+  /**
+   * Grava uma linha (um contato de um cliente). Devolve { ok: true, ... } ou { ok: false, tipo, texto } para a própria linha.
    * `confirmado`: o usuário já deu o segundo clique (permite trocar valor existente e celular sob outro nome).
    * `estado.feitos` recebe a gravação (para o "Desfazer"); o responsável lido de novo vai para `cand.crm`.
    */
   async function gravarLinha(estado, l, acao, celular, confirmado, sinal) {
     const cand = estado.levantamento.candidatos.find((c) => c.cliente === l.cliente);
+    // Ainda nada foi enviado: esta leitura pode ser cancelada pelo painel.
     const fresco = await lerPaginaDoCliente(l.cliente, sinal);
     if (!fresco.crm) return { ok: false, tipo: 'erro', texto: `Não consegui reler o responsável antes de gravar (${MENSAGEM_ERRO[fresco.erro] ?? 'erro'}). Nada foi gravado.` };
     if (!mesmoCrm(fresco.crm, l.crm)) {
       cand.crm = fresco.crm;
-      return { ok: false, tipo: 'aviso', texto: `O CRM mudou desde a leitura (agora: ${textoDoCrm(fresco.crm)}). A linha foi atualizada: confira e clique de novo. Nada foi gravado.`, redesenhar: true };
+      return { ok: false, tipo: 'aviso', texto: `O CRM mudou desde a leitura (agora: ${textoDoCrm(fresco.crm)}). A linha foi atualizada: confira e clique de novo. Nada foi gravado.` };
     }
-    const modo = { nome: acao !== 'celular', celular: acao !== 'nome' };
-    const decisao = G().decidirPreenchimento(l.item, celular, fresco.crm.nome ?? '', fresco.crm.celular ?? '', confirmado, modo);
+    const decisao = G().decidirPreenchimento(l.item, celular, fresco.crm.nome ?? '', fresco.crm.celular ?? '', confirmado, modoDaAcao(acao));
     if (decisao.motivo) return { ok: false, tipo: 'aviso', texto: 'Nada a gravar com o que está ligado (o CRM já tem esses valores ou falta confirmar).' };
+    const antes = { nome: String(fresco.crm.nome ?? ''), celular: String(fresco.crm.celular ?? '') };
     const enviar = {
-      nome: decisao.nome ? l.item.nome : String(fresco.crm.nome ?? ''),
-      celular: decisao.celular ? G().formatarCelular(celular) : String(fresco.crm.celular ?? ''),
+      nome: decisao.nome ? l.item.nome : antes.nome,
+      celular: decisao.celular ? G().formatarCelular(celular) : antes.celular,
     };
     const r = await G().gravarResponsavelNoCrm(l.cliente.cnpj, enviar.nome, enviar.celular);
-    if (r.erro) return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Nada foi alterado.` };
-    const conferido = await lerPaginaDoCliente(l.cliente, sinal);
-    if (!conferido.crm) {
-      return { ok: false, tipo: 'aviso', texto: `O CRM aceitou, mas não consegui reler a página para conferir (${MENSAGEM_ERRO[conferido.erro] ?? 'erro'}). Abra o cliente e confira.` };
-    }
-    cand.crm = conferido.crm;
-    if (!mesmoCrm(conferido.crm, enviar)) {
-      return { ok: false, tipo: 'aviso', texto: `O CRM respondeu, mas a página mostra: ${textoDoCrm(conferido.crm)}. Abra o cliente e confira.`, redesenhar: true };
-    }
-    estado.feitos.push({ cliente: l.cliente, cand, antes: { nome: String(fresco.crm.nome ?? ''), celular: String(fresco.crm.celular ?? '') }, depois: enviar });
-    return { ok: true, tipo: 'ok', texto: `Gravado: ${textoDoCrm(enviar)}.`, redesenhar: true };
+    const c = await conferirDepoisDoPut(l, cand, r, enviar, antes, 'alterado');
+    if (!c.ok) return c;
+    estado.feitos.push({ cliente: l.cliente, item: l.item, cand, antes, depois: enviar });
+    return { ok: true, tipo: 'ok', texto: c.viaConferencia ? `Gravado (a resposta do CRM falhou, mas a página mostra os valores): ${textoDoCrm(enviar)}.` : `Gravado: ${textoDoCrm(enviar)}.` };
   }
 
   /** Devolve o que o CRM tinha antes, se ele ainda está como ficou depois da gravação. */
@@ -259,17 +288,13 @@
     if (!fresco.crm) return { ok: false, tipo: 'erro', texto: `Não consegui reler o responsável (${MENSAGEM_ERRO[fresco.erro] ?? 'erro'}). Nada foi desfeito.` };
     if (!mesmoCrm(fresco.crm, entrada.depois)) {
       entrada.cand.crm = fresco.crm;
-      return { ok: false, tipo: 'aviso', texto: `O CRM mudou depois da gravação (agora: ${textoDoCrm(fresco.crm)}). Não desfiz para não apagar uma alteração nova.`, redesenhar: true };
+      return { ok: false, tipo: 'aviso', texto: `O CRM mudou depois da gravação (agora: ${textoDoCrm(fresco.crm)}). Não desfiz para não apagar uma alteração nova.` };
     }
     const r = await G().gravarResponsavelNoCrm(entrada.cliente.cnpj, entrada.antes.nome, entrada.antes.celular);
-    if (r.erro) return { ok: false, tipo: 'erro', texto: `${comPonto(r.erro)} Nada foi desfeito.` };
-    const conferido = await lerPaginaDoCliente(entrada.cliente, sinal);
-    if (conferido.crm) entrada.cand.crm = conferido.crm;
-    if (!conferido.crm || !mesmoCrm(conferido.crm, entrada.antes)) {
-      return { ok: false, tipo: 'aviso', texto: 'Mandei desfazer, mas não consegui conferir o resultado. Abra o cliente e confira.', redesenhar: true };
-    }
+    const c = await conferirDepoisDoPut({ cliente: entrada.cliente }, entrada.cand, r, entrada.antes, entrada.depois, 'desfeito');
+    if (!c.ok) return c;
     estado.feitos.splice(estado.feitos.indexOf(entrada), 1);
-    return { ok: true, tipo: 'ok', texto: `Desfeito: ${textoDoCrm(entrada.antes)}.`, redesenhar: true };
+    return { ok: true, tipo: 'ok', texto: `Desfeito: ${textoDoCrm(entrada.antes)}.` };
   }
 
   /* ---------------------------------------------------------------------
@@ -327,12 +352,26 @@
 
   const COR_DA_MENSAGEM = { ok: CORES.destaque, aviso: CORES.aviso, erro: CORES.erro };
 
+  function criarMensagem(msg) {
+    const m = criarDiv(msg.texto, { gridColumn: '1 / -1', color: COR_DA_MENSAGEM[msg.tipo], fontSize: '12px', fontWeight: '600' });
+    m.dataset.papel = 'mensagem';
+    return m;
+  }
+
+  /** Cancela a confirmação armada (e a mensagem dela). */
+  function desarmar(estado) {
+    clearTimeout(estado.relogioDaConfirmacao);
+    if (estado.armado) estado.mensagens.delete(estado.armado.item);
+    estado.armado = null;
+  }
+
   /** Os botões de uma linha: Adicionar/Trocar nome, número, ambos, e "Abrir cliente". */
   function criarAcoes(l, estado) {
     const caixa = criarDiv('', { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'stretch', minWidth: '150px' });
-    let seletor = null;
+    // O número escolhido sobrevive aos redesenhos (cada clique redesenha a lista): fica guardado por contato.
+    const escolhido = estado.escolhidos.get(l.item) ?? l.item.celulares[0] ?? null;
     if (l.novidades.celular && l.item.celulares.length > 1) {
-      seletor = document.createElement('select');
+      const seletor = document.createElement('select');
       seletor.dataset.campo = 'celular-escolhido';
       Object.assign(seletor.style, { fontSize: '11.5px', padding: '2px', border: `1px solid ${CORES.borda}`, borderRadius: '4px' });
       l.item.celulares.forEach((c) => {
@@ -341,18 +380,22 @@
         op.textContent = G().formatarCelular(c);
         seletor.appendChild(op);
       });
+      seletor.value = escolhido;
+      seletor.disabled = gravando;
+      seletor.addEventListener('change', () => {
+        estado.escolhidos.set(l.item, seletor.value);
+        // Outro número: a confirmação que o usuário viu era do número anterior.
+        if (estado.armado && estado.armado.item === l.item) { desarmar(estado); estado.redesenhar(); }
+      });
       caixa.appendChild(seletor);
     }
-    const celularEscolhido = () => (seletor ? seletor.value : l.item.celulares[0] ?? null);
     acoesDaLinha(l).forEach(({ acao, rotulo }) => {
-      const chave = `${acao}`;
-      const armado = estado.armado && estado.armado.cliente === l.cliente && estado.armado.acao === chave;
+      const armado = Boolean(estado.armado) && estado.armado.item === l.item && estado.armado.acao === acao;
       const b = criarBotao(armado ? 'Confirmar' : rotulo, `acao-${acao}`, acao === 'ambos' || armado);
-      b.dataset.rotulo = rotulo;
       if (armado) b.style.background = CORES.erro;
       b.disabled = gravando;
       if (gravando) b.style.opacity = '0.5';
-      b.addEventListener('click', () => aoClicarAcao(estado, l, acao, celularEscolhido()));
+      b.addEventListener('click', () => aoClicarAcao(estado, l, acao));
       caixa.appendChild(b);
     });
     caixa.appendChild(criarLinkAbrir(l.cliente));
@@ -376,29 +419,34 @@
     const conf = ROTULO_CONFIANCA[String(l.confere)];
     linha.appendChild(criarDiv(conf.texto, { color: conf.cor, fontSize: '11.5px', fontWeight: '600' }));
     linha.appendChild(criarAcoes(l, estado));
-    const msg = estado.mensagens.get(l.cliente);
-    if (msg) {
-      const m = criarDiv(msg.texto, { gridColumn: '1 / -1', color: COR_DA_MENSAGEM[msg.tipo], fontSize: '12px', fontWeight: '600' });
-      m.dataset.papel = 'mensagem';
-      linha.appendChild(m);
-    }
+    const msg = estado.mensagens.get(l.item);
+    if (msg) linha.appendChild(criarMensagem(msg));
     return linha;
   }
 
+  /** Termina uma gravação: solta a trava, mostra o resultado (na linha ou, com o painel fechado, num aviso). */
+  function terminarGravacao(estado, item, r) {
+    gravando = false;
+    estado.mensagens.set(item, { tipo: r.tipo, texto: r.texto });
+    if (painelEl) estado.redesenhar();
+    else util()?.toast?.(r.texto, 9000); // o painel foi fechado no meio: o resultado não pode se perder
+  }
+
   /** Clique num botão da linha: pede confirmação quando precisa; senão grava. */
-  async function aoClicarAcao(estado, l, acao, celular) {
+  async function aoClicarAcao(estado, l, acao) {
     if (gravando) return;
+    const celular = estado.escolhidos.get(l.item) ?? l.item.celulares[0] ?? null;
+    // A confirmação vale para ESTE contato e esta ação (trocar o número escolhido também a cancela); qualquer outro clique a cancela.
+    const jaArmado = Boolean(estado.armado) && estado.armado.item === l.item && estado.armado.acao === acao;
+    if (estado.armado && !jaArmado) desarmar(estado);
     const plano = planejarAcao(l, acao, celular);
-    const jaArmado = estado.armado && estado.armado.cliente === l.cliente && estado.armado.acao === acao;
     if (plano.precisa && !jaArmado) {
-      clearTimeout(estado.relogioDaConfirmacao);
-      estado.armado = { cliente: l.cliente, acao };
-      estado.mensagens.set(l.cliente, { tipo: 'aviso', texto: textoDaConfirmacao(l, plano, celular) });
+      estado.armado = { item: l.item, acao };
+      estado.mensagens.set(l.item, { tipo: 'aviso', texto: textoDaConfirmacao(l, plano, celular) });
       // Um clique casual depois não pode gravar: a confirmação expira.
       estado.relogioDaConfirmacao = setTimeout(() => {
-        if (estado.armado && estado.armado.cliente === l.cliente) {
-          estado.armado = null;
-          estado.mensagens.delete(l.cliente);
+        if (estado.armado && estado.armado.item === l.item) {
+          desarmar(estado);
           if (painelEl) estado.redesenhar();
         }
       }, CONFIG_LISTA.TEMPO_CONFIRMAR_MS);
@@ -407,7 +455,7 @@
     }
     estado.armado = null;
     gravando = true;
-    estado.mensagens.set(l.cliente, { tipo: 'aviso', texto: 'Gravando...' });
+    estado.mensagens.set(l.item, { tipo: 'aviso', texto: 'Gravando...' });
     estado.redesenhar();
     let r;
     try {
@@ -415,15 +463,13 @@
     } catch {
       r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao gravar. Abra o cliente e confira.' };
     }
-    gravando = false;
-    estado.mensagens.set(l.cliente, { tipo: r.tipo, texto: r.texto });
-    if (painelEl) estado.redesenhar();
+    terminarGravacao(estado, l.item, r);
   }
 
   async function aoClicarDesfazer(estado, entrada) {
     if (gravando) return;
     gravando = true;
-    estado.mensagens.set(entrada.cliente, { tipo: 'aviso', texto: 'Desfazendo...' });
+    estado.mensagens.set(entrada.item, { tipo: 'aviso', texto: 'Desfazendo...' });
     estado.redesenhar();
     let r;
     try {
@@ -431,9 +477,7 @@
     } catch {
       r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao desfazer. Abra o cliente e confira.' };
     }
-    gravando = false;
-    estado.mensagens.set(entrada.cliente, { tipo: r.tipo, texto: r.texto });
-    if (painelEl) estado.redesenhar();
+    terminarGravacao(estado, entrada.item, r);
   }
 
   function desenharResultado(destino, calculo, estado) {
@@ -466,12 +510,8 @@
         desfazer.disabled = gravando;
         desfazer.addEventListener('click', () => aoClicarDesfazer(estado, entrada));
         linha.appendChild(desfazer);
-        const msg = estado.mensagens.get(entrada.cliente);
-        if (msg) {
-          const m = criarDiv(msg.texto, { gridColumn: '1 / -1', color: COR_DA_MENSAGEM[msg.tipo], fontSize: '12px', fontWeight: '600' });
-          m.dataset.papel = 'mensagem';
-          linha.appendChild(m);
-        }
+        const msg = estado.mensagens.get(entrada.item);
+        if (msg) linha.appendChild(criarMensagem(msg));
         caixa.appendChild(linha);
       });
       destino.appendChild(caixa);
@@ -522,7 +562,7 @@
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
-    const estado = { levantamento: null, feitos: [], mensagens: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
+    const estado = { levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado';
     const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };
