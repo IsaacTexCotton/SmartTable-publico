@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.73.1', data: '02/10/2026',
+      mudancas: [
+        'Corrigido nos Contatos do Google (Alt+J): "Preencher" agora trata nome e celular juntos. Se o CRM já tem OUTRO nome e você não marcou "Substituir o que já está no CRM", nada é digitado (antes só o celular era preenchido e o número de uma pessoa ficava sob o nome de outra, com o selo WHATS apontando para ele). O aviso diz qual nome está no CRM.',
+        'Corrigido: se a página do cliente define o responsável um instante depois do SmartTable, ele espera antes de decidir (antes podia mostrar um aviso para quem já estava igual ao contato). O "Responsável conferido no CRM" só aparece quando o CRM de fato passou a ter o valor: se já era igual antes do Salvar, o aviso diz "nada mudou". Fechar o modal sem salvar não deixa a conferência presa.',
+        'Corrigido: escolher o mesmo arquivo CSV de novo agora importa (o seletor é limpo); sem IndexedDB a data da importação não sobrevive ao recarregar (como os contatos); uma palavra de 8 letras da razão social (ex.: COMERCIO) não é mais confundida com a raiz do CNPJ; "Clique de novo para apagar" volta ao normal depois de 4 segundos; falha ao ler os contatos guardados passa a avisar.',
+      ],
+    },
+    {
       versao: '1.73.0', data: '02/10/2026',
       mudancas: [
         'Novo: Alt+J abre "Contatos do Google". Você escolhe o CSV exportado do Google Contatos ("Google CSV"); o arquivo é lido no próprio navegador e os contatos no padrão RAZÃO - RAIZ DO CNPJ - UF - GP n - nome ficam guardados só neste navegador. O painel mostra só contagens (lidos, no padrão, fora do padrão e por quê). Importar de novo substitui tudo, e há um botão para apagar.',

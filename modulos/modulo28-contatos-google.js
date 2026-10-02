@@ -53,6 +53,11 @@
     MAX_NOME: 150,
     // Quanto esperar o CRM atualizar o responsável depois do Salvar.
     TIMEOUT_CONFIRMACAO_MS: 8000,
+    // Quanto esperar a página definir window.__RESPONSAVEL__ antes de seguir sem ele (o momento não foi confirmado).
+    TIMEOUT_RESPONSAVEL_MS: 2500,
+    INTERVALO_RESPONSAVEL_MS: 100,
+    // O "Clique de novo para apagar" volta ao normal depois disto.
+    TEMPO_CONFIRMAR_APAGAR_MS: 4000,
     INTERVALO_CONFIRMACAO_MS: 200,
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
   };
@@ -69,6 +74,10 @@
     fundo: '#ffffff',
   };
 
+  // Raiz do CNPJ num trecho do nome: 8 dígitos (com ou sem pontos) ou 8 caracteres alfanuméricos com ao
+  // menos um dígito (CNPJ alfanumérico; uma palavra de 8 letras da razão, como "COMERCIO", não é raiz).
+  const PADRAO_RAIZ = /^(\d{2}\.?\d{3}\.?\d{3}|(?=[0-9A-Z]*\d)[0-9A-Z]{8})$/;
+
   const UFS = new Set(['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']);
 
   const util = () => window.__smartTableUtil;
@@ -76,7 +85,8 @@
   let painelEl = null;
   let avisoEl = null;
   let iniciou = false;
-  let aguardandoEnvio = false;
+  // Ouvinte do submit do modal que vai conferir o Salvar; um só por vez (o anterior sai ao preencher de novo).
+  let ouvinteEnvio = null;
 
   /* ---------------------------------------------------------------------
    * CSV E NOME DO CONTATO (funções puras)
@@ -124,8 +134,8 @@
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
     const partes = t.split(/\s+-\s+/);
     for (let i = 0; i < partes.length - 1; i++) {
-      if (!/^(\d{2}\.?\d{3}\.?\d{3}|[0-9A-Za-z]{8})$/.test(partes[i])) continue;
-      const raiz = partes[i].replace(/\./g, '').toUpperCase();
+      if (!PADRAO_RAIZ.test(partes[i])) continue;
+      const raiz = partes[i].replace(/\./g, '');
       const uf = partes[i + 1].toUpperCase();
       if (!UFS.has(uf) || partes[i + 1] !== partes[i + 1].toUpperCase()) continue;
       const resto = partes.slice(i + 2);
@@ -140,13 +150,13 @@
   /**
    * Por que um texto de contato NÃO segue o padrão (só para contar; nunca mostra o texto):
    *   'vazio' = o contato não tem nome nem organização; 'sem-raiz' = nenhum trecho parece raiz de CNPJ
-   *   (8 dígitos, com ou sem pontos); 'raiz-sem-uf' = tem a raiz, mas depois dela não vem uma UF válida.
+   *   (PADRAO_RAIZ); 'raiz-sem-uf' = tem a raiz, mas depois dela não vem uma UF válida.
    */
   function motivoForaDoPadrao(texto) {
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
     if (!t) return 'vazio';
     const partes = t.split(/\s+-\s+/);
-    const temRaiz = partes.some((p) => /^(\d{2}\.?\d{3}\.?\d{3})$/.test(p));
+    const temRaiz = partes.some((p) => PADRAO_RAIZ.test(p));
     return temRaiz ? 'raiz-sem-uf' : 'sem-raiz';
   }
 
@@ -234,6 +244,13 @@
 
   const semAcento = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
+  /** Dígitos do celular como o CRM mostra ("+55 (DD) 9XXXX-XXXX" -> "DD9XXXXXXXX"). */
+  const digitosDoCelular = (v) => {
+    const d = String(v ?? '').replace(/\D/g, '');
+    return d.length >= 12 && d.startsWith('55') ? d.slice(2) : d;
+  };
+  const mesmoNome = (a, b) => Boolean(semAcento(a)) && semAcento(a) === semAcento(b);
+
   /**
    * O que este contato ainda tem a oferecer ao CRM? crm = { nome, celular } (null = não deu para ler).
    * Nome conta se o contato tem nome diferente do que está no CRM; celular conta se o contato tem
@@ -241,10 +258,24 @@
    */
   function temNovidade(item, crm) {
     if (!crm) return Boolean(item.nome) || item.celulares.length > 0;
-    const nomeNovo = Boolean(item.nome) && semAcento(item.nome) !== semAcento(crm.nome);
-    const celCrm = String(crm.celular ?? '').replace(/\D/g, '').replace(/^55(?=\d{11}$)/, '');
-    const celularNovo = item.celulares.length > 0 && !item.celulares.includes(celCrm);
+    const nomeNovo = Boolean(item.nome) && !mesmoNome(item.nome, crm.nome);
+    const celularNovo = item.celulares.length > 0 && !item.celulares.includes(digitosDoCelular(crm.celular));
     return nomeNovo || celularNovo;
+  }
+
+  /**
+   * O que "Preencher" deve digitar no modal, olhando o que o MODAL mostra agora (a fonte da verdade).
+   * Nome e celular andam JUNTOS: se o CRM já tem OUTRO nome e o usuário não marcou "Substituir", nada é
+   * digitado (só o celular deixaria o número de uma pessoa sob o nome de outra, e o celular é o do WhatsApp).
+   * @returns {{nome: boolean, celular: boolean, motivo?: 'outro-nome'|'nada'}}
+   */
+  function decidirPreenchimento(item, celular, nomeAtual, celularAtual, substituir) {
+    const nomeVazio = String(nomeAtual ?? '').trim() === '';
+    const celularVazio = String(celularAtual ?? '').trim() === '';
+    if (item.nome && !nomeVazio && !mesmoNome(item.nome, nomeAtual) && !substituir) return { nome: false, celular: false, motivo: 'outro-nome' };
+    const nome = Boolean(item.nome) && (nomeVazio || (substituir && !mesmoNome(item.nome, nomeAtual)));
+    const cel = Boolean(celular) && (celularVazio || (substituir && digitosDoCelular(celularAtual) !== celular));
+    return nome || cel ? { nome, celular: cel } : { nome: false, celular: false, motivo: 'nada' };
   }
 
   /* ---------------------------------------------------------------------
@@ -344,10 +375,15 @@
       tx.objectStore(CONFIG_CONTATOS.TABELA).clear();
       await fimDaTransacao(tx);
     }
+    metaNaMemoria = null;
     gravarMeta(null);
   }
 
+  // Plano B (sem IndexedDB): os contatos somem ao recarregar, então a data também NÃO pode sobreviver.
+  let metaNaMemoria = null;
+
   function lerMeta() {
+    if (usandoMemoria) return metaNaMemoria;
     try {
       const m = JSON.parse(window.localStorage.getItem(CONFIG_CONTATOS.CHAVE_META) || 'null');
       return m && m.versao === 1 ? m : null;
@@ -375,7 +411,9 @@
     }
     try {
       const { raizes, naMemoria } = await guardarContatos(lido.contatos);
-      gravarMeta({ importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes });
+      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes };
+      if (naMemoria) metaNaMemoria = { versao: 1, ...meta };
+      else gravarMeta(meta);
       return { resumo: lido.resumo, raizes, naMemoria };
     } catch (erro) {
       return { erro: 'O navegador recusou a gravação dos contatos (' + (erro?.name || 'erro') + '). Nada foi alterado.' };
@@ -410,11 +448,16 @@
 
   /** Depois do Salvar do CRM: confere se o responsável da página passou a ser o que foi digitado. */
   function conferirDepoisDoSalvar(nomeDigitado, celularDigitado) {
-    const celDigitos = (v) => String(v ?? '').replace(/\D/g, '');
+    const iguais = (r) => Boolean(r) && r.nome.trim() === nomeDigitado.trim()
+      && digitosDoCelular(r.celular) === digitosDoCelular(celularDigitado);
+    // Já igual ANTES de o CRM responder: não dá para dizer que ele gravou (o PUT pode até ter falhado).
+    if (iguais(responsavelDoCrm())) {
+      avisar('O CRM já tinha este nome e este celular: nada mudou.');
+      return;
+    }
     const limite = Date.now() + CONFIG_CONTATOS.TIMEOUT_CONFIRMACAO_MS;
     const tentar = () => {
-      const r = responsavelDoCrm();
-      if (r && r.nome.trim() === nomeDigitado.trim() && celDigitos(r.celular) === celDigitos(celularDigitado)) {
+      if (iguais(responsavelDoCrm())) {
         avisar('Responsável conferido no CRM: nome e celular batem.');
         return;
       }
@@ -425,6 +468,18 @@
       setTimeout(tentar, CONFIG_CONTATOS.INTERVALO_CONFIRMACAO_MS);
     };
     tentar();
+  }
+
+  function aguardarEnvio(form) {
+    if (ouvinteEnvio) ouvinteEnvio.form.removeEventListener('submit', ouvinteEnvio.fn, true);
+    const fn = () => {
+      form.removeEventListener('submit', fn, true);
+      ouvinteEnvio = null;
+      // Lê os campos NO MOMENTO do envio: é o que o CRM vai gravar.
+      conferirDepoisDoSalvar(document.getElementById('resp-nome-input')?.value ?? '', document.getElementById('resp-celular-input')?.value ?? '');
+    };
+    form.addEventListener('submit', fn, true);
+    ouvinteEnvio = { form, fn };
   }
 
   /**
@@ -444,32 +499,27 @@
       avisar('O modal do responsável mudou: não achei os campos. Preencha à mão.', 8000);
       return { ok: false, motivo: 'sem-campos' };
     }
-    const resultado = { ok: true, nome: false, celular: false };
-    if (item.nome && (substituir || nomeEl.value.trim() === '')) {
-      definirCampo(nomeEl, item.nome);
-      resultado.nome = true;
+    const decisao = decidirPreenchimento(item, celular, nomeEl.value, celEl.value, substituir);
+    if (decisao.motivo === 'outro-nome') {
+      const nomeAtual = nomeEl.value.trim();
+      window.fecharModalResponsavel?.();
+      avisar(`O CRM já tem outro nome (${nomeAtual}). Para não misturar o nome de uma pessoa com o celular de outra, nada foi digitado. Marque "Substituir o que já está no CRM" se quiser trocar.`, 10000);
+      return { ok: false, motivo: 'outro-nome' };
     }
-    if (celular && (substituir || celEl.value.trim() === '')) {
-      definirCampo(celEl, formatarCelular(celular));
-      resultado.celular = true;
-    }
-    if (!resultado.nome && !resultado.celular) {
+    if (decisao.motivo === 'nada') {
       window.fecharModalResponsavel?.();
       avisar('Nada a preencher: o CRM já tem esses campos. Marque "Substituir o que já está no CRM" para trocar.', 7000);
       return { ok: false, motivo: 'nada-a-preencher' };
     }
+    const resultado = { ok: true, nome: decisao.nome, celular: decisao.celular };
+    if (decisao.nome) definirCampo(nomeEl, item.nome);
+    if (decisao.celular) definirCampo(celEl, formatarCelular(celular));
     const salvar = document.getElementById('resp-btn-salvar');
     if (salvar) salvar.focus();
     avisar('Preenchido. Confira o nome e o celular (o celular é o do WhatsApp) e clique em Salvar.', 7000);
 
     const form = document.getElementById('form-responsavel');
-    if (form && !aguardandoEnvio) {
-      aguardandoEnvio = true;
-      form.addEventListener('submit', () => {
-        aguardandoEnvio = false;
-        conferirDepoisDoSalvar(nomeEl.value, celEl.value);
-      }, { once: true, capture: true });
-    }
+    if (form) aguardarEnvio(form);
     return resultado;
   }
 
@@ -506,10 +556,6 @@
     if (!painelEl) return;
     painelEl.remove();
     painelEl = null;
-  }
-
-  function fecharTudo() {
-    fecharPainel();
   }
 
   /** Aviso da página do cliente: um cartão por contato, na pilha de avisos (fica até o usuário fechar). */
@@ -558,9 +604,8 @@
       }
 
       // "Substituir" só aparece quando há algo no CRM que o contato trocaria.
-      const celularesCrm = String(celCrm).replace(/\D/g, '');
-      const trocaria = Boolean(nomeCrm && item.nome && semAcento(nomeCrm) !== semAcento(item.nome))
-        || Boolean(celCrm && item.celulares.length > 0 && !item.celulares.includes(celularesCrm));
+      const trocaria = Boolean(nomeCrm && item.nome && !mesmoNome(nomeCrm, item.nome))
+        || Boolean(celCrm && item.celulares.length > 0 && !item.celulares.includes(digitosDoCelular(celCrm)));
       let substituirEl = null;
       if (trocaria) {
         const rotulo = document.createElement('label');
@@ -596,7 +641,13 @@
     const ignorar = criarBotao('Ignorar', 'ignorar', false);
     ignorar.addEventListener('click', fecharAviso);
     avisoEl.appendChild(criarDiv('', { display: 'flex', justifyContent: 'flex-end' })).appendChild(ignorar);
-    util()?.colocarNaPilha?.(avisoEl, { fixo: true });
+    if (typeof util()?.colocarNaPilha === 'function') {
+      util().colocarNaPilha(avisoEl, { fixo: true });
+    } else {
+      // Módulo 0 antigo em cache: sem a pilha, o aviso ainda precisa aparecer.
+      Object.assign(avisoEl.style, { position: 'fixed', right: '24px', bottom: '150px', zIndex: CONFIG_CONTATOS.Z_INDEX_POPUP });
+      document.body.appendChild(avisoEl);
+    }
   }
 
   async function avaliarPagina() {
@@ -605,7 +656,14 @@
       // Sem raiz (lista, busca...), buscarPorRaiz devolve vazio sem nem abrir o banco.
       itens = await buscarPorRaiz(raizDoCnpj(cnpjDaPagina()));
     } catch {
+      avisar('Contatos do Google: não consegui ler os contatos guardados neste navegador (abra o Alt+J e importe de novo).', 8000);
       return;
+    }
+    if (itens.length === 0) return;
+    // A página pode definir o responsável um pouco depois do userscript: espera antes de decidir "sem leitura".
+    const limite = Date.now() + CONFIG_CONTATOS.TIMEOUT_RESPONSAVEL_MS;
+    while (!responsavelDoCrm() && Date.now() < limite) {
+      await new Promise((resolve) => setTimeout(resolve, CONFIG_CONTATOS.INTERVALO_RESPONSAVEL_MS));
     }
     const crm = responsavelDoCrm();
     mostrarAviso(itens.filter((i) => temNovidade(i, crm)), crm);
@@ -702,6 +760,8 @@
       } catch {
         r = { erro: 'Não consegui ler o arquivo.' };
       }
+      // Sem limpar, escolher o MESMO arquivo de novo (reexportado, corrigido) não dispara "change".
+      arquivoEl.value = '';
       if (r.erro) {
         resultado.style.color = CORES.erro;
         resultado.textContent = r.erro + (r.resumo ? ' (' + textoDoResumo(r) + ')' : '');
@@ -717,15 +777,24 @@
 
     const rodape = criarDiv('', { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '12px' });
     let confirmando = false;
+    let relogio = null;
     const apagar = criarBotao('Apagar contatos guardados', 'apagar', false);
+    const desarmar = () => {
+      clearTimeout(relogio);
+      confirmando = false;
+      apagar.textContent = 'Apagar contatos guardados';
+      apagar.style.color = CORES.texto;
+    };
     apagar.addEventListener('click', async () => {
       if (!confirmando) {
         confirmando = true;
         apagar.textContent = 'Clique de novo para apagar';
         apagar.style.color = CORES.erro;
+        // Um clique casual horas depois não pode apagar a base: a confirmação expira.
+        relogio = setTimeout(desarmar, CONFIG_CONTATOS.TEMPO_CONFIRMAR_APAGAR_MS);
         return;
       }
-      confirmando = false;
+      desarmar();
       try {
         await apagarTudo();
         status.textContent = descreverGuardados();
@@ -734,8 +803,6 @@
         resultado.style.color = CORES.erro;
         resultado.textContent = 'O navegador recusou apagar. Tente de novo.';
       }
-      apagar.textContent = 'Apagar contatos guardados';
-      apagar.style.color = CORES.texto;
     });
     rodape.appendChild(apagar);
     const fechar = criarBotao('Fechar', 'fechar', true);
@@ -774,7 +841,7 @@
     if (e.code === 'Escape' && painelEl) fecharPainel();
   });
 
-  util()?.registrarPainel?.('contatosGoogle', fecharTudo);
+  util()?.registrarPainel?.('contatosGoogle', fecharPainel);
 
   window.__contatosGoogle = {
     lerCsv,
