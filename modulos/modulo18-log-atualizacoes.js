@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.78.0', data: '05/10/2026',
+      mudancas: [
+        'Interno, sem mudança nas mensagens: os textos do Alt+A (saudação, perguntas finais, linhas de situação, acordo e legenda do relatório) saíram do código e agora ficam num catálogo (novo Módulo 30), com o texto de sempre como padrão. Conferido em mais de 22 mil situações diferentes: a mensagem sai idêntica à da versão anterior.',
+        'Prepara a próxima etapa: editar os textos pelo próprio CRM, com rascunho, prévia e histórico. Nesta versão nada muda para quem usa. Se um dia o catálogo salvo estiver ilegível ou algum texto dele for inválido, o Alt+A usa o texto padrão e avisa na tela.',
+      ],
+    },
+    {
       versao: '1.77.0', data: '05/10/2026',
       mudancas: [
         'Novo no Alt+A: a saudação agora usa o primeiro nome do Responsável financeiro do cliente, quando ele está cadastrado e parece nome de pessoa. Exemplo: "Bom dia, Maria, tudo bem?" (e "Boa tarde" / "Boa noite" no horário certo). O relatório e o resto da mensagem não mudam. Só vale o primeiro nome: "Maria Silva", "MARIA SILVA" e "maria silva" viram "Maria".',

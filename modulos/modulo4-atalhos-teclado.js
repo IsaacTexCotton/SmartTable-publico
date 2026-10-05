@@ -46,11 +46,9 @@
     tituloNegativadoQueManda,
     FRASES,
     sementeDaFrase,
-    frase,
     obterPerguntaFinal,
     obterRessalvaPagamentoEmDiaNaoUtil,
     deveOmitirRelatorio,
-    concordarTitulos,
     MARCADOR_IMAGEM_RELATORIO,
     montarMensagemPersonalizada,
     linhasDoAcordoNoCasoMisto,
@@ -1194,7 +1192,6 @@
   // mensagem do Alt+A e afins sem simular o teclado.
   window.__atalhosDebug = {
     FRASES,
-    frase,
     sementeDaFrase,
     montarMensagemPersonalizada,
     montarPartesMensagemPersonalizada,
@@ -1218,7 +1215,6 @@
     esperarCondicaoNaJanela,
     encontrarCaixaDeObservacoes,
     substituirVariaveisDaFrase,
-    concordarTitulos,
     acionarGerarRelatorio,
     encontrarBotaoRelatorio,
     LOG_ATUALIZACOES,

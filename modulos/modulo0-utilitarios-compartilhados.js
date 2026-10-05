@@ -682,6 +682,7 @@
     'Copiar Títulos',
     'Contatos do Google',
     'Contatos do Google: Lista',
+    'Catálogo de Mensagens',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

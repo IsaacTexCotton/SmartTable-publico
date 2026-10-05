@@ -13,16 +13,26 @@
  * o Módulo 4 as usa e as repassa em window.__atalhosDebug, que os testes
  * continuam lendo.
  *
- * Depende de: Módulo 0 (window.__smartTableUtil). Lê, se existirem,
+ * Os TEXTOS moram no catálogo (Módulo 30, window.__catalogoMensagens): este módulo só decide QUAL texto entra, EM QUE ORDEM e com
+ * QUAIS valores (T('chave', { forma, vars })). Mudar uma palavra é mexer no catálogo, não aqui.
+ *
+ * Depende de: Módulo 0 (window.__smartTableUtil) e Módulo 30 (catálogo). Lê, se existirem,
  * window.__RESPONSAVEL__ (global da página do cliente: só o primeiro nome, na saudação),
  * window.__avisoCobranca (Módulo 1), window.__contextoAdicional (Módulo 6),
  * window.__alertaGrupo (Módulo 5) e window.__negociacoes (Módulo 16).
- * Precisa ser carregado ANTES do Módulo 4 (ordem do @require no wrapper).
+ * Precisa ser carregado DEPOIS do Módulo 30 e ANTES do Módulo 4 (ordem do @require no wrapper).
  * ========================================================================= */
 (function () {
   'use strict';
 
   if (window.__mensagensCobrancaCarregado) return;
+  // O Módulo 30 (catálogo dos textos) precisa ter carregado antes: sem ele não há texto. Falha ALTO e sem deixar o módulo pela
+  // metade (o Módulo 4 também avisa que o 19 não carregou).
+  if (!window.__catalogoMensagens) {
+    console.error('[Mensagens] O Módulo 30 (catálogo de mensagens) não carregou antes do Módulo 19: o Alt+A fica sem mensagem. Confira a ordem dos @require no wrapper.');
+    window.__smartTableUtil?.toast?.('Módulo 30 (catálogo de mensagens) não carregou: o Alt+A fica sem mensagem.', 9000);
+    return;
+  }
   window.__mensagensCobrancaCarregado = true;
   window.__smartTableUtil?.registrarModuloCarregado?.('Mensagens de Cobrança');
 
@@ -35,6 +45,9 @@
     DIAS_AVISO_SUSPENSAO_SCPC_MAX,
     DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
   } = window.__smartTableUtil;
+
+  // Catálogo de textos (Módulo 30): T devolve o texto da forma pedida com as variáveis trocadas; padrao devolve o texto embutido.
+  const { T, padrao } = window.__catalogoMensagens;
 
 
   /* ---------------------------------------------------------------------
@@ -66,12 +79,10 @@
     // cancelados"); afirmar o que não é certo queima o aviso. Diz "após"
     // (não "a partir do") porque o 19º dia ainda é o último de pagamento.
     if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
-      return `Lembramos que, após o ${DIAS_ULTIMO_DIA_SUSPENSAO_SCPC}º dia de atraso, o cadastro é suspenso e os faturamentos podem ser cancelados.`;
+      return T('scpc.aviso.janela', { vars: { dia_limite_scpc: DIAS_ULTIMO_DIA_SUSPENSAO_SCPC } });
     }
-    if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
-      return 'Hoje é o último dia para pagamento antes que o cadastro seja suspenso e o caso seja encaminhado a um de nossos analistas. Após essa data, os faturamentos podem ser cancelados.';
-    }
-    return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
+    if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) return T('scpc.aviso.ultimoDia');
+    return T('scpc.aviso.generico');
   }
 
   // Urgência entre NEGATIVADO_SCPC, mesma lógica de escolherTituloRepresentativo:
@@ -100,40 +111,28 @@
         // chega à mensagem (a linha do relatório é neutra); sem ele, as datas
         // ancoram. Pergunta final: a do estágio inicial (default).
         const datas = obterDatasVencimentoPorSituacao(dados, 'SEM_PROTESTO');
-        return datas.length > 1
-          ? `Os títulos vencidos em ${datas.join(', ')} estão em aberto.`
-          : `O título vencido em ${datas[0]} está em aberto.`;
+        return T('situacao.semProtesto', { forma: datas.length > 1 ? 'plural' : 'singular', vars: { datas: datas.join(', ') } });
       }
       case 'ULTIMO_DIA': {
         // Decisão do usuário (01/10/2026): com título negativado, a mensagem
         // não menciona o de último dia; o aviso do negativado fala pelo cliente.
         if (temNegativadoScpc(dados)) return '';
-        const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
+        // Com relatório a linha não entra na mensagem (a legenda cita as cores): '' mantém o comportamento de sempre.
+        if (!omitirRelatorio) return '';
+        const destino = T('glossario.destino', { forma: dados.fluxo === 'SCPC' ? 'scpc' : 'cartorio' });
         // Sem "Lembramos que": esta linha pode vir logo após a de promessa
         // DIA_DA_PROMESSA, que já abre assim; abertura repetida soa robótica.
-        if (omitirRelatorio) {
-          const datas = obterDatasVencimentoPorSituacao(dados, 'ULTIMO_DIA');
-          const datasTexto = datas.join(', ');
-          return datas.length > 1
-            ? `Os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
-            : `O título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
-        }
-        // Com relatório, basta citar a cor (último dia = vermelho).
-        const quantidade = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
-        return quantidade > 1
-          ? `Os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
-          : `O título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
+        const datas = obterDatasVencimentoPorSituacao(dados, 'ULTIMO_DIA');
+        return T('situacao.ultimoDia', { forma: datas.length > 1 ? 'plural' : 'singular', vars: { datas: datas.join(', '), destino } });
       }
       case 'NEGATIVADO_SCPC':
         return textoAvisoScpc(escolhido.diasAtrasoReal);
       case 'EM_CARTORIO': {
         // Confirmado com o usuário: citar a cor (amarelo). A linha convive com
         // as outras; montarMensagemPersonalizada empilha cada uma independente.
-        if (omitirRelatorio) {
-          const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
-          return `Os títulos vencidos em ${datas.join(', ')} já estão em cartório -- o pagamento do restante ainda é possível via boleto.`;
-        }
-        return 'Os títulos grifados em amarelo no relatório abaixo já estão em cartório -- o pagamento do restante ainda é possível via boleto.';
+        if (!omitirRelatorio) return ''; // com relatório a legenda cita o amarelo; a linha não entra na mensagem
+        const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
+        return T('situacao.emCartorio', { vars: { datas: datas.join(', ') } });
       }
       default:
         // VERIFICAR_POSICAO ou situação desconhecida: incerta demais; decisão
@@ -152,17 +151,9 @@
     const emCartorio = dados.registros.filter((r) => r.situacaoKey === 'EM_CARTORIO');
     if (emCartorio.length === 0) return '';
 
-    if (omitirRelatorio) {
-      const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
-      const datasTexto = datas.join(', ');
-      return datas.length > 1
-        ? `Os títulos vencidos em ${datasTexto} também já estão em cartório -- o pagamento do restante ainda é possível via boleto.`
-        : `O título vencido em ${datasTexto} também já está em cartório -- o pagamento do restante ainda é possível via boleto.`;
-    }
-
-    return emCartorio.length > 1
-      ? 'Os títulos grifados em amarelo no relatório abaixo também já estão em cartório -- o pagamento do restante ainda é possível via boleto.'
-      : 'O título grifado em amarelo no relatório abaixo também já está em cartório -- o pagamento do restante ainda é possível via boleto.';
+    if (!omitirRelatorio) return ''; // com relatório a legenda explica o amarelo; a linha não entra na mensagem
+    const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
+    return T('situacao.emCartorioAdicional', { forma: datas.length > 1 ? 'plural' : 'singular', vars: { datas: datas.join(', ') } });
   }
 
   // Mesmo caso, para NEGATIVADO_SCPC (destacado em índigo no relatório) não
@@ -221,53 +212,15 @@
    * Frases SELECIONADAS PELO USUÁRIO, uma a uma. Não acrescente frase por
    * conta própria.
    * --------------------------------------------------------------------- */
+  // As frases moram no catálogo (Módulo 30, bloco 1); FRASES é só a VISÃO do texto PADRÃO por papel, para os testes e para
+  // quem precisar comparar variantes. A frase em uso (padrão ou editada pelo usuário) vem sempre de fraseDe().
   const FRASES = Object.freeze({
-    // EM_ATRASO / PRAZO_FINAL, sem promessa ativa.
-    ctaGenerico: Object.freeze([
-      'Podemos agendar para hoje o pagamento do débito em aberto?',
-      'Consegue regularizar ainda hoje?',
-      // Única pergunta ABERTA: não se responde com sim/não e puxa mais retorno.
-      'Como podemos resolver isso hoje?',
-      'Consegue me confirmar se dá para acertar hoje?',
-    ]),
-
-    ctaUltimoDia: Object.freeze([
-      'Consegue regularizar hoje para evitarmos o encaminhamento?',
-      'Conseguimos quitar isso hoje antes que o título siga para o encaminhamento?',
-      'Consegue acertar hoje para o título não seguir para encaminhamento?',
-    ]),
-
-    // EM_CARTORIO: fato consumado. Toda variante nomeia o caminho de volta e
-    // nenhuma promete o que não se controla.
-    ctaCartorio: Object.freeze([
-      'Consegue regularizar hoje para eu confirmar a baixa da restrição?',
-      'Assim que o pagamento for confirmado, sinalizo em nosso sistema. Consegue regularizar hoje?',
-      'Consegue fechar isso hoje? Confirmado o pagamento, já sinalizo a baixa.',
-    ]),
-
-    // SCPC 16 a 18 dias: a suspensão ainda NÃO é hoje. Nunca cravar prazo
-    // "até o fim do dia" aqui (falso antes do 19º; queima o aviso). Essa
-    // frase vive só em ctaUltimoDiaScpc.
-    ctaSuspensaoScpc: Object.freeze([
-      'Consegue regularizar hoje para evitarmos a suspensão do cadastro?',
-      'A suspensão do cadastro é automática se o pagamento não for identificado. Consegue resolver hoje?',
-      'Regularizando hoje, o cadastro segue ativo normalmente. Conseguimos agendar?',
-    ]),
-
-    // SCPC no 19º dia: o prazo é real.
-    ctaUltimoDiaScpc: Object.freeze([
-      'Consegue regularizar hoje, o último dia antes da suspensão?',
-      'Sem a identificação do pagamento até o fim do dia o cadastro é suspenso automaticamente. Consegue resolver hoje?',
-    ]),
-
-    // Retomada de contato. A primeira AFIRMA que o cliente não retornou (errado
-    // se ele respondeu e não pagou); fica por decisão do usuário. As outras
-    // duas não afirmam nada sobre o cliente.
-    retomada: Object.freeze([
-      'Retomando o contato de {{referencia}}, já que ainda não obtivemos retorno.',
-      'Voltando aqui sobre o contato de {{referencia}}.',
-      'Dando sequência ao contato de {{referencia}}.',
-    ]),
+    ctaGenerico: padrao('cta.generico'),
+    ctaUltimoDia: padrao('cta.ultimoDia'),
+    ctaCartorio: padrao('cta.cartorio'),
+    ctaSuspensaoScpc: padrao('cta.suspensaoScpc'),
+    ctaUltimoDiaScpc: padrao('cta.ultimoDiaScpc'),
+    retomada: padrao('retomada'),
   });
 
   /**
@@ -302,14 +255,9 @@
     return `${cnpj}|${dia}`;
   }
 
-  /**
-   * @param {string[]} variantes Uma das listas de FRASES.
-   * @returns {string}
-   */
-  function frase(variantes) {
-    const util = window.__smartTableUtil;
-    if (!util || typeof util.escolherVariante !== 'function') return variantes[0];
-    return util.escolherVariante(sementeDaFrase(), variantes);
+  /** A variante do dia (rodízio por cliente + dia) do texto `chave` do catálogo, com as variáveis trocadas. */
+  function fraseDe(chave, vars) {
+    return T(chave, { vars, semente: sementeDaFrase });
   }
 
   // Confirmado com o usuário: perto do encaminhamento, negativado ou em
@@ -321,18 +269,18 @@
     const referencia = tituloNegativadoQueManda(escolhido, dados) ?? escolhido;
     switch (referencia.situacaoKey) {
       case 'ULTIMO_DIA':
-        return frase(FRASES.ctaUltimoDia);
+        return fraseDe('cta.ultimoDia');
       case 'EM_CARTORIO':
-        return frase(FRASES.ctaCartorio);
+        return fraseDe('cta.cartorio');
       case 'NEGATIVADO_SCPC': {
         const dias = referencia.diasAtrasoReal;
         if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
-          return frase(FRASES.ctaSuspensaoScpc);
+          return fraseDe('cta.suspensaoScpc');
         }
         if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
-          return frase(FRASES.ctaUltimoDiaScpc);
+          return fraseDe('cta.ultimoDiaScpc');
         }
-        return frase(FRASES.ctaCartorio);
+        return fraseDe('cta.cartorio');
       }
       default: // EM_ATRASO, PRAZO_FINAL, SEM_PROTESTO -- estágio inicial, sem pressão
         return obterPerguntaFinalConsiderandoPromessa();
@@ -356,12 +304,12 @@
 
     // Confirmado com o usuário: presume boa-fé; o comprovante fecha o ciclo
     // (permite dar baixa).
-    if (tipo === 'DIA_DA_PROMESSA') return 'Assim que efetuar, pode me enviar o comprovante?';
+    if (tipo === 'DIA_DA_PROMESSA') return T('cta.promessaDia');
 
     // Confirmado com o usuário: reconhece que já houve pagamento parcial.
-    if (tipo === 'PARCIAL') return 'Consegue quitar o restante hoje?';
+    if (tipo === 'PARCIAL') return T('cta.promessaParcial');
 
-    return frase(FRASES.ctaGenerico);
+    return fraseDe('cta.generico');
   }
 
   /*
@@ -385,7 +333,7 @@
     if (dias.length === 0) return '';
     const maior = Math.max(...dias);
     if (maior < DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL.MIN || maior > DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL.MAX) return '';
-    return `Caso já tenha pago ${periodo}, por gentileza nos encaminhar o comprovante para sinalizar em nosso sistema.`;
+    return T('ressalva.diaNaoUtil', { vars: { periodo } });
   }
 
   /* ---------------------------------------------------------------------
@@ -413,7 +361,7 @@
   // Isaac") de propósito: o artigo depende do gênero, que o código não sabe.
   function montarApresentacao() {
     const nome = window.__contextoAdicional?.nomeNegociador || NOME_NEGOCIADOR_PADRAO;
-    return `Sou ${nome}, do financeiro da Tex Cotton (Animê, Bimbi, Youccie, Authoria e Momi).`;
+    return T('apresentacao', { vars: { nome_negociador: nome } });
   }
 
   function obterLinhaApresentacao() {
@@ -453,8 +401,8 @@
     // "Ontem" só se for literal; senão o dia da semana (hoje segunda, contato
     // sexta).
     const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
-    const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
-    return frase(FRASES.retomada).replace('{{referencia}}', referencia);
+    const referencia = ehOntemLiteral ? T('glossario.ontem') : diaSemanaTexto;
+    return fraseDe('retomada', { referencia });
   }
 
   // Reconhecer o pagamento antes de cobrar o resto gera cooperação. Só agradece
@@ -478,11 +426,8 @@
     );
     const titulos = informados.filter((t) => !abertos.has(t));
     if (informados.length > 0 && titulos.length === 0) return '';
-    if (titulos.length === 0) return 'Recebemos a baixa de um dos títulos em aberto, obrigado!';
-    const titulosTexto = titulos.join(', ');
-    return titulos.length > 1
-      ? `Recebemos a baixa dos títulos ${titulosTexto}, obrigado!`
-      : `Recebemos a baixa do título ${titulosTexto}, obrigado!`;
+    if (titulos.length === 0) return T('agradecimento', { forma: 'semLista' });
+    return T('agradecimento', { forma: titulos.length > 1 ? 'plural' : 'singular', vars: { titulos: titulos.join(', ') } });
   }
 
   /**
@@ -528,34 +473,6 @@
     return !temTituloNovo;
   }
 
-  const FORMAS_CONCORDANCIA_TITULO = Object.freeze({
-    do: ['do título', 'dos títulos'],
-    ao: ['ao título', 'aos títulos'],
-  });
-
-  /**
-   * Concorda preposição + "título" com a quantidade real (nunca "do(s)
-   * título(s)"). Preposição desconhecida devolve forma neutra em vez de
-   * lançar TypeError e derrubar a montagem da mensagem inteira.
-   *
-   * @param {'do'|'ao'} preposicao
-   * @param {number} quantidade
-   * @returns {string}
-   */
-  function concordarTitulos(preposicao, quantidade) {
-    const formas = FORMAS_CONCORDANCIA_TITULO[preposicao];
-    if (!formas) {
-      console.warn(`[Atalhos] Preposição "${preposicao}" não tem forma de concordância definida -- usando forma neutra.`);
-      return pluralizarTitulo(quantidade);
-    }
-    const [singular, plural] = formas;
-    return quantidade === 1 ? singular : plural;
-  }
-
-  function pluralizarTitulo(quantidade) {
-    return quantidade === 1 ? 'título' : 'títulos';
-  }
-
   function obterLinhaPromessa() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.promessa) return '';
@@ -565,22 +482,23 @@
 
     switch (tipo) {
       case 'DIA_DA_PROMESSA':
-        return `Lembramos que hoje é o dia combinado para o pagamento ${concordarTitulos('do', promessa.titulos.length)} ${titulosTexto}.`;
+        return T('promessa.diaDaPromessa', { forma: promessa.titulos.length === 1 ? 'singular' : 'plural', vars: { titulos: titulosTexto } });
       case 'QUEBRADA':
-        return (
-          `Notamos que o pagamento combinado para ${encurtarData(promessa.dataPrometidaTexto)}, referente ${concordarTitulos('ao', promessa.titulos.length)} ` +
-          `${titulosTexto}, não foi identificado. Já foi realizado? Se sim, pode nos enviar o comprovante para conferência.`
-        );
+        return T('promessa.quebrada', {
+          forma: promessa.titulos.length === 1 ? 'singular' : 'plural',
+          vars: { data_prometida: encurtarData(promessa.dataPrometidaTexto), titulos: titulosTexto },
+        });
       case 'PARCIAL': {
         const pendentes =
           typeof ctx.calcularTitulosPendentes === 'function'
             ? ctx.calcularTitulosPendentes(promessa.titulos)
             : promessa.titulos;
         // Aprovado pelo usuário: só a quantidade; os números já estão no relatório.
-        const restante = pendentes.length === 0
-          ? 'os títulos combinados já foram regularizados'
-          : `ainda ${pendentes.length === 1 ? 'resta 1 título' : `restam ${pendentes.length} títulos`} em aberto`;
-        return `Identificamos o pagamento parcial do combinado para ${encurtarData(promessa.dataPrometidaTexto)}; ${restante}.`;
+        const formaParcial = pendentes.length === 0 ? 'regularizados' : pendentes.length === 1 ? 'restaUm' : 'restamVarios';
+        return T('promessa.parcial', {
+          forma: formaParcial,
+          vars: { data_prometida: encurtarData(promessa.dataPrometidaTexto), quantidade: pendentes.length },
+        });
       }
       default:
         return '';
@@ -610,7 +528,7 @@
     // Como na legenda (montarLegendaRelatorio): com outras situações, o aviso
     // do 19º dia vai curto.
     const aviso19 = textoAvisoScpc(DIAS_ULTIMO_DIA_SUSPENSAO_SCPC);
-    return (frases.length > 1 ? frases.map((f) => (f === aviso19 ? AVISO_ULTIMO_DIA_SCPC_CURTO : f)) : frases).join(' ');
+    return (frases.length > 1 ? frases.map((f) => (f === aviso19 ? avisoUltimoDiaScpcCurto() : f)) : frases).join(' ');
   }
 
   /**
@@ -633,9 +551,7 @@
   // Confirmado: com 2+ razões vencidas a frase diz "cada razão social"; é
   // frase fechada, não lead-in com ":".
   function montarLinhaRelatorio() {
-    return temOutraRazaoComVencido()
-      ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
-      : 'Segue o relatório atualizado da razão social {{cliente_nome}}.';
+    return T('relatorio.segue', { forma: temOutraRazaoComVencido() ? 'cadaRazao' : 'umaRazao' });
   }
 
   /**
@@ -649,13 +565,12 @@
     // continua só na imagem).
     const noUltimoDia = temNegativadoScpc(dados) ? 0 : dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
     const emCartorio = dados.registros.some((r) => r.situacaoKey === 'EM_CARTORIO');
-    const destino = dados.fluxo === 'SCPC' ? 'do SCPC' : 'do cartório';
-    const vermelho = `${noUltimoDia > 1 ? 'os títulos' : 'o título'} no prazo final antes ${destino}`;
-    const amarelo = 'o que já está em cartório (o restante ainda pode ser pago via boleto)';
+    const vermelho = T('cores.vermelho', { forma: `${noUltimoDia > 1 ? 'plural' : 'singular'}|${dados.fluxo === 'SCPC' ? 'scpc' : 'cartorio'}` });
+    const amarelo = T('cores.amarelo');
 
-    if (noUltimoDia && emCartorio) return `Em vermelho, ${vermelho}; em amarelo, ${amarelo}.`;
-    if (noUltimoDia) return `Em vermelho, ${vermelho}.`;
-    if (emCartorio) return `Em amarelo, ${amarelo}.`;
+    if (noUltimoDia && emCartorio) return T('cores.composta', { forma: 'vermelhoEAmarelo', vars: { vermelho, amarelo } });
+    if (noUltimoDia) return T('cores.composta', { forma: 'soVermelho', vars: { vermelho } });
+    if (emCartorio) return T('cores.composta', { forma: 'soAmarelo', vars: { amarelo } });
     return '';
   }
 
@@ -672,7 +587,7 @@
     // Aprovado pelo usuário: o aviso do 19º dia (175 caracteres) somado às
     // cores passava de 8 linhas no celular; com cores vai a versão curta,
     // mesmo conteúdo. Uma ideia por linha (lê melhor no celular).
-    if (cores && avisoScpc === textoAvisoScpc(DIAS_ULTIMO_DIA_SUSPENSAO_SCPC)) avisoScpc = AVISO_ULTIMO_DIA_SCPC_CURTO;
+    if (cores && avisoScpc === textoAvisoScpc(DIAS_ULTIMO_DIA_SUSPENSAO_SCPC)) avisoScpc = avisoUltimoDiaScpcCurto();
     // Último dia + negativado (até o 19º): o aviso do negativado vem ANTES do vermelho.
     const negativadoAbre = tituloNegativadoQueManda(escolhido, dados) !== null;
     return (negativadoAbre
@@ -681,8 +596,8 @@
     ).filter(Boolean).join('\n');
   }
 
-  const AVISO_ULTIMO_DIA_SCPC_CURTO =
-    'Hoje é o último dia antes da suspensão do cadastro; depois dela, os faturamentos podem ser cancelados.';
+  // A versão curta do aviso do 19º dia (texto do catálogo); lida a cada uso para refletir o que está publicado.
+  const avisoUltimoDiaScpcCurto = () => T('scpc.aviso.ultimoDiaCurto');
 
   /**
    * Decide se a pergunta final entra na mensagem. O critério é "o conteúdo já
@@ -750,12 +665,12 @@
 
   /** A: tudo em acordo, parcela em dia. */
   function fraseLembreteParcela(p) {
-    return `Passando para lembrar da parcela ${p.numero} do nosso acordo, de ${moeda(p.valor)}, com vencimento em ${dataCurtaIso(p.dataVencimento)}. Posso contar com o pagamento na data?`;
+    return T('acordo.lembreteParcela', { vars: { parcela_numero: p.numero, parcela_valor: moeda(p.valor), parcela_data: dataCurtaIso(p.dataVencimento) } });
   }
 
   /** B: tudo em acordo, parcela atrasada. */
   function fraseParcelaAtrasada(p) {
-    return `A parcela ${p.numero} do nosso acordo, de ${moeda(p.valor)}, venceu em ${dataCurtaIso(p.dataVencimento)} e ainda não identificamos o pagamento. Consegue regularizar hoje para manter o acordo em dia?`;
+    return T('acordo.parcelaAtrasada', { vars: { parcela_numero: p.numero, parcela_valor: moeda(p.valor), parcela_data: dataCurtaIso(p.dataVencimento) } });
   }
 
   /**
@@ -774,12 +689,11 @@
     const frases = [];
     if (resumo?.ativa) {
       const p = resumo.ativa.parcela;
-      frases.push(resumo.ativa.atrasada
-        ? `A parcela ${p.numero} do acordo (${moeda(p.valor)}) venceu em ${dataCurtaIso(p.dataVencimento)}.`
-        : `O acordo segue em dia: próxima parcela de ${moeda(p.valor)} em ${dataCurtaIso(p.dataVencimento)}.`);
+      const vars = { parcela_numero: p.numero, parcela_valor: moeda(p.valor), parcela_data: dataCurtaIso(p.dataVencimento) };
+      frases.push(T(resumo.ativa.atrasada ? 'acordo.misto.atrasada' : 'acordo.misto.emDia', { vars }));
     }
     if (resumo?.inadimplente) {
-      frases.push(`O acordo feito em ${dataCurtaIso(resumo.inadimplente.dataCriacao)} não foi cumprido, e os títulos voltaram para a cobrança.`);
+      frases.push(T('acordo.misto.inadimplente', { vars: { acordo_data: dataCurtaIso(resumo.inadimplente.dataCriacao) } }));
     }
     return frases.length > 0 ? [frases.join(' ')] : [];
   }
@@ -811,7 +725,7 @@
         // Primeiro contato: {{saudacao}} (SEM nome) de propósito (decisão do usuário, 05/10/2026). Ainda não se sabe com quem
         // se fala: a pergunta abaixo é justamente a confirmação, e cumprimentar pelo nome antes dela se contradiz.
         `{{saudacao}} ${montarApresentacao()}`,
-        'Este é o contato responsável pela razão social {{cliente_nome}}?',
+        T('primeiroContato.pergunta'),
       ].map((parte) => substituirVariaveisDaFrase(parte, dados));
     }
 
@@ -1002,8 +916,8 @@
   /** "Bom dia, Maria, tudo bem?" (com nome) ou "Bom dia, tudo bem?" (sem), pelo relógio. */
   function saudacaoPorHorario(nome) {
     const hora = new Date().getHours();
-    const base = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
-    return nome ? `${base}, ${nome}, tudo bem?` : `${base}, tudo bem?`;
+    const periodo = hora < 12 ? 'manha' : hora < 18 ? 'tarde' : 'noite';
+    return T('saudacao', { forma: `${periodo}|${nome ? 'comNome' : 'semNome'}`, vars: { nome } });
   }
 
   // Cada resolvedor recebe o retorno de simular() e devolve a string da frase,
@@ -1089,12 +1003,10 @@
     tituloNegativadoQueManda,
     FRASES,
     sementeDaFrase,
-    frase,
     obterPerguntaFinal,
     obterRessalvaPagamentoEmDiaNaoUtil,
     temOutraRazaoComVencido,
     deveOmitirRelatorio,
-    concordarTitulos,
     MARCADOR_IMAGEM_RELATORIO,
     montarMensagemPersonalizada,
     linhasDoAcordoNoCasoMisto,
