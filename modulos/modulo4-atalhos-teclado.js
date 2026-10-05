@@ -115,6 +115,7 @@
     TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
     TECLA_COPIAR_TITULOS: 'KeyT',
     TECLA_CONTATOS_GOOGLE: 'KeyJ',
+    TECLA_EDITOR_MENSAGENS: 'KeyX',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
     // existir, botão de relatório reabilitar), não um tempo fixo.
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
@@ -164,6 +165,7 @@
     { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
     { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
     { tecla: 'Alt+T', descricao: 'Copiar os títulos do cliente um por um (número, depois parcela) para o Win+V: escolha os títulos e aperte Alt+T para copiar o próximo. Shift+Alt+T reabre a escolha' },
+    { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos da mensagem (padrão e em uso). Só leitura por enquanto' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
@@ -760,6 +762,16 @@
     copiador.aoAtalho(opcoes);
   }
 
+  function alternarEditorMensagens() {
+    const editor = window.__editorMensagens;
+    if (!editor || typeof editor.alternarPainel !== 'function') {
+      console.warn('[Atalhos] O Módulo 31 (editor de mensagens) não carregou -- Alt+X sem efeito.');
+      window.__smartTableUtil?.toast?.('Editor de mensagens não carregou (veja o console).');
+      return;
+    }
+    editor.alternarPainel();
+  }
+
   function alternarContatosGoogle() {
     const painel = window.__contatosGoogle;
     if (!painel || typeof painel.alternarPainel !== 'function') {
@@ -994,6 +1006,10 @@
   document.addEventListener(
     'keydown',
     function (e) {
+      // Com o editor de mensagens (Alt+X) aberto, ele é MODAL: nenhum outro atalho Alt+letra age atrás dele (o foco inicial é o próprio
+      // diálogo, e estaDigitando() só protege quando o foco está na busca). O Alt+X, que fecha, segue abaixo.
+      if (e.altKey && e.code !== CONFIG_ATALHOS.TECLA_EDITOR_MENSAGENS && window.__editorMensagens?.estaAberto?.()) return;
+
       // Única exceção com Shift: Shift+Alt+U REFAZ a fila por prioridade (Alt+U
       // sozinho continua a de hoje). Vem antes da guarda abaixo, que barra
       // Shift. Refazer descarta a fila em andamento e abre ~140 abas de
@@ -1061,6 +1077,14 @@
       if (e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && window.__copiarTitulos?.estaAberto?.()) {
         e.preventDefault();
         window.__copiarTitulos.fecharPainel();
+        return;
+      }
+
+      // Mesma exceção pro Alt+X: o editor tem campo de busca (e, adiante, de edição), e com o foco neles
+      // estaDigitando() barraria o próprio toggle. Só FECHA.
+      if (e.code === CONFIG_ATALHOS.TECLA_EDITOR_MENSAGENS && window.__editorMensagens?.estaAberto?.()) {
+        e.preventDefault();
+        window.__editorMensagens.fecharPainel({ devolverFoco: true });
         return;
       }
 
@@ -1147,6 +1171,10 @@
           e.preventDefault();
           alternarContatosGoogle();
           break;
+        case CONFIG_ATALHOS.TECLA_EDITOR_MENSAGENS:
+          e.preventDefault();
+          alternarEditorMensagens();
+          return; // sem a limpeza de foco: o campo de busca do editor pode ganhar o foco já nos primeiros 250 ms (como o Alt+B)
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();
           abrirBuscaRapida();

@@ -683,6 +683,7 @@
     'Contatos do Google',
     'Contatos do Google: Lista',
     'Catálogo de Mensagens',
+    'Editor de Mensagens',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

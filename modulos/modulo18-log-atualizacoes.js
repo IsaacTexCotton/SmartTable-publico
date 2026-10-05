@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.79.0', data: '05/10/2026',
+      mudancas: [
+        'Novo atalho Alt+X: abre "Mensagens do Alt+A", uma janela no centro da tela com todos os textos que o Alt+A usa para montar a mensagem, separados em 5 grupos (perguntas finais, linhas fixas, contexto da conversa, situação dos títulos, acordo e legenda do relatório). Cada texto mostra quando ele aparece e o que está sendo usado agora.',
+        'Se um texto foi alterado no catálogo, ele aparece com o selo "editado" e o texto padrão ao lado; os demais aparecem com o selo "padrão". Há um campo de busca que procura no título e no texto, sem diferenciar acento nem maiúscula. Esc, Fechar, o X ou um clique fora fecham a janela, e Alt+X de novo também.',
+        'Por enquanto a janela é só para ler: nada é gravado e o Alt+A monta a mensagem exatamente como antes. A edição, com rascunho, prévia e publicar, vem nas próximas versões.',
+      ],
+    },
+    {
       versao: '1.78.0', data: '05/10/2026',
       mudancas: [
         'Interno, sem mudança nas mensagens: os textos do Alt+A (saudação, perguntas finais, linhas de situação, acordo e legenda do relatório) saíram do código e agora ficam num catálogo (novo Módulo 30), com o texto de sempre como padrão. Conferido em mais de 22 mil situações diferentes: a mensagem sai idêntica à da versão anterior.',
