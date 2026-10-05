@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.76.0', data: '05/10/2026',
+      mudancas: [
+        'Novo na lista "Contatos do Google": os botões que mexem no NOME ("Adicionar nome", "Trocar nome", "Adicionar ambos" e "Trocar ambos") agora abrem um campo na própria linha, com o nome do Google já preenchido, para você alterar antes de gravar. Uma linha embaixo mostra o que vai para o CRM ("nome ... → ..."), e "Gravar" (ou Enter) grava; "Cancelar" (ou Esc) fecha sem gravar. O "Gravar" já é a confirmação do "Trocar": não precisa mais do segundo clique.',
+        'O nome que você escreve vale só para aquela gravação: o contato do Google e o que foi importado não mudam. Nome vazio não grava, o limite é de 150 caracteres (o do CRM), e se o nome digitado já é o que o CRM tem, o botão avisa que não há o que gravar. Se a gravação falhar, o texto que você digitou fica para a próxima tentativa.',
+        'Sem mudança: "Adicionar número" e "Trocar número" continuam como eram (o "Trocar número" ainda pede o segundo clique), e continuam valendo as proteções de reler o CRM antes de gravar, conferir depois e o "Desfazer".',
+      ],
+    },
+    {
       versao: '1.75.2', data: '02/10/2026',
       mudancas: [
         'Corrigido nos botões da lista "Contatos do Google": se você fecha o painel e abre de novo enquanto uma gravação está em andamento, o resultado ("Gravado..." ou "abra o cliente e confira") agora aparece num aviso, em vez de se perder no painel antigo.',

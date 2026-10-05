@@ -20,8 +20,13 @@
  *      do cliente faz) sem abrir o cliente. É a única escrita do módulo, só com clique explícito, uma
  *      linha por vez, e com estas proteções:
  *        - relê a página do cliente imediatamente antes e RECUSA se o CRM mudou desde a leitura;
- *        - "Adicionar" só onde o campo do CRM está vazio; onde há outro valor o botão diz "Trocar" e
- *          pede um segundo clique, mostrando "de" e "para";
+ *        - "Adicionar" só onde o campo do CRM está vazio; onde há outro valor o botão diz "Trocar";
+ *        - os botões que mexem no NOME (nome e ambos) abrem um editor na própria linha, com o nome do
+ *          Google já preenchido: o usuário pode alterá-lo e "Gravar" (Enter) ou "Cancelar" (Esc). A linha
+ *          "Vai gravar no CRM: ... de → para ..." acompanha o que se digita e o "Gravar" é a confirmação
+ *          (não há segundo clique). O nome editado vale só para esta gravação: o contato do Google e o
+ *          que foi importado não mudam. Os botões de número seguem sem editor: o "Trocar número" pede
+ *          um segundo clique, mostrando "de" e "para";
  *        - colocar um celular sob um NOME DIFERENTE (o celular é o do WhatsApp) também pede confirmação;
  *        - depois de gravar, relê a página para CONFERIR e mostra "Gravado" ou o aviso do que o CRM tem;
  *        - cada gravação fica numa lista "Gravados" com "Desfazer" (devolve o que havia, se o CRM não
@@ -66,8 +71,12 @@
 
   const util = () => window.__smartTableUtil;
   const G = () => window.__contatosGoogle;
+  // O campo "Nome do responsável" do CRM aceita no máximo isto (maxlength confirmado no diagnóstico): o mesmo limite do Módulo 28.
+  const maxNome = () => G()?.CONFIG_CONTATOS?.MAX_NOME ?? 150;
 
   let painelEl = null;
+  // O estado do painel aberto (o Esc, registrado uma vez no document, precisa saber se há editor aberto).
+  let estadoDoPainel = null;
   let controlador = null;
   // Uma gravação por vez, mesmo se o painel for fechado e reaberto no meio: a flag só cai quando a gravação termina.
   let gravando = false;
@@ -146,10 +155,13 @@
     levantamento.candidatos.forEach((cand) => {
       if (!cand.crm) { semLeitura.push(cand); return; }
       const antes = linhas.length;
-      cand.itens.forEach((item) => {
+      cand.itens.forEach((item, indice) => {
         const novidades = G().novidadesDoContato(item, cand.crm, modo);
         if (!novidades.nome && !novidades.celular) return;
         linhas.push({
+          // `chave`: esta linha, e só ela (cliente + posição do contato). O editor se guia por ela, e não pelo objeto do contato:
+          // sem IndexedDB (plano B na memória) duas filiais da mesma raiz recebem o MESMO objeto de contato.
+          chave: `${cand.cliente.cnpj}#${indice}`,
           cliente: cand.cliente, item, crm: cand.crm, novidades,
           confere: G().razaoConfere(item.razao, cand.cliente.razaoSocial, cand.cliente.nomeFantasia),
         });
@@ -211,6 +223,30 @@
     return { modo, precisa: sem.nome !== com.nome || sem.celular !== com.celular ? 'trocar' : null };
   }
 
+  /** Nome digitado no editor: sem espaços nas pontas nem repetidos no meio (o CRM guarda o texto como veio). */
+  const normalizarNomeEditado = (texto) => String(texto ?? '').replace(/\s+/g, ' ').trim();
+
+  /**
+   * O que o editor de nome vai gravar com o texto digitado (acao 'nome' ou 'ambos'). Uma só fonte para a linha
+   * "Vai gravar no CRM..." e para o botão Gravar: o que se vê é o que vai. Usa a mesma regra de decisão do
+   * Módulo 28 com o nome JÁ editado e `substituir` ligado (o Gravar é a confirmação do "Trocar").
+   * @returns {{ok: boolean, nome: string, texto: string}} `ok: false` = o Gravar fica desligado e `texto` diz por quê.
+   */
+  function avaliarEdicao(l, acao, celular, digitado) {
+    const nome = normalizarNomeEditado(digitado);
+    if (!nome) return { ok: false, nome, texto: 'Digite o nome do responsável.' };
+    if (nome.length > maxNome()) {
+      return { ok: false, nome, texto: `O CRM aceita até ${maxNome()} caracteres no nome (são ${nome.length}).` };
+    }
+    const decisao = G().decidirPreenchimento({ ...l.item, nome }, celular, l.crm.nome ?? '', l.crm.celular ?? '', true, modoDaAcao(acao));
+    if (!decisao.nome && !decisao.celular) return { ok: false, nome, texto: 'O CRM já tem esses valores: nada a gravar.' };
+    const celularAntigo = String(l.crm.celular ?? '').trim();
+    const partes = [];
+    if (decisao.nome) partes.push(`nome "${String(l.crm.nome ?? '').trim() || 'vazio'}" → "${nome}"`);
+    if (decisao.celular) partes.push(`celular "${celularAntigo || 'vazio'}" → "${G().formatarCelular(celular)}"`);
+    return { ok: true, nome, texto: `Vai gravar no CRM: ${partes.join(' e ')}.` };
+  }
+
   /** Texto da confirmação: o que muda de verdade (de → para), inclusive o celular que seria substituído. */
   function textoDaConfirmacao(l, plano, celular) {
     const decisao = G().decidirPreenchimento(l.item, celular, l.crm.nome ?? '', l.crm.celular ?? '', true, plano.modo);
@@ -261,8 +297,16 @@
    * Grava uma linha (um contato de um cliente). Devolve { ok: true, ... } ou { ok: false, tipo, texto } para a própria linha.
    * `confirmado`: o usuário já deu o segundo clique (permite trocar valor existente e celular sob outro nome).
    * `estado.feitos` recebe a gravação (para o "Desfazer"); o responsável lido de novo vai para `cand.crm`.
+   * `nomeEditado` (opcional): o nome que o usuário escreveu no editor, no lugar do nome do Google. É validado
+   * aqui de novo (vazio e tamanho): quem chama o editor já validou, mas a gravação não confia só nisso.
    */
-  async function gravarLinha(estado, l, acao, celular, confirmado, sinal) {
+  async function gravarLinha(estado, l, acao, celular, confirmado, sinal, nomeEditado) {
+    const editou = nomeEditado !== undefined && nomeEditado !== null;
+    const nomeFinal = editou ? normalizarNomeEditado(nomeEditado) : l.item.nome;
+    if (editou && (!nomeFinal || nomeFinal.length > maxNome())) {
+      return { ok: false, tipo: 'erro', texto: `O nome ${nomeFinal ? 'passa de ' + maxNome() + ' caracteres' : 'está vazio'}. Nada foi gravado.` };
+    }
+    const item = editou ? { ...l.item, nome: nomeFinal } : l.item;
     const cand = estado.levantamento.candidatos.find((c) => c.cliente === l.cliente);
     // Ainda nada foi enviado: esta leitura pode ser cancelada pelo painel.
     const fresco = await lerPaginaDoCliente(l.cliente, sinal);
@@ -271,11 +315,11 @@
       cand.crm = fresco.crm;
       return { ok: false, tipo: 'aviso', texto: `O CRM mudou desde a leitura (agora: ${textoDoCrm(fresco.crm)}). A linha foi atualizada: confira e clique de novo. Nada foi gravado.` };
     }
-    const decisao = G().decidirPreenchimento(l.item, celular, fresco.crm.nome ?? '', fresco.crm.celular ?? '', confirmado, modoDaAcao(acao));
+    const decisao = G().decidirPreenchimento(item, celular, fresco.crm.nome ?? '', fresco.crm.celular ?? '', confirmado, modoDaAcao(acao));
     if (decisao.motivo) return { ok: false, tipo: 'aviso', texto: 'Nada a gravar com o que está ligado (o CRM já tem esses valores ou falta confirmar).' };
     const antes = { nome: String(fresco.crm.nome ?? ''), celular: String(fresco.crm.celular ?? '') };
     const enviar = {
-      nome: decisao.nome ? l.item.nome : antes.nome,
+      nome: decisao.nome ? item.nome : antes.nome,
       celular: decisao.celular ? G().formatarCelular(celular) : antes.celular,
     };
     const r = await G().gravarResponsavelNoCrm(l.cliente.cnpj, enviar.nome, enviar.celular);
@@ -392,6 +436,8 @@
         estado.escolhidos.set(l.item, seletor.value);
         // Outro número: a confirmação que o usuário viu era do número anterior.
         if (estado.armado && estado.armado.item === l.item) { desarmar(estado); estado.redesenhar(); }
+        // O editor de nome mostra o número que vai junto ("ambos"): a linha "Vai gravar..." precisa do número novo.
+        else if (estado.editando && estado.editando.chave === l.chave) { estado.redesenhar(); focarEditor(estado); }
       });
       caixa.appendChild(seletor);
     }
@@ -405,6 +451,84 @@
       caixa.appendChild(b);
     });
     caixa.appendChild(criarLinkAbrir(l.cliente));
+    return caixa;
+  }
+
+  const celularEscolhido = (estado, l) => estado.escolhidos.get(l.item) ?? l.item.celulares[0] ?? null;
+
+  /** O texto do editor: o que o usuário digitou neste contato (guardado até gravar ou cancelar) ou o nome do Google. */
+  const textoDoEditor = (estado, l) => (estado.textosDigitados.has(l.chave) ? estado.textosDigitados.get(l.chave) : l.item.nome);
+
+  /**
+   * Fecha o editor. O texto digitado só é esquecido quando o usuário desiste (cancelar, outro clique, linha que saiu);
+   * numa gravação que falha ele fica, para a próxima abertura não obrigar a digitar de novo.
+   */
+  function encerrarEditor(estado, manterTexto = false) {
+    if (estado.editando && !manterTexto) estado.textosDigitados.delete(estado.editando.chave);
+    estado.editando = null;
+  }
+
+  /** Foca o campo do editor (depois de abrir ou de um redesenho); o navegador já deixa o cursor no fim do texto. */
+  function focarEditor(estado) {
+    if (!painelDoEstadoAberto(estado)) return;
+    const campo = estado.painel.querySelector('[data-campo="nome-editado"]');
+    if (!campo) return;
+    campo.focus();
+  }
+
+  /**
+   * O editor do nome, dentro da linha: campo com o nome do Google já preenchido, a linha "Vai gravar no CRM"
+   * (de → para, atualizada a cada tecla SEM redesenhar a lista, que apagaria o foco), Gravar e Cancelar.
+   * O texto vive em `estado.editando`: sobrevive a qualquer redesenho (trocar o número, o interruptor, outra gravação).
+   */
+  function criarEditor(l, estado) {
+    const ed = estado.editando;
+    const caixa = criarDiv('', {
+      gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '5px', padding: '8px 10px',
+      background: '#f6faf8', border: `1px solid ${CORES.borda}`, borderRadius: '6px',
+    });
+    caixa.dataset.papel = 'editor-nome';
+    caixa.appendChild(criarDiv('Nome a gravar no CRM (pode alterar antes de gravar):', { color: CORES.texto, fontSize: '11.5px', fontWeight: '600' }));
+    const linhaDoCampo = criarDiv('', { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' });
+    const campo = document.createElement('input');
+    campo.type = 'text';
+    campo.value = textoDoEditor(estado, l);
+    campo.maxLength = maxNome();
+    campo.autocomplete = 'off';
+    campo.dataset.campo = 'nome-editado';
+    campo.setAttribute('aria-label', 'Nome do responsável a gravar no CRM');
+    Object.assign(campo.style, {
+      flex: '1 1 260px', minWidth: '200px', padding: '6px 8px', fontSize: '13px', border: `1px solid ${CORES.borda}`,
+      borderRadius: '6px', boxSizing: 'border-box',
+    });
+    const gravar = criarBotao('Gravar', 'gravar-edicao', true);
+    const cancelar = criarBotao('Cancelar', 'cancelar-edicao', false);
+    const previa = criarDiv('', { fontSize: '12px', fontWeight: '600' });
+    previa.dataset.papel = 'previa-edicao';
+    const atualizar = () => {
+      const av = avaliarEdicao(l, ed.acao, celularEscolhido(estado, l), campo.value);
+      previa.textContent = av.texto;
+      previa.style.color = av.ok ? CORES.texto : CORES.aviso;
+      gravar.disabled = !av.ok;
+      gravar.style.opacity = gravar.disabled ? '0.5' : '1';
+    };
+    campo.addEventListener('input', () => { estado.textosDigitados.set(l.chave, campo.value); atualizar(); });
+    // Enter grava, mas NUNCA a repetição de uma tecla mantida apertada (o 1º Enter abriu o editor e levou o foco ao campo: as
+    // repetições seguintes cairiam aqui e gravariam o nome do Google sem o usuário ter visto o "Vai gravar").
+    // O Esc é tratado no document (cancela o editor de qualquer foco dentro do painel).
+    campo.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!e.repeat) aoGravarEdicao(estado, l, campo.value);
+    });
+    gravar.addEventListener('click', () => aoGravarEdicao(estado, l, campo.value));
+    cancelar.addEventListener('click', () => cancelarEdicao(estado));
+    linhaDoCampo.appendChild(campo);
+    linhaDoCampo.appendChild(gravar);
+    linhaDoCampo.appendChild(cancelar);
+    caixa.appendChild(linhaDoCampo);
+    caixa.appendChild(previa);
+    atualizar();
     return caixa;
   }
 
@@ -425,6 +549,11 @@
     const conf = ROTULO_CONFIANCA[String(l.confere)];
     linha.appendChild(criarDiv(conf.texto, { color: conf.cor, fontSize: '11.5px', fontWeight: '600' }));
     linha.appendChild(criarAcoes(l, estado));
+    // Editor aberto nesta linha (só se a ação ainda existe: desligar o interruptor Nome tira o botão e o editor).
+    if (estado.editando && estado.editando.chave === l.chave && acoesDaLinha(l).some((a) => a.acao === estado.editando.acao)) {
+      linha.appendChild(criarEditor(l, estado));
+      estado.editorVisivel = true;
+    }
     const msg = estado.mensagens.get(l.item);
     if (msg) linha.appendChild(criarMensagem(msg));
     return linha;
@@ -438,10 +567,63 @@
     else util()?.toast?.(r.texto, 9000); // o painel foi fechado (ou fechado e reaberto) no meio: o resultado não pode se perder
   }
 
-  /** Clique num botão da linha: pede confirmação quando precisa; senão grava. */
+  /** Grava uma linha (com o nome editado, se houver): trava, mostra "Gravando...", grava e mostra o resultado. */
+  async function executarGravacao(estado, l, acao, celular, confirmado, nomeEditado) {
+    desarmar(estado); // solta o relógio da confirmação também (a mensagem é trocada logo abaixo)
+    encerrarEditor(estado, true);
+    gravando = true;
+    estado.mensagens.set(l.item, { tipo: 'aviso', texto: 'Gravando...' });
+    estado.redesenhar();
+    let r;
+    try {
+      r = await gravarLinha(estado, l, acao, celular, confirmado, controlador?.signal, nomeEditado);
+    } catch {
+      r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao gravar. Abra o cliente e confira.' };
+    }
+    if (r.ok) estado.textosDigitados.delete(l.chave);
+    terminarGravacao(estado, l.item, r);
+  }
+
+  /**
+   * Botões que mexem no nome (nome e ambos): abre o editor na linha, com o nome do Google. Reabrir a mesma ação
+   * só devolve o foco; trocar de ação na mesma linha mantém o que já foi digitado; outra linha começa do zero.
+   */
+  function abrirEditor(estado, l, acao) {
+    const mesmaAcao = estado.editando && estado.editando.chave === l.chave && estado.editando.acao === acao;
+    if (!mesmaAcao) {
+      if (estado.editando && estado.editando.chave !== l.chave) encerrarEditor(estado); // outro contato: o anterior foi abandonado
+      desarmar(estado);
+      estado.mensagens.delete(l.item);
+      estado.editando = { chave: l.chave, acao };
+      estado.redesenhar();
+    }
+    focarEditor(estado);
+  }
+
+  function cancelarEdicao(estado) {
+    if (!estado.editando) return;
+    encerrarEditor(estado);
+    estado.redesenhar();
+  }
+
+  /** Gravar do editor: grava o nome como está no campo (já validado) e o número escolhido, e só o que a linha mostrou. */
+  async function aoGravarEdicao(estado, l, texto) {
+    if (gravando) return;
+    const ed = estado.editando;
+    if (!ed || ed.chave !== l.chave) return;
+    const celular = celularEscolhido(estado, l);
+    const av = avaliarEdicao(l, ed.acao, celular, texto);
+    if (!av.ok) return;
+    // O "Gravar" é a confirmação: a linha "Vai gravar no CRM" já mostrou o de → para (inclusive o que seria substituído).
+    await executarGravacao(estado, l, ed.acao, celular, true, av.nome);
+  }
+
+  /** Clique num botão da linha: nome e ambos abrem o editor; número pede confirmação quando precisa; senão grava. */
   async function aoClicarAcao(estado, l, acao) {
     if (gravando) return;
-    const celular = estado.escolhidos.get(l.item) ?? l.item.celulares[0] ?? null;
+    if (acao !== 'celular') { abrirEditor(estado, l, acao); return; }
+    encerrarEditor(estado); // outro clique cancela o editor aberto (o redesenho vem logo abaixo)
+    const celular = celularEscolhido(estado, l);
     // A confirmação vale para ESTE contato e esta ação (trocar o número escolhido também a cancela); qualquer outro clique a cancela.
     const jaArmado = Boolean(estado.armado) && estado.armado.item === l.item && estado.armado.acao === acao;
     if (estado.armado && !jaArmado) desarmar(estado);
@@ -459,21 +641,12 @@
       estado.redesenhar();
       return;
     }
-    desarmar(estado); // solta o relógio da confirmação também (a mensagem é trocada logo abaixo)
-    gravando = true;
-    estado.mensagens.set(l.item, { tipo: 'aviso', texto: 'Gravando...' });
-    estado.redesenhar();
-    let r;
-    try {
-      r = await gravarLinha(estado, l, acao, celular, Boolean(plano.precisa), controlador?.signal);
-    } catch {
-      r = { ok: false, tipo: 'erro', texto: 'Erro inesperado ao gravar. Abra o cliente e confira.' };
-    }
-    terminarGravacao(estado, l.item, r);
+    await executarGravacao(estado, l, acao, celular, Boolean(plano.precisa));
   }
 
   async function aoClicarDesfazer(estado, entrada) {
     if (gravando) return;
+    encerrarEditor(estado);
     desarmar(estado); // o CRM vai mudar: a confirmação armada mostraria um de → para defasado
     gravando = true;
     estado.mensagens.set(entrada.item, { tipo: 'aviso', texto: 'Desfazendo...' });
@@ -499,7 +672,10 @@
     }
     const lista = criarDiv('', { borderTop: `1px solid ${CORES.linha}` });
     lista.dataset.papel = 'diferencas';
+    estado.editorVisivel = false;
     calculo.linhas.forEach((l) => lista.appendChild(desenharLinha(l, estado)));
+    // O cliente do editor saiu da lista (ex.: desligou o interruptor): não deixa o editor "fantasma" no estado.
+    if (estado.editando && !estado.editorVisivel) encerrarEditor(estado);
     destino.appendChild(lista);
 
     if (estado.feitos.length > 0) {
@@ -545,6 +721,7 @@
     if (!painelEl) return;
     painelEl.remove();
     painelEl = null;
+    estadoDoPainel = null;
   }
 
   async function abrirPainel() {
@@ -569,7 +746,8 @@
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
-    const estado = { painel: painelEl, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, redesenhar: () => {} };
+    const estado = { painel: painelEl, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, editando: null, textosDigitados: new Map(), editorVisivel: false, redesenhar: () => {} };
+    estadoDoPainel = estado;
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado';
     const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };
@@ -658,7 +836,14 @@
 
   // Esc fecha. Registrado uma vez só: um listener por abertura vazaria.
   document.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && painelEl) fecharPainel();
+    if (e.code !== 'Escape' || !painelEl) return;
+    // Com o editor do nome aberto o Esc só o cancela, com o foco onde estiver dentro do painel (campo, Gravar, Cancelar,
+    // interruptor, seletor de número); sem editor, fecha o painel. Durante a composição de acento/IME o Esc é do teclado.
+    if (estadoDoPainel && estadoDoPainel.editando) {
+      if (!e.isComposing) { e.preventDefault(); cancelarEdicao(estadoDoPainel); }
+      return;
+    }
+    fecharPainel();
   });
 
   util()?.registrarPainel?.('contatosGoogleLista', fecharPainel);
@@ -670,6 +855,7 @@
     calcularLinhas,
     acoesDaLinha,
     planejarAcao,
+    avaliarEdicao,
     conferirDepoisDoPut,
     gravarLinha,
     desfazerGravacao,
