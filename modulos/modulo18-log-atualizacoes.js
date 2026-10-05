@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.77.0', data: '05/10/2026',
+      mudancas: [
+        'Novo no Alt+A: a saudação agora usa o primeiro nome do Responsável financeiro do cliente, quando ele está cadastrado e parece nome de pessoa. Exemplo: "Bom dia, Maria, tudo bem?" (e "Boa tarde" / "Boa noite" no horário certo). O relatório e o resto da mensagem não mudam. Só vale o primeiro nome: "Maria Silva", "MARIA SILVA" e "maria silva" viram "Maria".',
+        'Sem nome cadastrado, ou com um texto que não serve (cargo ou setor como "Financeiro", dois nomes, título como "Dona" ou "Dr.", número, o próprio nome da empresa), a saudação é a de sempre, sem aviso e sem atraso. O primeiro contato (cliente sem nenhum contato registrado) continua SEM nome, porque ali o Alt+A ainda pergunta quem é o responsável. Com "Números diferentes" ativo para o cliente a saudação também sai sem nome, porque aquela mesma mensagem é enviada para outros números do grupo, que podem ser outras pessoas.',
+      ],
+    },
+    {
       versao: '1.76.0', data: '05/10/2026',
       mudancas: [
         'Novo na lista "Contatos do Google": os botões que mexem no NOME ("Adicionar nome", "Trocar nome", "Adicionar ambos" e "Trocar ambos") agora abrem um campo na própria linha, com o nome do Google já preenchido, para você alterar antes de gravar. Uma linha embaixo mostra o que vai para o CRM ("nome ... → ..."), e "Gravar" (ou Enter) grava; "Cancelar" (ou Esc) fecha sem gravar. O "Gravar" já é a confirmação do "Trocar": não precisa mais do segundo clique.',

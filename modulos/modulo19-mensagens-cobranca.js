@@ -14,6 +14,7 @@
  * continuam lendo.
  *
  * Depende de: Módulo 0 (window.__smartTableUtil). Lê, se existirem,
+ * window.__RESPONSAVEL__ (global da página do cliente: só o primeiro nome, na saudação),
  * window.__avisoCobranca (Módulo 1), window.__contextoAdicional (Módulo 6),
  * window.__alertaGrupo (Módulo 5) e window.__negociacoes (Módulo 16).
  * Precisa ser carregado ANTES do Módulo 4 (ordem do @require no wrapper).
@@ -787,7 +788,7 @@
   function partesSoAcordo(dados, ativa) {
     const linhas = [obterLinhaApresentacao(), obterLinhaContatoRecente()].filter(Boolean);
     const frase = ativa.atrasada ? fraseParcelaAtrasada(ativa.parcela) : fraseLembreteParcela(ativa.parcela);
-    return [linhas.length > 0 ? `{{saudacao}} ${linhas[0]}` : '{{saudacao}}', ...linhas.slice(1), frase]
+    return [linhas.length > 0 ? `{{saudacao_com_nome}} ${linhas[0]}` : '{{saudacao_com_nome}}', ...linhas.slice(1), frase]
       .map((parte) => substituirVariaveisDaFrase(parte, dados));
   }
 
@@ -807,6 +808,8 @@
     // (saudação sozinha seria um balão e uma notificação sem conteúdo).
     if (ctx?.semContatoAnterior) {
       return [
+        // Primeiro contato: {{saudacao}} (SEM nome) de propósito (decisão do usuário, 05/10/2026). Ainda não se sabe com quem
+        // se fala: a pergunta abaixo é justamente a confirmação, e cumprimentar pelo nome antes dela se contradiz.
         `{{saudacao}} ${montarApresentacao()}`,
         'Este é o contato responsável pela razão social {{cliente_nome}}?',
       ].map((parte) => substituirVariaveisDaFrase(parte, dados));
@@ -846,7 +849,7 @@
       ...linhasDoAcordoNoCasoMisto(resumoAcordos),
     ].filter(Boolean);
     const partes = [
-      linhasContexto.length > 0 ? `{{saudacao}} ${linhasContexto[0]}` : '{{saudacao}}',
+      linhasContexto.length > 0 ? `{{saudacao_com_nome}} ${linhasContexto[0]}` : '{{saudacao_com_nome}}',
       ...linhasContexto.slice(1),
     ];
 
@@ -877,7 +880,8 @@
    * Fonte de dados: window.__avisoCobranca.simular() (Módulo 1).
    *
    * Variáveis SEM resolvedor ({{responsavel_nome}}, {{chave_pix}},
-   * {{valor_protestado_atualizado}}: decisão consciente, o CRM não as expõe)
+   * {{valor_protestado_atualizado}}: decisão consciente; {{responsavel_nome}} segue sem resolvedor porque a saudação usa
+   * primeiroNomeDoResponsavel, só o PRIMEIRO nome e só se passar nas regras, nunca o texto cru do cadastro)
    * ficam com o {{...}} visível na caixa e geram aviso no console, sem
    * adivinhar valor. Vale também pra variável nova sem resolvedor: nunca
    * falha em silêncio.
@@ -914,6 +918,94 @@
     }
   }
 
+  /* ---------------------------------------------------------------------
+   * Saudação com o primeiro nome do Responsável financeiro (v1.77.0)
+   * ---------------------------------------------------------------------
+   * "Bom dia, Maria, tudo bem?" quando a página do cliente traz um nome que SERVE; senão a saudação de sempre ("Bom
+   * dia, tudo bem?"). O nome vem de `window.__RESPONSAVEL__.nome` (objeto da página, confirmado no diagnóstico do
+   * usuário, 02/10/2026; a gravação do CRM também o atualiza). Nunca atrasa nem bloqueia a mensagem: sem a variável,
+   * com null ou fora das regras, sai genérico, e nada do nome vai para o console. Com "Números diferentes" ativo para o cliente
+   * também sai genérico: aquela mensagem é repetida para outros números e guardada na ponte do envio.
+   * Regras (escolhidas com o diagnóstico censurado do usuário, 05/10/2026: 31 nomes preenchidos, 30 de uma palavra,
+   * nenhum com dígito, barra, "e/ou", título ou cargo): só letras (e apóstrofo/hífen), de 1 a 4 palavras; sem palavra
+   * de cargo, setor, parentesco, loja ou "sem dado" ("Financeiro", "Sócio", "Tio", "Casa", "Não cadastrado"...; lista fechada, palavra inteira sem acento); sem "e"/"ou" (duas pessoas); sem título na frente ("Sr.", "Dona"); não é a própria
+   * razão social; a primeira palavra tem de 3 a 20 letras (inicial como "J." não serve; hífen e apóstrofo só entre letras). Usa só a primeira palavra,
+   * com a inicial maiúscula ("MARIA SILVA" e "maria silva" viram "Maria").
+   * --------------------------------------------------------------------- */
+  // Palavras que, em QUALQUER posição do campo, mostram que não é (só) o nome de uma pessoa. Palavra inteira, sem acento, e vale
+  // também a forma sem "s" final ("pagamentos" = "pagamento").
+  const PALAVRAS_DE_CARGO_OU_SETOR = [
+    // setor e cargo
+    'finaceiro', 'setor', 'departamento', 'depto', 'dpto', 'contas', 'pagar', 'pagamento', 'cobranca', 'escritorio',
+    'contador', 'contadora', 'diretoria', 'diretor', 'diretora', 'socio', 'socia', 'dono', 'dona', 'gerente', 'gerencia', 'adm',
+    'atendimento', 'atendente', 'vendas', 'vendedor', 'vendedora', 'comercial', 'responsavel', 'compras', 'fiscal', 'tesouraria',
+    'recepcao', 'recepcionista', 'secretaria', 'chefe', 'analista', 'assistente', 'auxiliar', 'estagiario', 'estagiaria',
+    'supervisor', 'supervisora', 'coordenador', 'coordenadora', 'presidente', 'encarregado', 'encarregada', 'representante',
+    'caixa', 'faturamento', 'cadastro', 'doutor', 'doutora', 'professor', 'professora', 'prof', 'engenheiro', 'engenheira',
+    'advogado', 'advogada', 'padre', 'pastor', 'senhor', 'senhora',
+    // preenchimento que não é nome
+    'teste', 'contato', 'cliente', 'whatsapp', 'zap', 'celular', 'telefone', 'email',
+    // "sem dado" escrito como texto
+    'sem', 'nao', 'nenhum', 'nenhuma', 'informado', 'informada', 'cadastrado', 'cadastrada', 'nome', 'desconhecido', 'vago',
+    // nome de loja ou empresa (a primeira palavra viraria o "nome")
+    'loja', 'empresa', 'ltda', 'matriz', 'filial', 'geral', 'casa', 'tecidos', 'studio', 'estudio', 'atelie', 'boutique',
+    'confeccoes', 'moda', 'comercio', 'industria', 'magazine', 'mercado', 'armarinho', 'aviamentos', 'representacoes',
+    'distribuidora', 'importadora', 'grupo', 'sao', 'santa', 'santo',
+  ];
+  // Só como PRIMEIRA palavra ("Filha do Seu Zé"); no fim é sobrenome ("Roberto Filho").
+  const PARENTESCO_NA_PRIMEIRA_PALAVRA = ['tio', 'tia', 'pai', 'mae', 'esposa', 'esposo', 'filho', 'filha', 'marido'];
+  const PREFIXOS_DE_CARGO = ['financ', 'contabil', 'proprietari', 'administr'];
+  const TITULOS_DE_TRATAMENTO = ['sr', 'sra', 'srta', 'dr', 'dra', 'dona', 'seu'];
+  const SET_CARGO = new Set(PALAVRAS_DE_CARGO_OU_SETOR);
+  const SET_PARENTESCO = new Set(PARENTESCO_NA_PRIMEIRA_PALAVRA);
+  const SET_TITULOS = new Set(TITULOS_DE_TRATAMENTO);
+  const semAcentoMinusculo = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const eCargoOuSetor = (c) => SET_CARGO.has(c) || SET_CARGO.has(c.replace(/s$/, '')) || PREFIXOS_DE_CARGO.some((pre) => c.startsWith(pre));
+
+  // Chamado do Alt+S em sequência ("Números diferentes"): a MESMA mensagem da caixa vai também para os outros números do grupo, que
+  // podem ser outras pessoas, e fica guardada na ponte do envio. Com números ativos para este cliente a saudação sai SEM nome.
+  // Na dúvida (erro ao ler a configuração) também sai sem nome.
+  function numerosDiferentesAtivosNestaPagina() {
+    try {
+      const nd = window.__numerosDiferentes;
+      if (!nd) return false;
+      const cnpj = new URLSearchParams(window.location.search).get('cnpj') || '';
+      return Boolean(cnpj) && nd.numerosAtivos(cnpj).length > 0;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /** @returns {string|null} o primeiro nome pronto para a saudação, ou null quando o nome não serve. */
+  function primeiroNomeDoResponsavel(dados) {
+    let bruto;
+    try { bruto = window.__RESPONSAVEL__?.nome; } catch (_) { return null; }
+    if (typeof bruto !== 'string') return null;
+    const nome = bruto.normalize('NFC').replace(/\s+/g, ' ').trim();
+    if (!nome || nome.length > 150) return null;
+    if (!/^\p{L}+(?:['’-]\p{L}+)*(?: \p{L}+(?:['’-]\p{L}+)*){0,3}$/u.test(nome)) return null;
+    const palavras = nome.split(' ');
+    const chaves = palavras.map((p) => semAcentoMinusculo(p).replace(/['’-]/g, ''));
+    if (SET_TITULOS.has(chaves[0]) || SET_PARENTESCO.has(chaves[0])) return null;
+    if (chaves.some(eCargoOuSetor)) return null;
+    if (chaves.includes('e') || chaves.includes('ou')) return null; // duas pessoas no mesmo campo: não se cumprimenta uma só
+    // O nome igual a QUALQUER razão social do cliente (a dos títulos vencidos e a dos em acordo) é o nome da empresa, não de uma pessoa.
+    const comoRazao = (t) => semAcentoMinusculo(t).replace(/[^a-z0-9]+/g, ' ').trim();
+    const razoes = new Set([...(dados?.registros ?? []), ...(dados?.emAcordo ?? [])].map((r) => comoRazao(r?.razaoSocial)).filter(Boolean));
+    if (razoes.has(comoRazao(nome))) return null;
+    const primeira = palavras[0];
+    const letras = primeira.replace(/[^\p{L}]/gu, '').length;
+    if (letras < 3 || primeira.length > 20) return null;
+    return primeira.split(/(['’-])/).map((parte) => (/['’-]/.test(parte) ? parte : parte.charAt(0).toUpperCase() + parte.slice(1).toLowerCase())).join('');
+  }
+
+  /** "Bom dia, Maria, tudo bem?" (com nome) ou "Bom dia, tudo bem?" (sem), pelo relógio. */
+  function saudacaoPorHorario(nome) {
+    const hora = new Date().getHours();
+    const base = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+    return nome ? `${base}, ${nome}, tudo bem?` : `${base}, tudo bem?`;
+  }
+
   // Cada resolvedor recebe o retorno de simular() e devolve a string da frase,
   // ou null/undefined se não conseguir. Variável nova = uma linha aqui.
   const RESOLVEDORES_VARIAVEL = {
@@ -944,13 +1036,11 @@
       }
       return window.__smartTableUtil.formatarMoeda(soma);
     },
-    // Saudação por horário do relógio (não depende do cliente).
-    saudacao: () => {
-      const hora = new Date().getHours();
-      if (hora < 12) return 'Bom dia, tudo bem?';
-      if (hora < 18) return 'Boa tarde, tudo bem?';
-      return 'Boa noite, tudo bem?';
-    },
+    // Saudação por horário do relógio (não depende do cliente). Também é a das frases padrão do CRM: não leva nome.
+    saudacao: () => saudacaoPorHorario(null),
+    // Só nas mensagens montadas por este módulo (Alt+A), exceto o primeiro contato: com o primeiro nome do Responsável
+    // financeiro quando ele serve (v1.77.0); senão, igual à anterior.
+    saudacao_com_nome: (dados) => saudacaoPorHorario(numerosDiferentesAtivosNestaPagina() ? null : primeiroNomeDoResponsavel(dados)),
     // Vencimento do título escolhido por escolherTituloRepresentativo() (seção 3.0b).
     data_vencimento: (dados) => {
       const escolhido = escolherTituloRepresentativo(dados);
@@ -1011,5 +1101,13 @@
     montarPartesMensagemPersonalizada,
     obterDadosParaSubstituicao,
     substituirVariaveisDaFrase,
+    primeiroNomeDoResponsavel,
+    saudacaoPorHorario,
+    LISTAS_DO_NOME: Object.freeze({
+      cargoOuSetor: Object.freeze([...PALAVRAS_DE_CARGO_OU_SETOR]),
+      parentescoNaPrimeiraPalavra: Object.freeze([...PARENTESCO_NA_PRIMEIRA_PALAVRA]),
+      prefixosDeCargo: Object.freeze([...PREFIXOS_DE_CARGO]),
+      titulos: Object.freeze([...TITULOS_DE_TRATAMENTO]),
+    }),
   });
 })();
