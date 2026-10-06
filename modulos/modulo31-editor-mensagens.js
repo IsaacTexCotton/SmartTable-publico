@@ -16,8 +16,8 @@
  * Alt+A montaria em situações FICTÍCIAS (Módulo 32), "Antes (em uso)" e "Depois (rascunho)", só nas situações que o rascunho muda (com a opção
  * de ver todas), o balão novo e o removido em destaque, os contadores (balões, caracteres, maior balão) e um seletor de variante que vale
  * para todos os textos com rodízio. A prévia só LÊ: não grava nada e não toca na página. Esc volta à lista.
- * P5: sob os contadores do "Depois" entra uma faixa por limite de tamanho estourado (5 balões, 320 por balão, 600 no total; com acordo o total é só
- * aviso) e as situações vêm por gravidade (quebrou, erro, aviso, o resto). Nesta etapa o erro só é MOSTRADO: o bloqueio do "Publicar" é da etapa 4.
+ * P5: sob os contadores do "Depois" entra uma faixa por limite de tamanho estourado (5 balões, 320 por balão, 600 no total, ou 750 com acordo: de 601 a 750 é
+ * aviso) e as situações vêm por gravidade (quebrou, erro, aviso, o resto). O erro de tamanho só AVISA: nunca bloqueia o "Publicar" (decisão do usuário).
  *
  * VISUAL aprovado pelo usuário (05/10/2026): diálogo centralizado com fundo escurecido, como o Alt+N (Módulo 17): o fundo
  * cobre só a área abaixo do cabeçalho do CRM e fica na camada dos popups (Módulo 0). Esc, "Fechar", ✕ e clique fora fecham;
@@ -67,8 +67,10 @@
   let catalogo = null; // foto do catálogo salvo, lida ao abrir e atualizada a cada gravação do rascunho
   let edicao = null; // a forma em edição: { chave, formaId, def, forma, areas, timer, ultimoFoco, ... } (uma por vez)
   let indiceDeBusca = new Map(); // chave do texto -> título + textos (em uso e padrão), sem acento e em minúsculas
-  let vista = 'lista'; // 'lista' (os textos) ou 'previa' (a mensagem completa, antes e depois)
+  let vista = 'lista'; // 'lista' (os textos), 'previa' (a mensagem completa, antes e depois), 'publicar' ou 'historico'
   let pv = null; // os elementos e o estado da tela da prévia: refeitos a cada abertura do diálogo; só valem com ele aberto
+  let pb = null; // os elementos e o estado da tela Publicar (idem)
+  let hs = null; // os elementos e o estado da tela Histórico (idem)
   let ui = null; // peças do diálogo que mudam com a vista: título, lista, faixa da busca, dica e botão do rodapé (idem)
 
   /* ---------------------------------------------------------------------
@@ -212,15 +214,32 @@
     return b;
   };
 
+  /** Habilita ou desabilita um botão (e muda a cara dele: opaco e sem mão quando desabilitado). */
+  function habilitarBotao(botao, habilitado) {
+    botao.disabled = !habilitado;
+    botao.style.opacity = habilitado ? '1' : '0.5';
+    botao.style.cursor = habilitado ? 'pointer' : 'not-allowed';
+  }
+
   /* ---- edição: uma forma por vez; o rascunho é gravado sozinho (com um pequeno atraso e ao sair do campo) ---- */
-  const MOTIVOS_DA_GRAVACAO = {
-    cota: 'Não consegui guardar o rascunho: o navegador está sem espaço.',
-    'sem-armazenamento': 'Este navegador não deixa guardar o rascunho.',
-    'versao-nova': 'O catálogo salvo é de uma versão mais nova que este script: não dá para guardar o rascunho.',
-  };
-  const MOTIVO_PADRAO_DA_GRAVACAO = 'Não consegui guardar o rascunho.';
+  /** O texto de uma falha ao guardar `oQue` ("o rascunho", "a publicação") no armazenamento do navegador; sem motivo conhecido, o genérico. */
+  function textoDaFalha(motivo, oQue) {
+    return {
+      cota: `Não consegui guardar ${oQue}: o navegador está sem espaço.`,
+      'sem-armazenamento': `Este navegador não deixa guardar ${oQue}.`,
+      'versao-nova': `O catálogo salvo é de uma versão mais nova que este script: não dá para guardar ${oQue}.`,
+    }[motivo] ?? `Não consegui guardar ${oQue}.`;
+  }
 
   const textosDaEdicao = () => edicao.areas.map((a) => a.ta.value);
+
+  const TEXTOS_DO_PADRAO = {
+    botao: 'Restaurar o padrão',
+    confirmar: 'Trocar o texto em uso pelo padrão? Ele entra como rascunho: você ainda precisa publicar.',
+    sim: 'Trocar pelo padrão', // derivado: o botão de confirmar não estava na proposta aprovada
+    cancelar: 'Cancelar',
+  };
+  const igualAoPadrao = () => { const texto = textosDaEdicao(); return texto.length === edicao.forma.padrao.length && texto.every((t, i) => t === edicao.forma.padrao[i]); };
 
   /** A faixa de um problema: erro (✕, vermelho) ou aviso (⚠, âmbar). Serve ao editor (validação ao digitar) e à prévia (alertas de tamanho). */
   function faixaDeProblema(nivel, texto) {
@@ -242,9 +261,10 @@
     edicao.problemasEl.replaceChildren(...itens);
   }
 
-  function mostrarErroDaGravacao(texto) {
-    edicao.erroEl.textContent = texto;
-    edicao.erroEl.hidden = !texto;
+  /** Mostra (ou, com texto vazio, esconde) o alerta de erro de uma tela. */
+  function mostrarErro(alerta, texto) {
+    alerta.textContent = texto;
+    alerta.hidden = !texto;
   }
 
   /** Grava o rascunho agora. @returns {boolean} gravou (ou não havia o que gravar) */
@@ -254,25 +274,26 @@
     edicao.timer = null;
     const r = C.salvarRascunho(edicao.chave, edicao.formaId, textosDaEdicao());
     if (!r.ok) {
-      mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO);
+      mostrarErro(edicao.erroEl, textoDaFalha(r.motivo, 'o rascunho'));
       return false; // `digitado` segue true: o texto não foi gravado e o botão "Ver prévia" continua valendo
     }
     catalogo = C.lerCatalogo();
     edicao.digitado = false;
-    mostrarErroDaGravacao('');
+    mostrarErro(edicao.erroEl, '');
     desenharSelos(edicao.def, edicao.forma, edicao.selosEl);
     edicao.descartarEl.disabled = !rascunhoDe(edicao.def, edicao.forma);
     indexar(edicao.def);
-    atualizarBotaoDaPrevia();
+    atualizarBotoesDoRodape();
     return true;
   }
 
   function aoMudarTexto() {
+    edicao.padraoEl.disabled = igualAoPadrao();
     desenharProblemas();
     clearTimeout(edicao.timer);
     edicao.digitado = true; // há texto que o rascunho gravado ainda não tem (até a próxima gravação que der certo)
     edicao.timer = setTimeout(salvarAgora, CONFIG_EDITOR.ATRASO_RASCUNHO_MS);
-    atualizarBotaoDaPrevia();
+    atualizarBotoesDoRodape();
   }
 
   function inserirVariavel(nome) {
@@ -387,13 +408,46 @@
     edicao.erroEl.setAttribute('role', 'alert');
     caixa.appendChild(edicao.erroEl);
 
+    edicao.restauroEl = el('div', { hidden: true }, { margin: '10px 0 0', padding: '8px 10px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', background: '#F7F8FA' });
+    edicao.restauroEl.dataset.papel = 'confirmar-padrao';
+    edicao.restauroEl.appendChild(el('div', { textContent: TEXTOS_DO_PADRAO.confirmar }, { fontSize: '13px', color: CORES.tinta, marginBottom: '8px' }));
+    const botoesDoRestauro = el('div', {}, { display: 'flex', flexWrap: 'wrap', gap: '8px' });
+    edicao.cancelarRestauroEl = botaoTexto(TEXTOS_DO_PADRAO.cancelar, cancelarRestauro, 'cancelar-padrao');
+    botoesDoRestauro.append(botaoTexto(TEXTOS_DO_PADRAO.sim, restaurarPadrao, 'confirmar-padrao-sim'), edicao.cancelarRestauroEl);
+    edicao.restauroEl.appendChild(botoesDoRestauro);
+    caixa.appendChild(edicao.restauroEl);
+
     const botoes = el('div', {}, { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' });
+    edicao.padraoEl = botaoTexto(TEXTOS_DO_PADRAO.botao, pedirRestauro, 'restaurar-padrao');
+    edicao.padraoEl.disabled = igualAoPadrao();
     edicao.descartarEl = botaoTexto('Descartar rascunho', descartarEdicao, 'descartar-rascunho');
     edicao.descartarEl.disabled = !rascunhoDe(def, forma);
-    botoes.append(edicao.descartarEl, botaoTexto('Fechar edição', () => fecharEdicao(), 'fechar-edicao'));
+    botoes.append(edicao.padraoEl, edicao.descartarEl, botaoTexto('Fechar edição', () => fecharEdicao(), 'fechar-edicao'));
     caixa.appendChild(botoes);
     renumerarVariantes();
     return caixa;
+  }
+
+  function pedirRestauro() {
+    edicao.restauroEl.hidden = false;
+    edicao.cancelarRestauroEl.focus();
+  }
+
+  function cancelarRestauro() {
+    edicao.restauroEl.hidden = true;
+    edicao.padraoEl.focus();
+  }
+
+  /** Põe o texto padrão nos campos e grava como RASCUNHO (publicar continua sendo um passo do usuário). */
+  function restaurarPadrao() {
+    edicao.areas.forEach((a) => a.wrap.remove());
+    edicao.areas = [];
+    edicao.forma.padrao.forEach((texto) => adicionarArea(texto));
+    renumerarVariantes();
+    edicao.restauroEl.hidden = true;
+    aoMudarTexto();
+    salvarAgora();
+    edicao.areas[0].ta.focus();
   }
 
   function abrirEdicao(def, forma) {
@@ -427,9 +481,9 @@
     clearTimeout(edicao.timer);
     edicao.digitado = false; // o que foi descartado não conta como texto digitado
     const r = C.descartarRascunho(edicao.chave, edicao.formaId);
-    if (!r.ok) { mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO); return; }
+    if (!r.ok) { mostrarErro(edicao.erroEl, textoDaFalha(r.motivo, 'o rascunho')); return; }
     catalogo = C.lerCatalogo();
-    atualizarBotaoDaPrevia();
+    atualizarBotoesDoRodape();
     fecharEdicao({ salvar: false });
   }
 
@@ -541,14 +595,16 @@
 
   /**
    * Os alertas de tamanho de uma situação (Módulo 32, `avaliarLimites`): o texto de cada um. Erro = passa de um limite combinado com o usuário
-   * (5 balões, 320 caracteres por balão, 600 no total); aviso = só o total COM acordo (o teto desse caso ainda está pendente de decisão).
+   * (5 balões, 320 caracteres por balão, 600 no total, ou 750 com acordo); aviso = o total COM acordo entre 601 e 750 (passa do normal, mas cabe no teto
+   * do acordo). Nenhum deles bloqueia o Publicar: só avisam.
    */
   const TEXTOS_DOS_ALERTAS = {
     baloes: (a) => `Passa de ${a.limite} balões: esta situação gera ${a.valor}.`,
     balao: (a) => `Um balão passa de ${a.limite} caracteres: o maior tem ${a.valor}.`,
-    total: (a) => (a.nivel === 'aviso'
-      ? `Com acordo, a mensagem tem ${a.valor} caracteres (o limite é ${a.limite}). Ainda não há teto definido para esse caso.`
-      : `A mensagem passa de ${a.limite} caracteres: tem ${a.valor}.`),
+    total: (a) => {
+      if (a.nivel === 'aviso') return `Com acordo, a mensagem tem ${a.valor} caracteres (o limite é ${a.limite}; com acordo vale até ${a.teto}).`;
+      return a.comAcordo ? `Com acordo, a mensagem passa de ${a.limite} caracteres: tem ${a.valor}.` : `A mensagem passa de ${a.limite} caracteres: tem ${a.valor}.`;
+    },
   };
 
   function alertaDeTamanho(alerta) {
@@ -775,30 +831,31 @@
 
   /** Largura do diálogo e folga do fundo conforme a vista. */
   function ajustarLargura() {
-    const largura = vista === 'previa' ? CONFIG_EDITOR.LARGURA_PREVIA : CONFIG_EDITOR.LARGURA_PAINEL;
+    const largura = vista === 'lista' ? CONFIG_EDITOR.LARGURA_PAINEL : CONFIG_EDITOR.LARGURA_PREVIA;
     painelEl.style.width = `${largura}px`;
     fundoEl.style.padding = `16px 16px 16px ${folgaEsquerda(largura)}px`;
   }
 
   /** Título, dica e botão do rodapé conforme a vista (só quando a vista muda: o título é anunciado ao leitor de tela). */
   function atualizarRodape() {
-    const naPrevia = vista === 'previa';
-    ui.tituloEl.textContent = naPrevia ? TEXTOS_DA_PREVIA.titulo : TEXTOS_DA_PREVIA.tituloDaLista;
+    ui.tituloEl.textContent = { lista: TEXTOS_DA_PREVIA.tituloDaLista, previa: TEXTOS_DA_PREVIA.titulo, publicar: TEXTOS_DA_PUBLICACAO.titulo, historico: TEXTOS_DO_HISTORICO.titulo }[vista];
     painelEl.setAttribute('aria-label', ui.tituloEl.textContent);
-    ui.dicaEl.textContent = naPrevia ? TEXTOS_DA_PREVIA.dicaDaPrevia : TEXTOS_DA_PREVIA.dicaDaLista;
-    atualizarBotaoDaPrevia();
+    ui.dicaEl.textContent = { lista: TEXTOS_DA_PREVIA.dicaDaLista, previa: TEXTOS_DA_PREVIA.dicaDaPrevia, publicar: '', historico: TEXTOS_DO_HISTORICO.rodape }[vista];
+    atualizarBotoesDoRodape();
   }
 
-  /** O botão "Ver prévia" (habilitado, dica, aparência): muda a cada tecla digitada e a cada gravação ou descarte do rascunho. */
-  function atualizarBotaoDaPrevia() {
-    const naPrevia = vista === 'previa';
+  /**
+   * Os botões do rodapé: "Histórico" (só na lista), "Ver prévia" (só na lista; habilitado, dica e aparência mudam a cada tecla digitada e a cada gravação ou descarte do rascunho)
+   * e "Publicar…" (só na prévia).
+   */
+  function atualizarBotoesDoRodape() {
+    ui.historicoBotaoEl.style.display = vista === 'lista' ? '' : 'none';
     if (!ui.previaBotaoEl) return;
+    ui.publicarBotaoEl.style.display = vista === 'previa' ? '' : 'none';
     // Texto digitado e ainda não gravado (o atraso de 400 ms, ou uma gravação recusada) já conta: abrir a prévia grava antes.
     const sem = !temRascunho(catalogo) && !edicao?.digitado;
-    ui.previaBotaoEl.style.display = naPrevia ? 'none' : '';
-    ui.previaBotaoEl.disabled = sem;
-    ui.previaBotaoEl.style.opacity = sem ? '0.5' : '1';
-    ui.previaBotaoEl.style.cursor = sem ? 'not-allowed' : 'pointer';
+    ui.previaBotaoEl.style.display = vista === 'lista' ? '' : 'none';
+    habilitarBotao(ui.previaBotaoEl, !sem);
     ui.previaBotaoEl.title = sem ? TEXTOS_DA_PREVIA.semRascunhoNoBotao : '';
   }
 
@@ -847,14 +904,17 @@
     pv.voltarEl.focus();
   }
 
+  /** Refaz a lista de textos a partir do catálogo atual (a busca digitada continua valendo). */
+  function refazerLista() {
+    ui.listaEl.replaceChildren();
+    desenharLista(ui.listaEl);
+    filtrarLista();
+  }
+
   function voltarDaPrevia() {
     vista = 'lista';
     pv.raiz.style.display = 'none';
-    if (pv.listaDesatualizada) {
-      ui.listaEl.replaceChildren();
-      desenharLista(ui.listaEl);
-      filtrarLista(); // a busca digitada continua valendo
-    }
+    if (pv.listaDesatualizada) refazerLista();
     ui.listaEl.hidden = false;
     ui.buscaEl.hidden = false;
     // A largura volta ANTES de restaurar a rolagem: mudar a largura depois reflui a lista e o navegador reajusta o scrollTop (no Chromium a lista voltava ~20 px abaixo).
@@ -864,10 +924,430 @@
     (ui.previaBotaoEl && !ui.previaBotaoEl.disabled ? ui.previaBotaoEl : painelEl).focus();
   }
 
-  /** Esc: na prévia volta à lista; na lista fecha o diálogo. */
+  /** Esc: no Histórico fecha a confirmação aberta e, sem ela, volta à lista; na tela Publicar volta à prévia, na prévia volta à lista; na lista fecha o diálogo. */
   function aoApertarEsc() {
-    if (vista === 'previa') voltarDaPrevia();
+    if (edicao && !edicao.restauroEl.hidden) cancelarRestauro(); // (a edição só existe na lista)
+    else if (vista === 'historico') { if (hs.confirmando === null) voltarDoHistorico(); else cancelarConfirmacao(); }
+    else if (vista === 'publicar') voltarParaPrevia();
+    else if (vista === 'previa') voltarDaPrevia();
     else fecharPainel({ devolverFoco: true });
+  }
+
+  /* ---------------------------------------------------------------------
+   * 3b. PUBLICAR (R2, etapa 4)
+   * ---------------------------------------------------------------------
+   * Terceira tela do mesmo diálogo, aberta pelo "Publicar…" da prévia (a prévia é obrigatória). Mostra o que muda (em uso e novo), o que impede de
+   * publicar (erro de CONTEÚDO) e os avisos (de conteúdo, de tamanho, e se outra aba publicou antes). O erro de TAMANHO só avisa. Quem publica é o
+   * Módulo 30 (`publicar`); depois de publicar a lista é refeita e o diálogo volta a ela.
+   * --------------------------------------------------------------------- */
+  const TEXTOS_DA_PUBLICACAO = {
+    titulo: 'Publicar mensagens',
+    botaoDaPrevia: 'Publicar…',
+    subtitulo: 'Estes textos passam a valer no Alt+A, neste navegador.',
+    tudoCerto: 'Tudo certo para publicar.',
+    notaRotulo: 'Nota (opcional)',
+    notaExemplo: 'Ex.: pergunta final mais direta',
+    publicar: 'Publicar',
+    voltar: 'Voltar à prévia',
+    publicarMesmoAssim: 'Publicar mesmo assim',
+    cancelar: 'Cancelar',
+    outraAba: 'Outra aba publicou depois que você começou a editar. Publicar agora vai por cima dela.',
+    nadaAPublicar: 'Não há nenhuma mudança para publicar.',
+    emUso: 'Em uso',
+    novo: 'Novo',
+    regiao: 'Textos que mudam',
+  };
+  const textoDoContador = (n) => `${n} ${n === 1 ? 'texto muda' : 'textos mudam'}`;
+  const textoDoAvisoDeAcordo = ({ n, limite, teto }) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} de ${limite} caracteres e ${n === 1 ? 'cabe' : 'cabem'} no limite do acordo (${teto}). Isso não impede de publicar.`;
+  const textoDoTamanho = (n) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} do limite de tamanho. Isso não impede de publicar.`;
+
+  /** O nome de um texto (e da forma, quando há mais de uma) como a lista o mostra. */
+  function tituloDoTexto(chave, formaId) {
+    const def = C.defDe(chave);
+    return `${def.titulo}${def.formas.length > 1 ? ` — ${def.formas.find((f) => f.id === formaId).rotulo}` : ''}`;
+  }
+
+  /** Um texto que muda: o título e, lado a lado, o texto de antes e o de depois (`null` = o texto padrão). `r`: os rótulos e os papéis das duas colunas e do item. */
+  function blocoDeMudanca(m, r) {
+    const item = el('section', {}, { padding: '10px 0 12px', borderBottom: `1px solid ${CORES.borda}` });
+    item.dataset.papel = r.item;
+    item.dataset.texto = m.chave;
+    item.appendChild(el('div', { textContent: tituloDoTexto(m.chave, m.forma) }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
+    const colunas = el('div', {}, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: '0 12px' });
+    colunas.appendChild(colunaDeTextos(r.rotuloAntes, m.antes ?? C.padrao(m.chave, m.forma), r.papelAntes));
+    colunas.appendChild(colunaDeTextos(r.rotuloDepois, m.depois ?? C.padrao(m.chave, m.forma), r.papelDepois));
+    item.appendChild(colunas);
+    return item;
+  }
+
+  const itemDaPublicacao = (m) => blocoDeMudanca(m, { item: 'item-publicacao', rotuloAntes: TEXTOS_DA_PUBLICACAO.emUso, rotuloDepois: TEXTOS_DA_PUBLICACAO.novo, papelAntes: 'publicar-em-uso', papelDepois: 'publicar-novo' });
+
+  /**
+   * Os alertas de tamanho que a publicação deixaria: `erros` = situações (as que o rascunho muda) com erro de tamanho; `acordo` = as que só têm o aviso do total com
+   * acordo (`n`, e os limites que o Módulo 32 informou), ou null. Calculado do rascunho de AGORA (o salvo), não do que a prévia mostrou antes: outra aba pode ter
+   * mexido nele, e a prévia pode nem ter sido montada (prévia vazia).
+   */
+  function alertasDeTamanhoDaPublicacao() {
+    const textos = C.lerCatalogo().rascunho?.textos; // (sem rascunho nenhuma situação é afetada)
+    try {
+      const afetadas = window.__cenariosPrevia.rodarTodos({ textos }).filter((r) => r.afetado && r.depois);
+      const comErro = afetadas.filter((r) => r.depois.alertas.some((a) => a.nivel === 'erro'));
+      const avisos = afetadas.filter((r) => !comErro.includes(r)).map((r) => r.depois.alertas.find((a) => a.nivel === 'aviso')).filter(Boolean);
+      return { erros: comErro.length, acordo: avisos.length > 0 ? { n: avisos.length, limite: avisos[0].limite, teto: avisos[0].teto } : null };
+    } catch (erro) {
+      avisarFalhaDaPrevia(erro); // as faixas de tamanho somem, mas nada impede de publicar
+      return { erros: 0, acordo: null };
+    }
+  }
+
+  /** Desenha a tela Publicar com o que `prepararPublicacao` devolveu (sem gravar nada). */
+  function desenharPublicar(plano) {
+    const avisos = [];
+    mostrarErro(pb.erroEl, '');
+    if (!plano.ok) {
+      mostrarErro(pb.erroEl, plano.motivo === 'nada-a-publicar' ? TEXTOS_DA_PUBLICACAO.nadaAPublicar : (textoDaFalha(plano.motivo, 'a publicação')));
+      pb.contadorEl.textContent = '';
+      pb.corpoEl.replaceChildren();
+      pb.avisosEl.replaceChildren();
+      pb.outraAba = false;
+    } else {
+      pb.outraAba = plano.outraAba;
+      pb.contadorEl.textContent = textoDoContador(plano.mudancas.length);
+      if (plano.outraAba) {
+        const f = faixaDeProblema('aviso', TEXTOS_DA_PUBLICACAO.outraAba);
+        f.dataset.papel = 'outra-aba';
+        avisos.push(f);
+      }
+      if (plano.problemas.length > 0) {
+        plano.problemas.forEach((p) => p.motivos.forEach((motivo) => {
+          const f = faixaDeProblema('erro', `${tituloDoTexto(p.chave, p.forma)}: ${motivo}`);
+          f.dataset.papel = 'problema-publicacao';
+          avisos.push(f);
+        }));
+      } else {
+        const certo = el('div', { textContent: TEXTOS_DA_PUBLICACAO.tudoCerto }, { fontSize: '12px', color: CORES.ok, background: CORES.fundoOk, borderRadius: '6px', padding: '4px 8px', margin: '4px 0 0' });
+        certo.dataset.papel = 'tudo-certo';
+        avisos.push(certo);
+      }
+      plano.avisos.forEach((a) => a.motivos.forEach((motivo) => {
+        const f = faixaDeProblema('aviso', `${tituloDoTexto(a.chave, a.forma)}: ${motivo}`);
+        f.dataset.papel = 'aviso-publicacao';
+        avisos.push(f);
+      }));
+      const tamanho = alertasDeTamanhoDaPublicacao();
+      if (tamanho.erros > 0) {
+        const f = faixaDeProblema('aviso', textoDoTamanho(tamanho.erros));
+        f.dataset.papel = 'aviso-tamanho-publicacao';
+        avisos.push(f);
+      }
+      if (tamanho.acordo) {
+        const f = faixaDeProblema('aviso', textoDoAvisoDeAcordo(tamanho.acordo));
+        f.dataset.papel = 'aviso-acordo-publicacao';
+        avisos.push(f);
+      }
+      pb.avisosEl.replaceChildren(...avisos);
+      pb.corpoEl.replaceChildren(...plano.mudancas.map(itemDaPublicacao));
+    }
+    pb.publicarEl.textContent = pb.outraAba ? TEXTOS_DA_PUBLICACAO.publicarMesmoAssim : TEXTOS_DA_PUBLICACAO.publicar;
+    pb.voltarEl.textContent = pb.outraAba ? TEXTOS_DA_PUBLICACAO.cancelar : TEXTOS_DA_PUBLICACAO.voltar;
+    habilitarBotao(pb.publicarEl, plano.ok && plano.problemas.length === 0);
+  }
+
+  /** As peças da tela Publicar (escondida até o "Publicar…" da prévia). */
+  function montarPublicar() {
+    const raiz = el('div', {}, { flex: '1 1 auto', minHeight: '0', display: 'none', flexDirection: 'column' });
+    raiz.dataset.papel = 'tela-publicar'; // (o botão "Publicar" é data-papel="publicar": nomes diferentes)
+
+    const faixa = el('div', {}, { flex: '0 0 auto', padding: '10px 18px', borderBottom: `1px solid ${CORES.borda}`, background: '#FAFBFC' });
+    faixa.appendChild(el('div', { textContent: TEXTOS_DA_PUBLICACAO.subtitulo }, { fontSize: '12px', color: CORES.texto }));
+    const contadorEl = el('div', {}, { fontSize: '13px', fontWeight: '600', color: CORES.tinta, marginTop: '8px' });
+    contadorEl.dataset.papel = 'contador-publicar';
+    contadorEl.setAttribute('role', 'status');
+    contadorEl.setAttribute('aria-live', 'polite');
+    faixa.appendChild(contadorEl);
+    const avisosEl = el('div');
+    avisosEl.dataset.papel = 'avisos-publicar';
+    avisosEl.setAttribute('role', 'status');
+    avisosEl.setAttribute('aria-live', 'polite');
+    faixa.appendChild(avisosEl);
+    const erroEl = el('div', { hidden: true }, { fontSize: '12px', color: CORES.perigo, background: CORES.fundoPerigo, border: `1px solid ${CORES.perigo}`, borderRadius: '6px', padding: '4px 8px', margin: '6px 0 0' });
+    erroEl.dataset.papel = 'erro-publicar';
+    erroEl.setAttribute('role', 'alert');
+    faixa.appendChild(erroEl);
+    raiz.appendChild(faixa);
+
+    const corpoEl = el('div', {}, { flex: '1 1 auto', minHeight: '0', overflowY: 'auto', padding: '4px 18px 14px' });
+    corpoEl.dataset.papel = 'corpo-publicar';
+    corpoEl.tabIndex = 0;
+    corpoEl.setAttribute('role', 'region');
+    corpoEl.setAttribute('aria-label', TEXTOS_DA_PUBLICACAO.regiao);
+    raiz.appendChild(corpoEl);
+
+    const barra = el('div', {}, { flex: '0 0 auto', padding: '10px 18px', borderTop: `1px solid ${CORES.borda}`, background: '#FAFBFC', display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: '8px 12px' });
+    const rotuloNota = el('label', {}, { display: 'flex', flexDirection: 'column', gap: '2px', flex: '1 1 240px', fontSize: '12px', color: CORES.texto });
+    rotuloNota.appendChild(document.createTextNode(TEXTOS_DA_PUBLICACAO.notaRotulo));
+    const notaEl = el('input', { type: 'text', maxLength: C.MAX_NOTA, placeholder: TEXTOS_DA_PUBLICACAO.notaExemplo, autocomplete: 'off' }, {
+      padding: '8px 10px', fontSize: '13px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', color: CORES.tinta, background: CORES.fundo, boxSizing: 'border-box', width: '100%',
+    });
+    notaEl.dataset.papel = 'nota-publicar';
+    // Enter publica (menos quando confirma uma composição de IME/tecla morta).
+    notaEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); publicarAgora(); }
+    });
+    rotuloNota.appendChild(notaEl);
+    barra.appendChild(rotuloNota);
+    const publicarEl = botaoTexto(TEXTOS_DA_PUBLICACAO.publicar, () => publicarAgora(), 'publicar');
+    const voltarEl = botaoTexto(TEXTOS_DA_PUBLICACAO.voltar, () => voltarParaPrevia(), 'voltar-previa');
+    [publicarEl, voltarEl].forEach((b) => Object.assign(b.style, { padding: '9px 14px', fontSize: '13px' }));
+    barra.append(publicarEl, voltarEl);
+    raiz.appendChild(barra);
+
+    pb = { raiz, contadorEl, avisosEl, erroEl, corpoEl, notaEl, publicarEl, voltarEl, outraAba: false };
+    return raiz;
+  }
+
+  function abrirPublicar() {
+    const plano = C.prepararPublicacao();
+    pb.notaEl.value = '';
+    desenharPublicar(plano);
+    pv.raiz.style.display = 'none';
+    pb.raiz.style.display = 'flex';
+    vista = 'publicar';
+    pb.corpoEl.scrollTop = 0;
+    atualizarRodape();
+    (plano.ok ? pb.notaEl : pb.voltarEl).focus();
+  }
+
+  function voltarParaPrevia() {
+    vista = 'previa';
+    pb.raiz.style.display = 'none';
+    pv.raiz.style.display = 'flex';
+    atualizarRodape();
+    ui.publicarBotaoEl.focus();
+  }
+
+  /** Publica de verdade (Módulo 30). Com sucesso: aviso na tela, lista refeita e de volta a ela. Se algo mudou no meio do caminho, a tela se refaz. */
+  function publicarAgora() {
+    if (pb.publicarEl.disabled) return;
+    const r = C.publicar({ nota: pb.notaEl.value, forcar: pb.outraAba });
+    if (r.ok) {
+      window.__smartTableUtil?.toast?.(`Mensagens publicadas (versão ${r.rev}).`, 6000);
+      catalogo = C.lerCatalogo();
+      pb.raiz.style.display = 'none';
+      pv.raiz.style.display = 'none';
+      vista = 'lista';
+      refazerLista();
+      ui.listaEl.hidden = false;
+      ui.buscaEl.hidden = false;
+      ajustarLargura();
+      ui.listaEl.scrollTop = pv.rolagemDaLista;
+      atualizarRodape();
+      painelEl.focus();
+      return;
+    }
+    if (r.motivo === 'outra-aba' || r.motivo === 'bloqueado' || r.motivo === 'nada-a-publicar') {
+      desenharPublicar(C.prepararPublicacao()); // o que mudou desde que a tela abriu passa a aparecer
+      // O "Publicar" que tinha o foco pode ter ficado desabilitado: sem isto o foco cai na página e o Esc e o Tab do diálogo param de valer.
+      if (pb.publicarEl.disabled && [pb.publicarEl, document.body].includes(document.activeElement)) pb.voltarEl.focus();
+      return;
+    }
+    mostrarErro(pb.erroEl, textoDaFalha(r.motivo, 'a publicação'));
+  }
+
+  /* ---------------------------------------------------------------------
+   * 3c. HISTÓRICO (R2, etapa 4)
+   * ---------------------------------------------------------------------
+   * Quarta tela do mesmo diálogo, aberta pelo "Histórico" do rodapé da lista. Lista as últimas publicações (a mais nova primeiro); de cada uma dá para ver
+   * o que mudou e voltar à versão dela, o que cria uma publicação NOVA (o histórico nunca perde entrada). A confirmação é dentro do próprio item.
+   */
+  const TEXTOS_DO_HISTORICO = {
+    titulo: 'Histórico de publicações',
+    rodape: `Guardamos as últimas ${C.MAX_HISTORICO} publicações.`,
+    voltarALista: '← Voltar à lista',
+    regiao: 'Publicações',
+    vazio: 'Nenhuma publicação ainda.',
+    verMudancas: 'Ver mudanças',
+    esconderMudancas: 'Esconder mudanças',
+    voltarParaVersao: 'Voltar para esta versão',
+    cancelar: 'Cancelar',
+    jaEmUso: 'Esta versão já é a que está em uso.',
+    antes: 'Antes',
+    depois: 'Depois',
+    confirmar: (rev) => `Voltar para a versão ${rev}? Isso cria uma publicação nova com os textos daquela versão.`,
+    // os que não foram aprovados em bloco com os de cima (derivados das falhas do Módulo 30)
+    semVersao: 'Essa versão não está mais no histórico.',
+    incompleto: 'Não dá para voltar a essa versão: faltam publicações no histórico entre ela e a atual.',
+    bloqueado: 'Não dá para voltar a essa versão: ela tem texto que as regras de hoje não aceitam.',
+  };
+
+  /** "06/10/2026 14:30", na hora deste navegador. */
+  function dataDaPublicacao(ms) {
+    const d = new Date(ms);
+    const dois = (n) => String(n).padStart(2, '0');
+    return `${dois(d.getDate())}/${dois(d.getMonth() + 1)}/${d.getFullYear()} ${dois(d.getHours())}:${dois(d.getMinutes())}`;
+  }
+
+  /** As mudanças de uma publicação: um bloco por texto que ela mexeu, com o antes e o depois. */
+  function mudancasDaEntrada(entrada) {
+    const blocos = [];
+    Object.keys(entrada.depois).forEach((chave) => Object.keys(entrada.depois[chave]).forEach((forma) => {
+      blocos.push(blocoDeMudanca({ chave, forma, antes: entrada.antes[chave]?.[forma] ?? null, depois: entrada.depois[chave][forma] }, {
+        item: 'item-mudanca', rotuloAntes: TEXTOS_DO_HISTORICO.antes, rotuloDepois: TEXTOS_DO_HISTORICO.depois, papelAntes: 'historico-antes', papelDepois: 'historico-depois',
+      }));
+    }));
+    return blocos;
+  }
+
+  function itemDoHistorico(entrada, revAtual) {
+    const item = el('section', {}, { padding: '10px 0 12px', borderBottom: `1px solid ${CORES.borda}` });
+    item.dataset.papel = 'item-historico';
+    item.dataset.rev = String(entrada.rev);
+    const linha = `Versão ${entrada.rev} · ${dataDaPublicacao(entrada.em)}${entrada.nota ? ` · ${entrada.nota}` : ''}`;
+    const titulo = el('div', { textContent: linha }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta, overflowWrap: 'anywhere' });
+    titulo.dataset.papel = 'linha-historico';
+    item.appendChild(titulo);
+
+    const acoes = el('div', {}, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 8px', marginTop: '6px' });
+    const detalhe = el('div', { hidden: true });
+    detalhe.dataset.papel = 'mudancas-historico';
+    const verEl = botaoTexto(TEXTOS_DO_HISTORICO.verMudancas, () => {
+      const abrir = detalhe.hidden;
+      if (abrir) detalhe.replaceChildren(...mudancasDaEntrada(entrada));
+      detalhe.hidden = !abrir;
+      verEl.textContent = abrir ? TEXTOS_DO_HISTORICO.esconderMudancas : TEXTOS_DO_HISTORICO.verMudancas;
+      verEl.setAttribute('aria-expanded', String(abrir));
+    }, 'ver-mudancas');
+    verEl.setAttribute('aria-expanded', 'false');
+    acoes.appendChild(verEl);
+
+    const confirmacao = el('div', { hidden: true }, { margin: '8px 0 0', padding: '8px 10px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', background: '#F7F8FA' });
+    confirmacao.dataset.papel = 'confirmar-historico';
+    if (entrada.rev === revAtual) {
+      const emUso = el('span', { textContent: TEXTOS_DO_HISTORICO.jaEmUso }, { fontSize: '12px', color: CORES.apagado });
+      emUso.dataset.papel = 'versao-em-uso';
+      acoes.appendChild(emUso);
+    } else {
+      acoes.appendChild(botaoTexto(TEXTOS_DO_HISTORICO.voltarParaVersao, () => pedirConfirmacao(entrada.rev), 'voltar-versao'));
+      confirmacao.appendChild(el('div', { textContent: TEXTOS_DO_HISTORICO.confirmar(entrada.rev) }, { fontSize: '13px', color: CORES.tinta, marginBottom: '8px' }));
+      const botoes = el('div', {}, { display: 'flex', flexWrap: 'wrap', gap: '8px' });
+      botoes.append(
+        botaoTexto(TEXTOS_DO_HISTORICO.voltarParaVersao, () => voltarParaAVersao(entrada.rev), 'confirmar-voltar'),
+        botaoTexto(TEXTOS_DO_HISTORICO.cancelar, () => cancelarConfirmacao(), 'cancelar-voltar'),
+      );
+      confirmacao.appendChild(botoes);
+    }
+    item.append(acoes, confirmacao, detalhe);
+    return item;
+  }
+
+  /** Refaz as linhas do histórico a partir do catálogo salvo (relido: outra aba pode ter publicado). */
+  function desenharHistorico() {
+    const fresco = C.lerCatalogo();
+    if (fresco !== catalogo) { catalogo = fresco; hs.listaDesatualizada = true; }
+    hs.confirmando = null;
+    if (fresco.historico.length === 0) {
+      const vazio = el('div', { textContent: TEXTOS_DO_HISTORICO.vazio }, { fontSize: '13px', color: CORES.apagado, padding: '14px 0' });
+      vazio.dataset.papel = 'historico-vazio';
+      hs.corpoEl.replaceChildren(vazio);
+    } else {
+      hs.corpoEl.replaceChildren(...fresco.historico.map((e) => itemDoHistorico(e, fresco.rev)));
+    }
+  }
+
+  const confirmacaoAberta = () => (hs.confirmando === null ? null : hs.corpoEl.querySelector(`[data-papel="item-historico"][data-rev="${hs.confirmando}"] [data-papel="confirmar-historico"]`));
+
+  /** Fecha a confirmação aberta (se há) e devolve o foco ao "Voltar para esta versão" do item. */
+  function cancelarConfirmacao() {
+    const aberta = confirmacaoAberta();
+    hs.confirmando = null;
+    if (!aberta) return;
+    aberta.hidden = true;
+    aberta.parentElement.querySelector('[data-papel="voltar-versao"]')?.focus();
+  }
+
+  function pedirConfirmacao(rev) {
+    cancelarConfirmacao();
+    mostrarErro(hs.erroEl, '');
+    hs.confirmando = rev;
+    const aberta = confirmacaoAberta();
+    aberta.hidden = false;
+    aberta.querySelector('[data-papel="cancelar-voltar"]').focus();
+  }
+
+  function voltarParaAVersao(rev) {
+    const r = C.restaurarVersao(rev);
+    if (r.ok) {
+      const pendente = C.lerCatalogo().rascunho !== null ? ' O rascunho continua pendente.' : '';
+      window.__smartTableUtil?.toast?.(`Voltou para a versão ${rev}. Nova publicação: versão ${r.rev}.${pendente}`, 6000);
+      desenharHistorico();
+      hs.corpoEl.scrollTop = 0;
+      hs.corpoEl.querySelector('[data-papel="ver-mudancas"]')?.focus();
+      return;
+    }
+    const texto = {
+      'ja-e-esta': TEXTOS_DO_HISTORICO.jaEmUso,
+      'versao-desconhecida': TEXTOS_DO_HISTORICO.semVersao,
+      'historico-incompleto': TEXTOS_DO_HISTORICO.incompleto,
+      bloqueado: TEXTOS_DO_HISTORICO.bloqueado,
+    }[r.motivo] ?? textoDaFalha(r.motivo, 'a publicação');
+    desenharHistorico(); // o que mudou desde que a tela abriu passa a aparecer
+    mostrarErro(hs.erroEl, texto);
+    hs.voltarEl.focus();
+  }
+
+  /** As peças da tela Histórico (escondida até o "Histórico" do rodapé). */
+  function montarHistorico() {
+    const raiz = el('div', {}, { flex: '1 1 auto', minHeight: '0', display: 'none', flexDirection: 'column' });
+    raiz.dataset.papel = 'tela-historico';
+    const faixa = el('div', {}, { flex: '0 0 auto', padding: '10px 18px', borderBottom: `1px solid ${CORES.borda}`, background: '#FAFBFC' });
+    const voltarEl = botaoTexto(TEXTOS_DO_HISTORICO.voltarALista, () => voltarDoHistorico(), 'voltar-historico');
+    faixa.appendChild(voltarEl);
+    const erroEl = el('div', { hidden: true }, { fontSize: '12px', color: CORES.perigo, background: CORES.fundoPerigo, border: `1px solid ${CORES.perigo}`, borderRadius: '6px', padding: '4px 8px', margin: '8px 0 0' });
+    erroEl.dataset.papel = 'erro-historico';
+    erroEl.setAttribute('role', 'alert');
+    faixa.appendChild(erroEl);
+    raiz.appendChild(faixa);
+    const corpoEl = el('div', {}, { flex: '1 1 auto', minHeight: '0', overflowY: 'auto', padding: '4px 18px 14px' });
+    corpoEl.dataset.papel = 'corpo-historico';
+    corpoEl.tabIndex = 0;
+    corpoEl.setAttribute('role', 'region');
+    corpoEl.setAttribute('aria-label', TEXTOS_DO_HISTORICO.regiao);
+    raiz.appendChild(corpoEl);
+    hs = { raiz, voltarEl, erroEl, corpoEl, confirmando: null, rolagemDaLista: 0, listaDesatualizada: false };
+    return raiz;
+  }
+
+  function abrirHistorico() {
+    // Grava a edição aberta antes (como a prévia): com a gravação recusada ela fica aberta e o texto não se perde.
+    if (edicao && !fecharEdicao({ devolverFoco: false })) {
+      edicao.erroEl.scrollIntoView?.({ block: 'nearest' });
+      edicao.ultimoFoco?.focus?.();
+      return;
+    }
+    hs.rolagemDaLista = ui.listaEl.scrollTop;
+    hs.listaDesatualizada = false;
+    mostrarErro(hs.erroEl, '');
+    desenharHistorico();
+    vista = 'historico';
+    ui.listaEl.hidden = true;
+    ui.buscaEl.hidden = true;
+    hs.raiz.style.display = 'flex';
+    hs.corpoEl.scrollTop = 0;
+    ajustarLargura();
+    atualizarRodape();
+    hs.voltarEl.focus();
+  }
+
+  function voltarDoHistorico() {
+    vista = 'lista';
+    hs.raiz.style.display = 'none';
+    if (hs.listaDesatualizada) refazerLista();
+    ui.listaEl.hidden = false;
+    ui.buscaEl.hidden = false;
+    ajustarLargura();
+    ui.listaEl.scrollTop = hs.rolagemDaLista;
+    atualizarRodape();
+    ui.historicoBotaoEl.focus();
   }
 
   /* ---------------------------------------------------------------------
@@ -887,6 +1367,8 @@
     indiceDeBusca = new Map();
     vista = 'lista';
     pv = null; // a árvore da prévia e os resultados das 54 situações não ficam na memória do CRM depois de fechar
+    pb = null;
+    hs = null;
     ui = null;
     const volta = focoAnterior;
     focoAnterior = null;
@@ -911,7 +1393,7 @@
 
   /** O que dá pra focar dentro do diálogo (pro Tab não sair dele). */
   function focaveisDoPainel() {
-    return [...painelEl.querySelectorAll('button, input, select, textarea, [data-papel="corpo"], [data-papel="corpo-previa"]')].filter((e) => !e.disabled && visivel(e));
+    return [...painelEl.querySelectorAll('button, input, select, textarea, [data-papel="corpo"], [data-papel="corpo-previa"], [data-papel="corpo-publicar"], [data-papel="corpo-historico"]')].filter((e) => !e.disabled && visivel(e));
   }
 
   /**
@@ -921,7 +1403,7 @@
    * PageUp/PageDown, Home e End também rolam a lista, em qualquer botão do diálogo; o Espaço fica com o botão (é o clique dele).
    */
   function rolarPelaTecla(e) {
-    const corpo = painelEl.querySelector(vista === 'previa' ? '[data-papel="corpo-previa"]' : '[data-papel="corpo"]');
+    const corpo = painelEl.querySelector(`[data-papel="${{ lista: 'corpo', previa: 'corpo-previa', publicar: 'corpo-publicar', historico: 'corpo-historico' }[vista]}"]`);
     // Com o foco num BOTÃO (a prévia abre com o foco em "← Voltar à lista") as setas, PageUp/PageDown, Home e End também rolam a lista; o Espaço
     // fica com o botão (é o clique dele).
     const noBotao = e.target?.tagName === 'BUTTON';
@@ -1007,7 +1489,8 @@
     painelEl.appendChild(meio);
     // A prévia só existe se o Módulo 32 (as situações) carregou; sem ele, o botão "Ver prévia" nem aparece.
     const comPrevia = !!window.__cenariosPrevia;
-    if (comPrevia) painelEl.appendChild(montarPrevia());
+    if (comPrevia) { painelEl.appendChild(montarPrevia()); painelEl.appendChild(montarPublicar()); }
+    painelEl.appendChild(montarHistorico());
 
     const rodape = el('div', {}, { borderTop: `1px solid ${CORES.borda}`, padding: '10px 18px 14px', background: '#FAFBFC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' });
     const dicaEl = el('div', { textContent: TEXTOS_DA_PREVIA.dicaDaLista }, { fontSize: '12px', color: CORES.apagado });
@@ -1015,12 +1498,21 @@
     rodape.appendChild(dicaEl);
     const botoesDoRodape = el('div', {}, { display: 'flex', gap: '8px', flex: '0 0 auto' });
     const estiloDoBotao = { padding: '9px 14px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '13px', cursor: 'pointer' };
+    const historicoBotaoEl = el('button', { type: 'button', textContent: 'Histórico' }, estiloDoBotao);
+    historicoBotaoEl.dataset.papel = 'historico-abrir';
+    historicoBotaoEl.addEventListener('click', abrirHistorico);
+    botoesDoRodape.appendChild(historicoBotaoEl);
     let previaBotaoEl = null;
+    let publicarBotaoEl = null;
     if (comPrevia) {
       previaBotaoEl = el('button', { type: 'button', textContent: 'Ver prévia' }, estiloDoBotao);
       previaBotaoEl.dataset.papel = 'ver-previa';
       previaBotaoEl.addEventListener('click', abrirPrevia);
       botoesDoRodape.appendChild(previaBotaoEl);
+      publicarBotaoEl = el('button', { type: 'button', textContent: TEXTOS_DA_PUBLICACAO.botaoDaPrevia }, { ...estiloDoBotao, display: 'none' });
+      publicarBotaoEl.dataset.papel = 'publicar-abrir';
+      publicarBotaoEl.addEventListener('click', abrirPublicar);
+      botoesDoRodape.appendChild(publicarBotaoEl);
     }
     const fechar = el('button', { type: 'button', textContent: 'Fechar' }, estiloDoBotao);
     fechar.dataset.papel = 'fechar';
@@ -1028,7 +1520,7 @@
     botoesDoRodape.appendChild(fechar);
     rodape.appendChild(botoesDoRodape);
     painelEl.appendChild(rodape);
-    ui = { tituloEl, buscaEl, listaEl: meio, dicaEl, previaBotaoEl };
+    ui = { tituloEl, buscaEl, listaEl: meio, dicaEl, historicoBotaoEl, previaBotaoEl, publicarBotaoEl };
     atualizarRodape();
 
     painelEl.addEventListener('keydown', (e) => { e.stopPropagation(); aoTeclar(e); });

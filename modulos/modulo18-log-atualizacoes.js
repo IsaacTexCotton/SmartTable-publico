@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.82.0', data: '06/10/2026',
+      mudancas: [
+        'Alt+X agora publica: na prévia, o botão "Publicar…" abre uma tela com o que muda ("Em uso" e "Novo"), os erros que impedem a publicação, os avisos de tamanho (que não impedem) e uma nota opcional. Depois de publicado, o texto passa a valer no Alt+A, neste navegador.',
+        'Novo botão "Histórico": lista as últimas 20 publicações, mostra o que cada uma mudou e deixa voltar a uma versão (isso cria uma publicação nova; nada é apagado). "Restaurar o padrão", em cada texto, põe o texto padrão como rascunho: você ainda precisa publicar.',
+        'Com acordo, a mensagem pode ter até 750 caracteres: de 601 a 750 é só aviso. O backup (exportar e importar) vem na próxima versão.',
+      ],
+    },
+    {
       versao: '1.81.0', data: '06/10/2026',
       mudancas: [
         'Alt+X agora tem o botão "Ver prévia": mostra a mensagem COMPLETA que o Alt+A montaria com os seus rascunhos, balão por balão, em situações inventadas (atraso comum, último dia, cartório, SCPC, promessa, acordo, primeiro contato...). Compara "Antes (em uso)" com "Depois (rascunho)" e mostra só as situações que o seu rascunho muda; "Ver todas as situações" mostra todas, cada uma com o grupo ao lado do título.',

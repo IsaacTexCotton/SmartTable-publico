@@ -19,7 +19,8 @@
  *   - A montagem é sempre por texto puro (nunca HTML) e a troca de variáveis é por função (sem `$&`).
  *
  * R1 só LIA. A R2 acrescenta o RASCUNHO (o que o editor guarda enquanto o usuário digita, separado do publicado e NUNCA usado
- * pelo Alt+A: só o editor e a prévia o leem). Publicar, histórico e backup vêm nas próximas etapas da R2.
+ * pelo Alt+A: só o editor e a prévia o leem). Etapa 4: `publicar` (o rascunho inteiro vira o texto em uso; erro de CONTEÚDO bloqueia, o de tamanho não),
+ * o HISTÓRICO das últimas 20 publicações (só o que mudou) e `restaurarVersao` (volta a uma versão criando uma publicação nova). O backup vem na próxima etapa.
  *
  * Depende de: Módulo 0 (toast e escolherVariante, opcionais). Precisa carregar ANTES do Módulo 19.
  * ========================================================================= */
@@ -38,6 +39,9 @@
   const MAX_FORMAS_SALVAS = 50;
   // Rascunho: o que está sendo digitado ainda não precisa passar nas regras (isso é na hora de publicar), mas tem teto de tamanho.
   const MAX_CARACTERES_RASCUNHO = 2000;
+  /** Quantas publicações o histórico guarda (as mais novas) e o tamanho máximo da nota de cada uma. */
+  const MAX_HISTORICO = 20;
+  const MAX_NOTA = 120;
   // Se o catálogo salvo não puder ser lido e o editor for gravar, o original é guardado sob esta chave (+ instante): nunca se apaga.
   const PREFIXO_ILEGIVEL = `${CHAVE_ARMAZENAMENTO}_ilegivel_`;
 
@@ -337,7 +341,7 @@
     return o;
   }
 
-  const vazio = (estado) => congelarProfundo({ estado, publicado: Object.create(null), invalidos: [], rev: 0, rascunho: null, rascunhoInvalidos: [] });
+  const vazio = (estado) => congelarProfundo({ estado, publicado: Object.create(null), invalidos: [], rev: 0, rascunho: null, rascunhoInvalidos: [], historico: [] });
 
   const ehObjeto = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   const temPropria = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -356,6 +360,8 @@
    *   rev: number, rascunho: ({baseRev: number, textos: Object}|null), rascunhoInvalidos: Array<{chave: string, forma: string, motivo: string}>}}
    *   `publicado`: só as formas JÁ VALIDADAS ({ chave: { forma: [texto...] } }); o resto usa o padrão. Resultado imutável.
    *   `rascunho`: o que o editor guardou (só a ESTRUTURA é conferida; as regras de conteúdo ficam para o publicar). O Alt+A não o lê.
+   *   `historico`: as últimas publicações, da mais nova para a mais velha: `{ rev, em, nota, antes, depois }` (`antes` e `depois`: `{ chave: { forma: [texto...] | null } }`, só as formas
+   *   que mudaram; `null` = o texto padrão). Entrada de formato estranho é descartada. O Alt+A não o lê.
    *   Nunca lança: o que o JSON salvo tiver de estranho cai em 'ilegivel' (o Alt+A segue com o padrão).
    */
   function lerCatalogo() {
@@ -424,10 +430,11 @@
       `${i.chave ? `Texto "${i.chave}${i.forma ? ` (${i.forma})` : ''}"` : 'Catálogo salvo'} inválido (${i.motivo}): usando o padrão.`,
       `Um texto do catálogo de mensagens é inválido${i.chave ? ` (${i.chave})` : ''}: usei o padrão dele.`,
     ));
+    const historico = lerHistorico(dados.historico);
     const { rascunho, rascunhoInvalidos } = lerRascunho(dados.rascunho);
     rascunhoInvalidos.forEach((i) => avisarUmaVez(`rascunho:${i.chave}:${i.forma}:${i.motivo}`,
       `Rascunho${i.chave ? ` de "${i.chave}${i.forma ? ` (${i.forma})` : ''}"` : ''} ignorado (${i.motivo}).`));
-    return congelarProfundo({ estado: 'ok', publicado, invalidos, rev: revDe(dados.rev), rascunho, rascunhoInvalidos });
+    return congelarProfundo({ estado: 'ok', publicado, invalidos, rev: revDe(dados.rev), rascunho, rascunhoInvalidos, historico });
   }
 
   /** O formato de UMA lista de rascunho (a mesma regra na leitura e na gravação): 1 a N textos (N = 12 com rodízio, 1 sem), cada um com até 2000 caracteres. */
@@ -465,6 +472,50 @@
     if (Object.keys(textos).length === 0) return { rascunho: null, rascunhoInvalidos };
     return { rascunho: { baseRev: revDe(bruto.baseRev), textos }, rascunhoInvalidos };
   }
+
+  /**
+   * Um lado ("antes" ou "depois") de uma publicação: `{ chave: { forma: [texto...] | null } }`, com chave e forma do registro (`null` = o padrão).
+   * Qualquer coisa fora do formato invalida o lado inteiro (devolve null): o histórico é só registro, nunca vale pela metade.
+   */
+  function lerLadoDoHistorico(bruto) {
+    if (!bruto) return null;
+    const lado = Object.create(null);
+    let formas = 0;
+    for (const chave of Object.keys(bruto)) {
+      const def = POR_CHAVE.get(chave);
+      if (!def || !bruto[chave]) return null;
+      lado[chave] = Object.create(null);
+      for (const formaId of Object.keys(bruto[chave])) {
+        if (!def.formas.some((f) => f.id === formaId)) return null;
+        const lista = bruto[chave][formaId];
+        if (lista !== null && !formatoDoRascunhoOk(def, lista)) return null;
+        lado[chave][formaId] = lista;
+        formas += 1;
+      }
+    }
+    return formas > 0 ? lado : null; // um lado sem nenhuma forma não registra mudança nenhuma
+  }
+
+  /**
+   * O histórico salvo: da publicação mais nova para a mais velha, no máximo MAX_HISTORICO. Entrada inválida (revisão, hora, lados) ou com a
+   * revisão repetida é descartada; a nota vira texto de uma linha com até MAX_NOTA caracteres. Nunca lança.
+   */
+  function lerHistorico(bruto) {
+    if (!Array.isArray(bruto)) return [];
+    const entradas = [];
+    for (const e of bruto) {
+      if (!ehObjeto(e) || !Number.isInteger(e.rev) || e.rev < 1 || !Number.isFinite(e.em) || e.em < 0) continue;
+      const antes = lerLadoDoHistorico(e.antes);
+      const depois = lerLadoDoHistorico(e.depois);
+      if (!antes || !depois) continue;
+      entradas.push({ rev: e.rev, em: e.em, nota: textoDaNota(e.nota), antes, depois });
+    }
+    entradas.sort((a, b) => b.rev - a.rev);
+    return entradas.filter((e, i) => i === 0 || e.rev !== entradas[i - 1].rev).slice(0, MAX_HISTORICO);
+  }
+
+  /** A nota de uma publicação: uma linha só, sem espaços sobrando, com até MAX_NOTA caracteres (não-texto vira vazio). */
+  const textoDaNota = (nota) => (typeof nota === 'string' ? nota.replace(/\s+/g, ' ').trim().slice(0, MAX_NOTA) : '');
 
   /* ---------------------------------------------------------------------
    * MOTOR
@@ -708,6 +759,179 @@
     return gravarCatalogo(dados, preservar) ? { ok: true, removido: lista === null } : { ok: false, motivo: 'cota' };
   }
 
+  /* ---------------------------------------------------------------------
+   * PUBLICAR, HISTÓRICO E VOLTAR VERSÃO (só o editor chama; o Alt+A só LÊ o publicado)
+   * ---------------------------------------------------------------------
+   * Cada publicação relê o catálogo salvo, muda só o `publicado`, a `rev`, o `rascunho` e o `historico` e grava de volta numa chamada só: nada fica pela
+   * metade (cota cheia = nada muda). O histórico guarda só o que mudou (`antes` e `depois` das formas tocadas), então "o estado depois da versão X" se
+   * reconstrói desfazendo as publicações mais novas; só dá para voltar às versões que ainda estão nas MAX_HISTORICO.
+   * Retornos `{ ok: true, ... }` ou `{ ok: false, motivo }`. Motivos: 'sem-armazenamento', 'versao-nova', 'cota' (como no rascunho), 'nada-a-publicar',
+   * 'bloqueado' (erro de CONTEÚDO em algum texto: `problemas`), 'outra-aba' (outra aba publicou depois que o rascunho nasceu: `rev` e `baseRev`;
+   * `forcar: true` publica por cima), 'versao-desconhecida', 'historico-incompleto' e 'ja-e-esta' (voltar à versão que já é a em uso).
+   * O tamanho da mensagem NÃO bloqueia: quem avisa é a prévia do editor.
+   */
+
+  /** Os dois lados são iguais? `null` (o padrão) só é igual a `null`. */
+  const mesmoTexto = (a, b) => (a === null || b === null ? a === b : iguais(a, b));
+
+  /** Lista igual ao padrão da forma vira `null` (o padrão não precisa ficar no publicado). */
+  const comoGuardado = (chave, formaId, lista) => (lista !== null && iguais(lista, padrao(chave, formaId)) ? null : lista);
+
+  /** O publicado de hoje (o que o Alt+A usa), para ler: `lista` ou `null` (padrão). */
+  const publicadoDe = (cat, chave, formaId) => cat.publicado[chave]?.[formaId] ?? null;
+
+  /** Erros e avisos de CONTEÚDO de uma lista de mudanças `{ chave, formaId, depois }` (só as que não voltam ao padrão). */
+  function problemasDe(mudancas) {
+    const problemas = [];
+    const avisos = [];
+    mudancas.forEach(({ chave, formaId, depois }) => {
+      if (depois === null) return;
+      const r = validarLista(defDe(chave), depois, formaId);
+      if (r.erros.length > 0) problemas.push({ chave, forma: formaId, motivos: r.erros });
+      if (r.avisos.length > 0) avisos.push({ chave, forma: formaId, motivos: r.avisos });
+    });
+    return { problemas, avisos };
+  }
+
+  /**
+   * Aplica as mudanças ao catálogo que vai ser gravado (`dados`, lido para escrita): muda o `publicado`, sobe a `rev`, acrescenta ao histórico (só as
+   * MAX_HISTORICO mais novas). `mudancas`: `[{ chave, formaId, antes, depois }]` (`null` = padrão). Devolve a revisão nova.
+   */
+  function aplicarPublicacao(dados, mudancas, nota) {
+    const novaRev = revDe(dados.rev) + 1;
+    if (!ehObjeto(dados.publicado)) dados.publicado = {};
+    const antes = Object.create(null);
+    const depois = Object.create(null);
+    mudancas.forEach(({ chave, formaId, antes: a, depois: d }) => {
+      (antes[chave] ||= Object.create(null))[formaId] = a;
+      (depois[chave] ||= Object.create(null))[formaId] = d;
+      if (d === null) {
+        if (objetoProprio(dados.publicado, chave)) {
+          delete dados.publicado[chave][formaId];
+          if (Object.keys(dados.publicado[chave]).length === 0) delete dados.publicado[chave];
+        }
+      } else {
+        if (!objetoProprio(dados.publicado, chave)) dados.publicado[chave] = {};
+        dados.publicado[chave][formaId] = d;
+      }
+    });
+    dados.rev = novaRev;
+    dados.historico = [{ rev: novaRev, em: Date.now(), nota: textoDaNota(nota), antes, depois }, ...lerHistorico(dados.historico)].slice(0, MAX_HISTORICO);
+    return novaRev;
+  }
+
+  /**
+   * Tira do rascunho gravado o que o leitor entende (foi publicado ou é igual ao que já vale). O que ele ignorou (texto ou forma de uma versão
+   * diferente do script) fica: publicar não apaga em silêncio o que não publicou. Sem nada sobrando, o rascunho some.
+   */
+  function retirarDoRascunho(dados) {
+    const { rascunho } = lerRascunho(dados.rascunho); // (há mudança a publicar: o rascunho é válido)
+    Object.keys(rascunho.textos).forEach((chave) => {
+      Object.keys(rascunho.textos[chave]).forEach((formaId) => delete dados.rascunho.textos[chave][formaId]);
+      if (Object.keys(dados.rascunho.textos[chave]).length === 0) delete dados.rascunho.textos[chave];
+    });
+    if (Object.keys(dados.rascunho.textos).length === 0) delete dados.rascunho;
+  }
+
+  /**
+   * O que publicar faria AGORA, sem gravar nada: as mudanças (o rascunho que difere do texto em uso), os problemas de CONTEÚDO que bloqueiam, os avisos e a
+   * revisão do catálogo e do rascunho. `carga` é o resultado de `carregarParaEscrita()` sem erro.
+   */
+  function planejarPublicacao({ dados }) {
+    const { rascunho } = lerRascunho(dados.rascunho);
+    const cat = lerCatalogo();
+    const mudancas = [];
+    if (rascunho) {
+      Object.keys(rascunho.textos).forEach((chave) => Object.keys(rascunho.textos[chave]).forEach((formaId) => {
+        const lista = rascunho.textos[chave][formaId];
+        const emUso = publicadoDe(cat, chave, formaId);
+        if (iguais(lista, emUso ?? padrao(chave, formaId))) return; // igual ao que já vale: não é mudança
+        mudancas.push({ chave, formaId, antes: emUso, depois: comoGuardado(chave, formaId, lista) });
+      }));
+    }
+    const { problemas, avisos } = problemasDe(mudancas);
+    const revAtual = revDe(dados.rev);
+    return { mudancas, problemas, avisos, revAtual, baseRev: rascunho ? rascunho.baseRev : revAtual };
+  }
+
+  /**
+   * Para a tela Publicar: o que publicar faria agora, SEM gravar. `mudancas`: `[{ chave, forma, antes, depois }]` (`null` = o texto padrão), `problemas` (erros
+   * de conteúdo, que bloqueiam) e `avisos` (`[{ chave, forma, motivos }]`), `rev` (a do catálogo), `baseRev` (a do rascunho) e `outraAba` (as duas diferem:
+   * outra aba publicou depois que o rascunho nasceu). Sem mudança nenhuma: `{ ok: false, motivo: 'nada-a-publicar' }`; as falhas de armazenamento, como em `publicar`.
+   */
+  function prepararPublicacao() {
+    const carga = carregarParaEscrita();
+    if (carga.erro) return { ok: false, motivo: carga.erro };
+    const plano = planejarPublicacao(carga);
+    if (plano.mudancas.length === 0) return { ok: false, motivo: 'nada-a-publicar' };
+    return {
+      ok: true,
+      mudancas: plano.mudancas.map(({ chave, formaId, antes, depois }) => ({ chave, forma: formaId, antes, depois })),
+      problemas: plano.problemas,
+      avisos: plano.avisos,
+      rev: plano.revAtual,
+      baseRev: plano.baseRev,
+      outraAba: plano.baseRev !== plano.revAtual,
+    };
+  }
+
+  /**
+   * Publica o RASCUNHO inteiro: o que difere do texto em uso passa a valer no Alt+A, o rascunho é retirado e a publicação entra no histórico.
+   * @param {{nota?: string, forcar?: boolean}} [opcoes] `forcar`: publica mesmo que outra aba tenha publicado depois que o rascunho nasceu
+   * @returns {{ok: true, rev: number, mudancas: number, avisos: Array}|{ok: false, motivo: string, problemas?: Array, rev?: number, baseRev?: number}}
+   */
+  function publicar({ nota = '', forcar = false } = {}) {
+    const carga = carregarParaEscrita();
+    if (carga.erro) return { ok: false, motivo: carga.erro };
+    const { dados, preservar } = carga;
+    const { mudancas, problemas, avisos, revAtual, baseRev } = planejarPublicacao(carga);
+    if (mudancas.length === 0) return { ok: false, motivo: 'nada-a-publicar' };
+    if (problemas.length > 0) return { ok: false, motivo: 'bloqueado', problemas };
+    if (!forcar && baseRev !== revAtual) return { ok: false, motivo: 'outra-aba', rev: revAtual, baseRev };
+    const novaRev = aplicarPublicacao(dados, mudancas, nota);
+    retirarDoRascunho(dados);
+    return gravarCatalogo(dados, preservar) ? { ok: true, rev: novaRev, mudancas: mudancas.length, avisos } : { ok: false, motivo: 'cota' };
+  }
+
+  /**
+   * Volta ao estado que valia DEPOIS da publicação `rev`: cria uma publicação NOVA (nunca apaga histórico) com a nota "Voltou para a versão N".
+   * Só as formas que hoje diferem daquele estado mudam. O rascunho fica como está (o `baseRev` dele acompanha a revisão nova só se estava em dia com o catálogo).
+   */
+  function restaurarVersao(rev) {
+    const carga = carregarParaEscrita();
+    if (carga.erro) return { ok: false, motivo: carga.erro };
+    const { dados, preservar } = carga;
+    const historico = lerHistorico(dados.historico);
+    if (!historico.some((h) => h.rev === rev)) return { ok: false, motivo: 'versao-desconhecida' };
+    const revAtual = revDe(dados.rev);
+    const posteriores = historico.filter((h) => h.rev > rev); // da mais nova para a mais velha
+    // Para desfazer da atual até `rev`, TODAS as publicações entre as duas têm de estar no histórico.
+    if (posteriores.length !== revAtual - rev || posteriores.some((h, i) => h.rev !== revAtual - i)) return { ok: false, motivo: 'historico-incompleto' };
+    const cat = lerCatalogo();
+    const alvo = Object.create(null); // o estado depois da versão `rev`: { chave: { forma: lista | null } }
+    Object.keys(cat.publicado).forEach((chave) => {
+      alvo[chave] = Object.create(null);
+      Object.keys(cat.publicado[chave]).forEach((formaId) => { alvo[chave][formaId] = cat.publicado[chave][formaId]; });
+    });
+    posteriores.forEach((h) => Object.keys(h.antes).forEach((chave) => Object.keys(h.antes[chave]).forEach((formaId) => {
+      (alvo[chave] ||= Object.create(null))[formaId] = h.antes[chave][formaId];
+    })));
+    const mudancas = [];
+    Object.keys(alvo).forEach((chave) => Object.keys(alvo[chave]).forEach((formaId) => {
+      const antes = comoGuardado(chave, formaId, publicadoDe(cat, chave, formaId));
+      const depois = comoGuardado(chave, formaId, alvo[chave][formaId]);
+      if (!mesmoTexto(antes, depois)) mudancas.push({ chave, formaId, antes, depois });
+    }));
+    if (mudancas.length === 0) return { ok: false, motivo: 'ja-e-esta' };
+    // O que volta tem de passar nas regras DE HOJE (o leitor ignora texto publicado que elas recusam).
+    const { problemas } = problemasDe(mudancas);
+    if (problemas.length > 0) return { ok: false, motivo: 'bloqueado', problemas };
+    const novaRev = aplicarPublicacao(dados, mudancas, `Voltou para a versão ${rev}`);
+    // O rascunho que estava em dia com o catálogo continua em dia (foi esta aba que publicou); o de uma revisão mais velha segue acusando "outra aba".
+    if (ehObjeto(dados.rascunho) && revDe(dados.rascunho.baseRev) === revAtual) dados.rascunho.baseRev = novaRev;
+    return gravarCatalogo(dados, preservar) ? { ok: true, rev: novaRev, mudancas: mudancas.length } : { ok: false, motivo: 'cota' };
+  }
+
   window.__catalogoMensagens = Object.freeze({
     T,
     padrao,
@@ -717,6 +941,9 @@
     salvarRascunho,
     descartarRascunho,
     descartarRascunhoTudo,
+    prepararPublicacao,
+    publicar,
+    restaurarVersao,
     validarTexto,
     validarLista,
     placeholdersDe,
@@ -729,6 +956,8 @@
     MAX_VARIANTES,
     MAX_CARACTERES,
     MAX_CARACTERES_RASCUNHO,
+    MAX_HISTORICO,
+    MAX_NOTA,
     PREFIXO_ILEGIVEL,
   });
 

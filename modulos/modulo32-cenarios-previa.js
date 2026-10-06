@@ -13,9 +13,9 @@
  * A prévia só MOSTRA os cenários que o rascunho muda ("afetados"), então os de apoio não poluem a tela.
  *
  * Limites combinados com o usuário (v1.37.0, tests/tamanho-mensagem.test.js): no máximo 5 balões (a imagem do relatório e a legenda contam
- * como UM), nenhum balão de texto com mais de 320 caracteres e no máximo 600 de texto na mensagem inteira. Com acordo, passar de 600 é só
- * AVISO (teto pendente de decisão do usuário); os outros limites são erro em qualquer cenário. O pior caso medido hoje: 591 caracteres sem
- * acordo (cabe) e 736 com acordo (aviso de total; 5 balões e o maior balão com 261 caracteres, dentro do limite).
+ * como UM), nenhum balão de texto com mais de 320 caracteres e no máximo 600 de texto na mensagem inteira. COM acordo o total pode ir até 750
+ * (teto definido pelo usuário em 06/10/2026): de 601 a 750 é só AVISO e acima de 750 é erro; os outros limites são erro em qualquer cenário.
+ * O pior caso medido hoje: 591 caracteres sem acordo (cabe) e 736 com acordo (aviso de total; 5 balões e o maior balão com 261 caracteres).
  *
  * Depende de: Módulo 19 (montagem, `comAmbiente`) e Módulo 30 (`comRascunho`). Carrega depois do 19 e antes do Módulo 31.
  * ========================================================================= */
@@ -29,7 +29,7 @@
   }
   window.__cenariosPreviaCarregado = true;
 
-  const LIMITES = Object.freeze({ BALOES: 5, CARACTERES_POR_BALAO: 320, CARACTERES_TOTAL: 600 });
+  const LIMITES = Object.freeze({ BALOES: 5, CARACTERES_POR_BALAO: 320, CARACTERES_TOTAL: 600, CARACTERES_TOTAL_COM_ACORDO: 750 });
   const NOME_MAIS_LONGO = 'Maximilianaalexandra';
   const CNPJ_FICTICIO = 'A00';
   // "Hoje" dos cenários: terça-feira, 15/09/2026 (o dia útil anterior é a segunda, 14/09). HOJE_SEGUNDA: segunda-feira 14/09 (a sexta 11/09 é o dia útil anterior,
@@ -218,14 +218,21 @@
   }
 
   /**
-   * Os limites estourados: [{ codigo: 'baloes'|'balao'|'total', nivel: 'erro'|'aviso', valor, limite }]. Com acordo, passar do TOTAL é só aviso
-   * (teto pendente de decisão do usuário); os outros dois são erro sempre.
+   * Os limites estourados: [{ codigo: 'baloes'|'balao'|'total', nivel: 'erro'|'aviso', valor, limite }]. O TOTAL sem acordo passa de 600 = erro; COM acordo,
+   * de 601 a 750 = aviso (`limite` 600 e `teto` 750, com `comAcordo: true`) e acima de 750 = erro (`limite` 750, com `comAcordo: true`). Balões e
+   * balão são erro sempre. (Só avisam: o erro de tamanho não bloqueia o Publicar.)
    */
   function avaliarLimites(totais, temAcordo) {
     const alertas = [];
     if (totais.baloes > LIMITES.BALOES) alertas.push({ codigo: 'baloes', nivel: 'erro', valor: totais.baloes, limite: LIMITES.BALOES });
     if (totais.maiorBalao > LIMITES.CARACTERES_POR_BALAO) alertas.push({ codigo: 'balao', nivel: 'erro', valor: totais.maiorBalao, limite: LIMITES.CARACTERES_POR_BALAO });
-    if (totais.caracteres > LIMITES.CARACTERES_TOTAL) alertas.push({ codigo: 'total', nivel: temAcordo ? 'aviso' : 'erro', valor: totais.caracteres, limite: LIMITES.CARACTERES_TOTAL });
+    const tetoDoTotal = temAcordo ? LIMITES.CARACTERES_TOTAL_COM_ACORDO : LIMITES.CARACTERES_TOTAL;
+    if (totais.caracteres > tetoDoTotal) {
+      alertas.push({ codigo: 'total', nivel: 'erro', valor: totais.caracteres, limite: tetoDoTotal, comAcordo: temAcordo });
+    } else if (totais.caracteres > LIMITES.CARACTERES_TOTAL) {
+      // (só chega aqui COM acordo: sem acordo o teto já é 600 e o ramo de cima pegou)
+      alertas.push({ codigo: 'total', nivel: 'aviso', valor: totais.caracteres, limite: LIMITES.CARACTERES_TOTAL, teto: LIMITES.CARACTERES_TOTAL_COM_ACORDO, comAcordo: true });
+    }
     return alertas;
   }
 
