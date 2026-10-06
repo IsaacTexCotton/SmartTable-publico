@@ -24,6 +24,20 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.80.1', data: '05/10/2026',
+      mudancas: [
+        'Ajustes internos na biblioteca de situações de exemplo que a prévia da mensagem vai usar (ainda sem tela): os casos de tamanho máximo agora são os piores de verdade, medidos em mais de 100 mil combinações. Nada muda no Alt+A.',
+      ],
+    },
+    {
+      versao: '1.80.0', data: '05/10/2026',
+      mudancas: [
+        'Alt+X agora permite EDITAR os textos da mensagem do Alt+A, como rascunho. Em cada texto, o botão "Editar" abre uma caixa por variante (nos textos com sorteio de frases, dá para adicionar e remover variantes), com botões para inserir as variáveis permitidas ({{nome}}, {{titulos}}...) no ponto onde está o cursor.',
+        'Enquanto você digita, a janela mostra os problemas ao lado: erros em vermelho (texto vazio, variável que não vale naquele texto, pergunta que falta, frase proibida, endereço de internet ou e-mail) e avisos em âmbar. O rascunho é guardado sozinho, mesmo incompleto, e a forma ganha o selo "rascunho". "Descartar rascunho" volta ao texto em uso.',
+        'Nada muda no Alt+A: o rascunho fica só neste navegador e não é usado nas mensagens. Publicar, a prévia da mensagem completa e o backup vêm nas próximas versões.',
+      ],
+    },
+    {
       versao: '1.79.0', data: '05/10/2026',
       mudancas: [
         'Novo atalho Alt+X: abre "Mensagens do Alt+A", uma janela no centro da tela com todos os textos que o Alt+A usa para montar a mensagem, separados em 5 grupos (perguntas finais, linhas fixas, contexto da conversa, situação dos títulos, acordo e legenda do relatório). Cada texto mostra quando ele aparece e o que está sendo usado agora.',

@@ -165,7 +165,7 @@
     { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
     { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
     { tecla: 'Alt+T', descricao: 'Copiar os títulos do cliente um por um (número, depois parcela) para o Win+V: escolha os títulos e aperte Alt+T para copiar o próximo. Shift+Alt+T reabre a escolha' },
-    { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos da mensagem (padrão e em uso). Só leitura por enquanto' },
+    { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos da mensagem e editar como rascunho (ainda não publica: o Alt+A segue igual)' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },

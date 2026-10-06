@@ -4,11 +4,14 @@
  * R2 do catálogo de mensagens (projeto de 05/10/2026). Este módulo é SÓ a tela: o registro dos textos, a leitura do
  * catálogo salvo e a validação moram no Módulo 30 (`window.__catalogoMensagens`).
  *
- * v1.79.0 (SÓ LEITURA: nada é gravado e o Alt+A não muda): o diálogo abre e fecha com Alt+X e lista os textos do registro
- * por bloco; cada FORMA (singular, plural, com nome...) mostra o texto em uso e, se foi editado no catálogo publicado, o padrão
- * ao lado, com o selo "editado" (senão, o selo "padrão").
- * A busca filtra por título e texto (em uso e padrão), sem diferenciar acento nem maiúscula. A edição, o rascunho e o
- * publicar vêm nas próximas etapas da R2.
+ * v1.79.0: o diálogo abre e fecha com Alt+X e lista os textos do registro por bloco; cada FORMA (singular, plural, com nome...) mostra o
+ * texto em uso e, se foi editado no catálogo publicado, o padrão ao lado, com o selo "editado" (senão, "padrão"). A busca filtra por
+ * título e texto (em uso, padrão e rascunho), sem diferenciar acento nem maiúscula.
+ * v1.80.0 (R2, etapa 2): EDITA como RASCUNHO. "Editar" abre, na forma, uma caixa por variante (adicionar/remover nos textos com
+ * rodízio, com o aviso fixo de que mudar a quantidade muda a frase do dia de cada cliente), botões que inserem as variáveis da forma no
+ * cursor, e os problemas (erros e avisos do Módulo 30) ao lado, enquanto digita. O rascunho é gravado sozinho pelo Módulo 30
+ * (`salvarRascunho`: atraso, sair do campo, trocar de forma, Fechar edição, Esc e Alt+X) e a forma ganha o selo "rascunho". O Alt+A
+ * NUNCA lê o rascunho. Publicar, prévia, histórico e backup vêm nas próximas etapas.
  *
  * VISUAL aprovado pelo usuário (05/10/2026): diálogo centralizado com fundo escurecido, como o Alt+N (Módulo 17): o fundo
  * cobre só a área abaixo do cabeçalho do CRM e fica na camada dos popups (Módulo 0). Esc, "Fechar", ✕ e clique fora fecham;
@@ -38,6 +41,8 @@
     LARGURA_PAINEL: 760,
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
+    // Atraso entre a última tecla e a gravação do rascunho (a gravação também sai ao sair do campo, trocar de forma e fechar).
+    ATRASO_RASCUNHO_MS: 400,
   };
 
   const CORES = {
@@ -51,7 +56,8 @@
   let painelEl = null;
   let fundoEl = null;
   let focoAnterior = null;
-  let catalogo = null; // foto do catálogo salvo, lida ao abrir
+  let catalogo = null; // foto do catálogo salvo, lida ao abrir e atualizada a cada gravação do rascunho
+  let edicao = null; // a forma em edição: { chave, formaId, def, forma, areas, timer, ultimoFoco, ... } (uma por vez)
   let indiceDeBusca = new Map(); // chave do texto -> título + textos (em uso e padrão), sem acento e em minúsculas
 
   /* ---------------------------------------------------------------------
@@ -75,7 +81,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 2. A LISTA DOS TEXTOS (só leitura)
+   * 2. A LISTA DOS TEXTOS E A EDIÇÃO DO RASCUNHO
    * --------------------------------------------------------------------- */
 
   /** Texto em uso de uma forma: o publicado (já validado pelo Módulo 30) ou o padrão embutido. */
@@ -83,13 +89,24 @@
     return catalogo.publicado[def.chave]?.[forma.id] ?? forma.padrao;
   }
   const foiEditado = (def, forma) => !!catalogo.publicado[def.chave]?.[forma.id];
+  /** O rascunho guardado desta forma (lista de variantes) ou null. */
+  const rascunhoDe = (def, forma) => catalogo.rascunho?.textos?.[def.chave]?.[forma.id] ?? null;
+  /** Esquema salvo mais novo que este código, ou sem armazenamento: o editor fica só para leitura (o Módulo 30 recusaria a gravação). */
+  const somenteLeitura = () => catalogo.estado === 'versao-nova' || catalogo.estado === 'sem-armazenamento';
 
-  function selo(editado) {
-    return el('span', { textContent: editado ? 'editado' : 'padrão' }, {
-      fontSize: '11px', fontWeight: '600', padding: '1px 8px', borderRadius: '999px', whiteSpace: 'nowrap',
-      color: editado ? CORES.alerta : CORES.ok, background: editado ? CORES.fundoAlerta : CORES.fundoOk,
-      border: `1px solid ${editado ? CORES.alerta : CORES.ok}`,
+  const SELOS = {
+    padrao: ['padrão', CORES.ok, CORES.fundoOk],
+    editado: ['editado', CORES.alerta, CORES.fundoAlerta],
+    rascunho: ['rascunho', CORES.marca, CORES.fundoMarca],
+  };
+  function selo(tipo) {
+    const [texto, cor, fundo] = SELOS[tipo];
+    const e = el('span', { textContent: texto }, {
+      fontSize: '11px', fontWeight: '600', padding: '1px 8px', borderRadius: '999px', whiteSpace: 'nowrap', color: cor, background: fundo, border: `1px solid ${cor}`,
     });
+    e.dataset.papel = 'selo';
+    e.dataset.selo = tipo;
+    return e;
   }
 
   /** Coluna com as variantes de um texto (uma linha por variante, numeradas quando há mais de uma). */
@@ -108,30 +125,315 @@
   /** Sem acento e em minúsculas: a busca não diferencia "Cartório" de "cartorio". */
   const semAcento = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+  /** Tudo o que a busca enxerga de um texto: título e os textos (em uso, padrão e rascunho) de todas as formas. */
+  function indexar(def) {
+    const palavras = [def.titulo];
+    def.formas.forEach((forma) => palavras.push(...emUsoDe(def, forma), ...forma.padrao, ...(rascunhoDe(def, forma) ?? [])));
+    indiceDeBusca.set(def.chave, semAcento(palavras.join(' ')));
+  }
+
+  /** Os selos de uma forma: editado/padrão (do publicado) e, se há rascunho, "rascunho". */
+  function desenharSelos(def, forma, destino) {
+    destino.replaceChildren(selo(foiEditado(def, forma) ? 'editado' : 'padrao'), ...(rascunhoDe(def, forma) ? [selo('rascunho')] : []));
+  }
+
+  /** Linha de UMA forma: no modo de leitura, as colunas; no de edição, o formulário. */
+  function linhaDaForma(def, forma) {
+    const editando = !!edicao && edicao.chave === def.chave && edicao.formaId === forma.id;
+    const linha = el('div', {}, { marginTop: '8px' });
+    linha.dataset.forma = forma.id;
+    const cab = el('div', {}, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' });
+    const esquerda = el('div', {}, { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' });
+    if (def.formas.length > 1) esquerda.appendChild(el('span', { textContent: forma.rotulo }, { fontSize: '12px', fontWeight: '600', color: CORES.texto }));
+    const selos = el('span', {}, { display: 'inline-flex', gap: '6px' });
+    selos.dataset.papel = 'selos';
+    desenharSelos(def, forma, selos);
+    esquerda.appendChild(selos);
+    cab.appendChild(esquerda);
+    if (!editando && !somenteLeitura()) {
+      const botao = botaoTexto('Editar', () => abrirEdicao(def, forma), 'editar');
+      botao.setAttribute('aria-label', `Editar: ${def.titulo}${def.formas.length > 1 ? ` — ${forma.rotulo}` : ''}`);
+      cab.appendChild(botao);
+    }
+    linha.appendChild(cab);
+    if (editando) {
+      edicao.selosEl = selos;
+      linha.appendChild(formularioDeEdicao(def, forma));
+      return linha;
+    }
+    // Lado a lado quando cabe; as colunas empilham em tela estreita.
+    const colunas = el('div', {}, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 12px' });
+    colunas.appendChild(colunaDeTextos('Em uso', emUsoDe(def, forma), 'em-uso'));
+    if (foiEditado(def, forma)) colunas.appendChild(colunaDeTextos('Padrão', forma.padrao, 'padrao'));
+    if (rascunhoDe(def, forma)) colunas.appendChild(colunaDeTextos('Rascunho', rascunhoDe(def, forma), 'rascunho'));
+    linha.appendChild(colunas);
+    return linha;
+  }
+
   function cartaoDoTexto(def) {
     const cartao = el('section', {}, { padding: '10px 0 12px', borderBottom: `1px solid ${CORES.borda}` });
     cartao.dataset.chave = def.chave;
     cartao.appendChild(el('div', { textContent: def.titulo }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
     cartao.appendChild(el('div', { textContent: def.quando }, { fontSize: '12px', color: CORES.apagado, marginTop: '1px' }));
-    const palavras = [def.titulo];
-    def.formas.forEach((forma) => {
-      palavras.push(...emUsoDe(def, forma), ...forma.padrao);
-      const editado = foiEditado(def, forma);
-      const linha = el('div', {}, { marginTop: '8px' });
-      linha.dataset.forma = forma.id;
-      const cab = el('div', {}, { display: 'flex', alignItems: 'center', gap: '8px' });
-      if (def.formas.length > 1) cab.appendChild(el('span', { textContent: forma.rotulo }, { fontSize: '12px', fontWeight: '600', color: CORES.texto }));
-      cab.appendChild(selo(editado));
-      linha.appendChild(cab);
-      // Lado a lado quando cabe; as colunas empilham em tela estreita.
-      const colunas = el('div', {}, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 12px' });
-      colunas.appendChild(colunaDeTextos('Em uso', emUsoDe(def, forma), 'em-uso'));
-      if (editado) colunas.appendChild(colunaDeTextos('Padrão', forma.padrao, 'padrao'));
-      linha.appendChild(colunas);
-      cartao.appendChild(linha);
-    });
-    indiceDeBusca.set(def.chave, semAcento(palavras.join(' ')));
+    def.formas.forEach((forma) => cartao.appendChild(linhaDaForma(def, forma)));
+    indexar(def);
     return cartao;
+  }
+
+  /** A linha (no DOM) de uma forma de um texto, ou undefined. */
+  function acharLinha(chave, formaId) {
+    const cartao = [...painelEl.querySelectorAll('section[data-chave]')].find((c) => c.dataset.chave === chave);
+    return cartao && [...cartao.querySelectorAll('[data-forma]')].find((l) => l.dataset.forma === formaId);
+  }
+
+  /** Redesenha só a linha de uma forma (o resto da lista, a rolagem e a busca ficam como estão). */
+  function substituirLinha(def, forma) {
+    acharLinha(def.chave, forma.id)?.replaceWith(linhaDaForma(def, forma));
+    indexar(def);
+  }
+
+  const botaoTexto = (texto, aoClicar, papel) => {
+    const b = el('button', { type: 'button', textContent: texto }, {
+      padding: '5px 10px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
+    });
+    b.dataset.papel = papel;
+    b.addEventListener('click', aoClicar);
+    return b;
+  };
+
+  /* ---- edição: uma forma por vez; o rascunho é gravado sozinho (com um pequeno atraso e ao sair do campo) ---- */
+  const MOTIVOS_DA_GRAVACAO = {
+    cota: 'Não consegui guardar o rascunho: o navegador está sem espaço.',
+    'sem-armazenamento': 'Este navegador não deixa guardar o rascunho.',
+    'versao-nova': 'O catálogo salvo é de uma versão mais nova que este script: não dá para guardar o rascunho.',
+  };
+  const MOTIVO_PADRAO_DA_GRAVACAO = 'Não consegui guardar o rascunho.';
+
+  const textosDaEdicao = () => edicao.areas.map((a) => a.ta.value);
+
+  function desenharProblemas() {
+    const { erros, avisos } = C.validarLista(edicao.def, textosDaEdicao(), edicao.formaId);
+    const itens = [
+      ...erros.map((t) => ['erro', `✕ ${t}`, CORES.perigo, CORES.fundoPerigo]),
+      ...avisos.map((t) => ['aviso', `⚠ ${t}`, CORES.alerta, CORES.fundoAlerta]),
+    ].map(([nivel, texto, cor, fundo]) => {
+      const e = el('div', { textContent: texto }, { fontSize: '12px', color: cor, background: fundo, borderRadius: '6px', padding: '4px 8px', margin: '4px 0 0', overflowWrap: 'anywhere' });
+      e.dataset.nivel = nivel;
+      return e;
+    });
+    // Só troca quando o conjunto de mensagens mudou: a região é anunciada ao leitor de tela, e trocar a cada tecla repetiria tudo a cada letra.
+    const assinatura = itens.map((i) => i.textContent).join('\n');
+    if (assinatura === edicao.assinaturaDosProblemas) return;
+    edicao.assinaturaDosProblemas = assinatura;
+    edicao.problemasEl.replaceChildren(...itens);
+  }
+
+  function mostrarErroDaGravacao(texto) {
+    edicao.erroEl.textContent = texto;
+    edicao.erroEl.hidden = !texto;
+  }
+
+  /** Grava o rascunho agora. @returns {boolean} gravou (ou não havia o que gravar) */
+  function salvarAgora() {
+    if (!edicao) return true;
+    clearTimeout(edicao.timer);
+    edicao.timer = null;
+    const r = C.salvarRascunho(edicao.chave, edicao.formaId, textosDaEdicao());
+    if (!r.ok) {
+      mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO);
+      return false;
+    }
+    catalogo = C.lerCatalogo();
+    mostrarErroDaGravacao('');
+    desenharSelos(edicao.def, edicao.forma, edicao.selosEl);
+    edicao.descartarEl.disabled = !rascunhoDe(edicao.def, edicao.forma);
+    indexar(edicao.def);
+    return true;
+  }
+
+  function aoMudarTexto() {
+    desenharProblemas();
+    clearTimeout(edicao.timer);
+    edicao.timer = setTimeout(salvarAgora, CONFIG_EDITOR.ATRASO_RASCUNHO_MS);
+  }
+
+  function inserirVariavel(nome) {
+    const ta = edicao.ultimoFoco?.isConnected ? edicao.ultimoFoco : edicao.areas[0].ta;
+    const trecho = `{{${nome}}}`;
+    const ini = ta.selectionStart ?? ta.value.length;
+    const fim = ta.selectionEnd ?? ini;
+    // O que couber depois de trocar a seleção (a seleção sai, então conta como espaço livre).
+    if (ta.value.length - (fim - ini) + trecho.length > C.MAX_CARACTERES_RASCUNHO) return;
+    ta.value = ta.value.slice(0, ini) + trecho + ta.value.slice(fim);
+    ta.setSelectionRange(ini + trecho.length, ini + trecho.length);
+    ta.focus();
+    aoMudarTexto();
+  }
+
+  function renumerarVariantes() {
+    const varias = edicao.areas.length > 1;
+    edicao.areas.forEach((a, i) => {
+      a.ta.setAttribute('aria-label', edicao.def.rodizio ? `Variante ${i + 1}` : `Texto: ${edicao.def.titulo}${edicao.def.formas.length > 1 ? ` — ${edicao.forma.rotulo}` : ''}`);
+      a.rotuloEl.textContent = `Variante ${i + 1}`;
+      a.rotuloEl.hidden = !edicao.def.rodizio;
+      a.remover.hidden = !edicao.def.rodizio;
+      a.remover.disabled = !varias;
+      a.remover.setAttribute('aria-label', `Remover variante ${i + 1}`);
+    });
+    edicao.adicionarEl.disabled = edicao.areas.length >= C.MAX_VARIANTES;
+  }
+
+  function adicionarArea(valor) {
+    const wrap = el('div', {}, { margin: '6px 0 0' });
+    const rotuloEl = el('div', {}, { fontSize: '11px', fontWeight: '600', color: CORES.apagado, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' });
+    rotuloEl.dataset.papel = 'rotulo-variante';
+    const ta = el('textarea', { value: valor, rows: 2, maxLength: C.MAX_CARACTERES_RASCUNHO, spellcheck: true }, {
+      width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: '13px', lineHeight: '1.45', fontFamily: 'inherit', color: CORES.tinta,
+      border: `1px solid ${CORES.borda}`, borderRadius: '6px', background: CORES.fundo, resize: 'vertical', minHeight: '52px',
+    });
+    ta.dataset.papel = 'campo';
+    ta.addEventListener('input', aoMudarTexto);
+    ta.addEventListener('focus', () => { edicao.ultimoFoco = ta; });
+    ta.addEventListener('blur', () => { if (edicao?.timer) salvarAgora(); });
+    // A mensagem é uma linha só por balão: Enter não abre outra linha (um texto colado com quebra de linha é recusado pela validação).
+    // (Enter que confirma uma composição de IME/tecla morta, e Ctrl/Alt/Meta+Enter, ficam como estão.)
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !e.ctrlKey && !e.altKey && !e.metaKey) e.preventDefault();
+    });
+    const remover = botaoTexto('Remover', () => removerArea(area), 'remover-variante');
+    Object.assign(remover.style, { marginTop: '4px' });
+    const area = { wrap, ta, rotuloEl, remover };
+    wrap.append(rotuloEl, ta, remover);
+    edicao.areas.push(area);
+    edicao.areasEl.appendChild(wrap);
+    return area;
+  }
+
+  function removerArea(area) {
+    if (edicao.areas.length <= 1) return;
+    const i = edicao.areas.indexOf(area);
+    edicao.areas.splice(i, 1);
+    area.wrap.remove();
+    if (edicao.ultimoFoco === area.ta) edicao.ultimoFoco = null;
+    renumerarVariantes();
+    edicao.areas[Math.min(i, edicao.areas.length - 1)].ta.focus();
+    aoMudarTexto();
+  }
+
+  function formularioDeEdicao(def, forma) {
+    const caixa = el('div', {}, { marginTop: '6px', padding: '10px 12px', border: `1px solid ${CORES.marca}`, borderRadius: '8px', background: '#FAFCFE' });
+    caixa.dataset.papel = 'edicao';
+    if (def.rodizio) {
+      const aviso = el('div', { textContent: 'Mudar a quantidade de variantes muda a frase que cada cliente recebe no dia.' }, {
+        fontSize: '12px', color: CORES.alerta, background: CORES.fundoAlerta, borderRadius: '6px', padding: '4px 8px',
+      });
+      aviso.dataset.papel = 'aviso-rodizio';
+      caixa.appendChild(aviso);
+    }
+    edicao.areasEl = el('div');
+    caixa.appendChild(edicao.areasEl);
+    edicao.areas = [];
+    edicao.valoresIniciais.forEach((v) => adicionarArea(v));
+    edicao.adicionarEl = botaoTexto('Adicionar variante', () => {
+      if (edicao.areas.length >= C.MAX_VARIANTES) return;
+      const nova = adicionarArea('');
+      renumerarVariantes();
+      nova.ta.focus();
+      aoMudarTexto();
+    }, 'adicionar-variante');
+    Object.assign(edicao.adicionarEl.style, { marginTop: '8px' });
+    edicao.adicionarEl.hidden = !def.rodizio;
+    caixa.appendChild(edicao.adicionarEl);
+
+    const variaveis = C.variaveisDaForma(def.chave, forma.id) ?? [];
+    if (variaveis.length) {
+      const faixa = el('div', {}, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', marginTop: '10px' });
+      faixa.dataset.papel = 'variaveis';
+      faixa.appendChild(el('span', { textContent: 'Variáveis:' }, { fontSize: '12px', color: CORES.apagado }));
+      variaveis.forEach((nome) => {
+        const b = botaoTexto(`{{${nome}}}`, () => inserirVariavel(nome), 'variavel');
+        b.dataset.variavel = nome;
+        b.setAttribute('aria-label', `Inserir {{${nome}}}`);
+        faixa.appendChild(b);
+      });
+      caixa.appendChild(faixa);
+    }
+
+    edicao.problemasEl = el('div');
+    edicao.problemasEl.dataset.papel = 'problemas';
+    edicao.problemasEl.setAttribute('role', 'status');
+    edicao.problemasEl.setAttribute('aria-live', 'polite');
+    caixa.appendChild(edicao.problemasEl);
+    edicao.erroEl = el('div', { hidden: true }, { fontSize: '12px', color: CORES.perigo, background: CORES.fundoPerigo, border: `1px solid ${CORES.perigo}`, borderRadius: '6px', padding: '4px 8px', margin: '6px 0 0' });
+    edicao.erroEl.dataset.papel = 'erro-gravacao';
+    edicao.erroEl.setAttribute('role', 'alert');
+    caixa.appendChild(edicao.erroEl);
+
+    const botoes = el('div', {}, { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '10px' });
+    edicao.descartarEl = botaoTexto('Descartar rascunho', descartarEdicao, 'descartar-rascunho');
+    edicao.descartarEl.disabled = !rascunhoDe(def, forma);
+    botoes.append(edicao.descartarEl, botaoTexto('Fechar edição', () => fecharEdicao(), 'fechar-edicao'));
+    caixa.appendChild(botoes);
+    renumerarVariantes();
+    return caixa;
+  }
+
+  function abrirEdicao(def, forma) {
+    if (edicao && !fecharEdicao({ devolverFoco: false })) {
+      // A gravação da forma aberta foi recusada: ela fica aberta e o aviso dela é trazido à vista (senão o clique em "Editar" pareceria quebrado).
+      edicao.erroEl.scrollIntoView?.({ block: 'nearest' });
+      edicao.ultimoFoco?.focus?.();
+      return;
+    }
+    edicao = { chave: def.chave, formaId: forma.id, def, forma, timer: null, ultimoFoco: null, valoresIniciais: [...(rascunhoDe(def, forma) ?? emUsoDe(def, forma))] };
+    substituirLinha(def, forma);
+    edicao.areas[0].ta.focus();
+    desenharProblemas();
+  }
+
+  /** Sai da edição (grava antes, a não ser que `salvar` seja false). Com a gravação recusada a edição fica aberta. @returns {boolean} saiu */
+  function fecharEdicao({ salvar = true, devolverFoco = true } = {}) {
+    const anterior = edicao;
+    if (!anterior) return true;
+    if (salvar && !salvarAgora()) return false;
+    clearTimeout(anterior.timer);
+    edicao = null;
+    substituirLinha(anterior.def, anterior.forma);
+    if (devolverFoco) {
+      acharLinha(anterior.chave, anterior.formaId)?.querySelector('[data-papel="editar"]')?.focus();
+    }
+    return true;
+  }
+
+  function descartarEdicao() {
+    clearTimeout(edicao.timer);
+    const r = C.descartarRascunho(edicao.chave, edicao.formaId);
+    if (!r.ok) { mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO); return; }
+    catalogo = C.lerCatalogo();
+    fecharEdicao({ salvar: false });
+  }
+
+  /**
+   * O diálogo vai fechar: grava o que estiver pendente (o rascunho nunca se perde por fechar rápido).
+   * Se a gravação for RECUSADA (cota cheia...): quando quem fecha é o usuário (`podeRecusar`), o diálogo NÃO fecha, o aviso da edição vem à
+   * vista e o texto digitado fica; quando o fechamento é forçado (outro painel abrindo), o texto se perde e isso é dito num aviso.
+   * @returns {boolean} pode fechar
+   */
+  function descarregarEdicao(podeRecusar) {
+    if (!edicao) return true;
+    let gravou = false;
+    try { gravou = salvarAgora(); } catch (_) { gravou = false; }
+    if (!gravou) {
+      if (podeRecusar) {
+        edicao.erroEl.scrollIntoView?.({ block: 'nearest' });
+        edicao.ultimoFoco?.focus?.();
+        return false;
+      }
+      window.__smartTableUtil?.toast?.('Não consegui guardar o rascunho que você estava digitando: o painel foi fechado e esse texto se perdeu.', 9000);
+    }
+    clearTimeout(edicao.timer);
+    edicao = null;
+    return true;
   }
 
   /** Mostra só os textos que têm TODAS as palavras buscadas; blocos sem texto visível somem. */
@@ -165,6 +467,16 @@
   /** Monta a lista inteira: um cabeçalho por bloco (na ordem 1 a 5) e um cartão por texto. */
   function desenharLista(corpo) {
     indiceDeBusca = new Map();
+    if (somenteLeitura()) {
+      const aviso = el('div', {
+        textContent: catalogo.estado === 'versao-nova'
+          ? 'O catálogo salvo é de uma versão mais nova que este script: o editor está só para leitura.'
+          : 'Este navegador não deixa guardar rascunhos: o editor está só para leitura.',
+      }, { fontSize: '12px', color: CORES.alerta, background: CORES.fundoAlerta, borderRadius: '8px', padding: '6px 10px', marginTop: '10px' });
+      aviso.dataset.papel = 'aviso-somente-leitura';
+      aviso.setAttribute('role', 'status');
+      corpo.appendChild(aviso);
+    }
     const lista = el('div');
     lista.dataset.papel = 'lista';
     Object.keys(C.BLOCOS).map(Number).sort((a, b) => a - b).forEach((bloco) => {
@@ -191,6 +503,8 @@
   /** Fecha o diálogo e o fundo. Só Esc, ✕, Fechar e clique fora devolvem o foco a quem abriu. */
   function fecharPainel({ devolverFoco = false } = {}) {
     if (!painelEl) return;
+    // Esc, ✕, Fechar, clique fora e Alt+X passam devolverFoco (é o usuário fechando); o fechamento forçado por outro painel, não.
+    if (!descarregarEdicao(devolverFoco)) return;
     fundoEl?.remove();
     painelEl.remove();
     painelEl = null;
@@ -252,6 +566,8 @@
     if (rolarPelaTecla(e)) return;
     if (e.key === 'Tab') {
       // Tab conduzido por nós (mesmo cuidado do Alt+N): o nativo do Chromium às vezes passa por "nenhum elemento".
+      // Grava o pendente antes de montar o percurso: a gravação habilita "Descartar rascunho", que precisa entrar nele.
+      if (edicao?.timer) salvarAgora();
       const focaveis = focaveisDoPainel();
       e.preventDefault();
       if (!focaveis.length) return;
@@ -308,7 +624,7 @@
     painelEl.appendChild(meio);
 
     const rodape = el('div', {}, { borderTop: `1px solid ${CORES.borda}`, padding: '10px 18px 14px', background: '#FAFBFC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' });
-    rodape.appendChild(el('div', { textContent: 'Só leitura nesta versão: a edição vem a seguir. Esc fecha.' }, { fontSize: '12px', color: CORES.apagado }));
+    rodape.appendChild(el('div', { textContent: 'As edições ficam como rascunho neste navegador; publicar vem a seguir. Esc fecha.' }, { fontSize: '12px', color: CORES.apagado }));
     const fechar = el('button', { type: 'button', textContent: 'Fechar' }, {
       padding: '9px 14px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '13px', cursor: 'pointer',
     });

@@ -49,6 +49,61 @@
   // Catálogo de textos (Módulo 30): T devolve o texto da forma pedida com as variáveis trocadas; padrao devolve o texto embutido.
   const { T, padrao } = window.__catalogoMensagens;
 
+  /* ---------------------------------------------------------------------
+   * AMBIENTE (R2, etapa 3: prévia do editor de mensagens)
+   * ---------------------------------------------------------------------
+   * Tudo o que a montagem lê FORA dos seus parâmetros passa por um acessor abaixo. No Alt+A (sem ambiente) cada acessor lê o global de
+   * sempre. A prévia do editor monta a mesma mensagem dentro de `comAmbiente(ambiente, fn)`: com o ambiente LIGADO nenhum global real é
+   * lido (nem o cnpj da URL, nem o relógio, nem o responsável da página), e o que o ambiente não trouxer vale "vazio" (sem contexto, sem
+   * grupo, sem acordo, sem nome, relógio num instante neutro), nunca o dado real. Também some o que seria VISÍVEL ao usuário (toast).
+   * Chaves do ambiente: contexto, grupo, negociacoes, numerosDiferentes, responsavelNome, cnpj, agora.
+   */
+  let ambiente = null;
+  const temPropria = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  // Instante neutro (uma segunda-feira de manhã) quando o ambiente não traz `agora`: nunca o relógio real.
+  const INSTANTE_NEUTRO = new Date(2026, 0, 5, 10, 0, 0).getTime();
+  const VAZIO_DO_AMBIENTE = Object.freeze({ contexto: null, grupo: null, negociacoes: null, numerosDiferentes: null, responsavelNome: null, cnpj: '' });
+  const doAmbiente = (nome, lerGlobal) => (ambiente === null ? lerGlobal() : (temPropria(ambiente, nome) ? ambiente[nome] : VAZIO_DO_AMBIENTE[nome]));
+  const contextoAdicional = () => doAmbiente('contexto', () => window.__contextoAdicional);
+  const alertaGrupo = () => doAmbiente('grupo', () => window.__alertaGrupo);
+  const negociacoes = () => doAmbiente('negociacoes', () => window.__negociacoes);
+  const numerosDiferentes = () => doAmbiente('numerosDiferentes', () => window.__numerosDiferentes);
+  /** O cnpj da página (parâmetro `cnpj` da URL); no ambiente, o dele. */
+  const cnpjDaPagina = () => doAmbiente('cnpj', () => new URLSearchParams(window.location.search).get('cnpj') || '');
+  /** O nome cru do Responsável financeiro (global da página); no ambiente, o dele. Pode lançar (global da página), quem chama trata. */
+  const nomeCruDoResponsavel = () => doAmbiente('responsavelNome', () => window.__RESPONSAVEL__?.nome);
+  /** Aviso no console e toast só no Alt+A: na prévia (ambiente) a montagem roda dezenas de vezes por tecla, e o marcador visível já mostra o problema. */
+  const avisarNoConsole = (...args) => { if (ambiente === null) console.warn(...args); };
+  const avisarNaTela = (texto, ms) => { if (ambiente === null) window.__smartTableUtil?.toast?.(texto, ms); };
+  /** O instante da montagem: o relógio real no Alt+A; no ambiente, o `agora` dele (ou um instante neutro, também se não for uma Date válida). */
+  const agora = () => {
+    if (ambiente === null) return new Date();
+    // (não `instanceof Date`: uma Date de outro reino ou de uma subclasse do relógio falso também vale)
+    const dele = temPropria(ambiente, 'agora') && Object.prototype.toString.call(ambiente.agora) === '[object Date]' ? ambiente.agora.getTime() : NaN;
+    return new Date(Number.isFinite(dele) ? dele : INSTANTE_NEUTRO); // Date inválida também cai no instante neutro
+  };
+
+  /**
+   * Roda `fn` (SÍNCRONA) com o ambiente dado (ver acima). Sempre volta ao normal, mesmo se `fn` lançar; aninhado volta ao de fora. Um
+   * ambiente que não é objeto liga o ambiente VAZIO (nunca "sem ambiente": quem chama a prévia nunca lê a página). `fn` que devolve
+   * Promise é erro de programação (o ambiente acabaria no primeiro await).
+   * @param {Object} ambiente { contexto, grupo, negociacoes, numerosDiferentes, responsavelNome, cnpj, agora }
+   * @param {() => *} fn
+   */
+  function comAmbiente(novo, fn) {
+    const anterior = ambiente;
+    const foto = {};
+    if (novo && typeof novo === 'object' && !Array.isArray(novo)) Object.keys(novo).forEach((k) => { foto[k] = novo[k]; });
+    ambiente = foto;
+    try {
+      const resultado = fn();
+      if (resultado && typeof resultado.then === 'function') throw new TypeError('comAmbiente: a função precisa ser síncrona (devolveu uma Promise)');
+      return resultado;
+    } finally {
+      ambiente = anterior;
+    }
+  }
+
 
   /* ---------------------------------------------------------------------
    * 3.0b MENSAGEM PERSONALIZADA (Alt+A) -- escolha do título e do texto
@@ -235,7 +290,7 @@
   function sementeDaFrase() {
     let cnpj = '';
     try {
-      cnpj = new URLSearchParams(location.search).get('cnpj') || '';
+      cnpj = cnpjDaPagina();
     } catch (erro) {
       cnpj = '';
     }
@@ -244,14 +299,14 @@
     // aviso a rotação morreria sem ninguém notar se o CRM renomear o parâmetro.
     if (!cnpj && !jaAvisouSementeSemCnpj) {
       jaAvisouSementeSemCnpj = true;
-      console.warn(
+      avisarNoConsole(
         '[Atalhos] Não achei o cnpj na URL pra variar as frases. Todas as mensagens de hoje vão usar ' +
         'a mesma variante. As frases seguem corretas -- só param de alternar entre clientes.'
       );
     }
 
     const util = window.__smartTableUtil;
-    const dia = util && typeof util.dataIso === 'function' ? util.dataIso(new Date()) : '';
+    const dia = util && typeof util.dataIso === 'function' ? util.dataIso(agora()) : '';
     return `${cnpj}|${dia}`;
   }
 
@@ -300,7 +355,7 @@
    * @returns {string}
    */
   function obterPerguntaFinalConsiderandoPromessa() {
-    const tipo = window.__contextoAdicional?.promessa?.tipo;
+    const tipo = contextoAdicional()?.promessa?.tipo;
 
     // Confirmado com o usuário: presume boa-fé; o comprovante fecha o ciclo
     // (permite dar baixa).
@@ -325,7 +380,7 @@
   const DIAS_ATRASO_RESSALVA_DIA_NAO_UTIL = Object.freeze({ MIN: 2, MAX: 4 });
 
   function obterRessalvaPagamentoEmDiaNaoUtil(dados) {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     const periodo = ctx?.periodoNaoUtilAntesDeHoje;
     if (!periodo) return '';
     if (ctx?.promessa?.tipo === 'DIA_DA_PROMESSA') return '';
@@ -360,12 +415,12 @@
   // ("BIANCA.03665" -> "Bianca"). Sem artigo ("Sou Isaac", não "Sou o
   // Isaac") de propósito: o artigo depende do gênero, que o código não sabe.
   function montarApresentacao() {
-    const nome = window.__contextoAdicional?.nomeNegociador || NOME_NEGOCIADOR_PADRAO;
+    const nome = contextoAdicional()?.nomeNegociador || NOME_NEGOCIADOR_PADRAO;
     return T('apresentacao', { vars: { nome_negociador: nome } });
   }
 
   function obterLinhaApresentacao() {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     if (!ctx) return '';
     if (!ctx.contatoAntigo && !ctx.nuncaContatadoPorMim) return '';
     return montarApresentacao();
@@ -375,12 +430,12 @@
   // relatório diz "de cada razão social", sem citar nome/valor. Lê
   // window.__alertaGrupo (Módulo 5, carregado ANTES).
   function temOutraRazaoComVencido() {
-    const grupo = window.__alertaGrupo;
+    const grupo = alertaGrupo();
     return !!(grupo && grupo.empresasComVencido && grupo.empresasComVencido.length > 0);
   }
 
   function obterLinhaContatoRecente() {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     if (!ctx || !ctx.contatoRecente) return '';
 
     // Confirmado com o usuário: "ainda não obtivemos retorno" é falso quando
@@ -409,7 +464,7 @@
   // na mesma janela do recontato (contatoRecente, dia útil anterior, Módulo 6).
   // Fora com promessa ativa: a linha de promessa já comenta o pagamento.
   function obterLinhaAgradecimentoPagamento(dados) {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     if (!ctx || !ctx.contatoRecente || !ctx.houveTituloPagoDesdeUltimaVisita) return '';
     if (ctx.promessa) return '';
 
@@ -450,7 +505,7 @@
   // vencimento de cada título com a data do contato mais recente (só existe
   // quando foi no dia útil anterior; ver calcularContextoContato, Módulo 6).
   function deveOmitirRelatorio(dados) {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     if (!ctx || !ctx.contatoRecente || !ctx.contatoRecente.data) return false;
 
     // Confirmado: título que SUMIU da lista (provável pagamento) também é
@@ -474,7 +529,7 @@
   }
 
   function obterLinhaPromessa() {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
     if (!ctx || !ctx.promessa) return '';
 
     const { tipo, promessa } = ctx.promessa;
@@ -660,7 +715,7 @@
   }
 
   function dataCurtaIso(iso) {
-    return window.__negociacoes?.dataCurta?.(iso) ?? '';
+    return negociacoes()?.dataCurta?.(iso) ?? '';
   }
 
   /** A: tudo em acordo, parcela em dia. */
@@ -716,7 +771,7 @@
    *   mensagem automática.
    */
   function montarPartesMensagemPersonalizada(dados) {
-    const ctx = window.__contextoAdicional;
+    const ctx = contextoAdicional();
 
     // Aprovado pelo usuário: a saudação divide o balão com a primeira frase
     // (saudação sozinha seria um balão e uma notificação sem conteúdo).
@@ -729,16 +784,16 @@
       ].map((parte) => substituirVariaveisDaFrase(parte, dados));
     }
 
-    const resumoAcordos = window.__negociacoes?.resumoDeCobranca?.(dados?.registros ?? []) ?? null;
+    const resumoAcordos = negociacoes()?.resumoDeCobranca?.(dados?.registros ?? []) ?? null;
     const escolhido = escolherTituloRepresentativo(dados);
     if (!escolhido) {
       if (resumoAcordos?.ativa) return partesSoAcordo(dados, resumoAcordos.ativa);
       if ((dados?.emAcordo?.length ?? 0) > 0) {
-        console.warn('[Atalhos] Todos os títulos vencidos estão em acordo já quitado -- nada a cobrar.');
-        window.__smartTableUtil?.toast?.('Acordo quitado: os títulos aguardam a baixa -- nada a cobrar.', 6000);
+        avisarNoConsole('[Atalhos] Todos os títulos vencidos estão em acordo já quitado -- nada a cobrar.');
+        avisarNaTela('Acordo quitado: os títulos aguardam a baixa -- nada a cobrar.', 6000);
         return null;
       }
-      console.warn('[Atalhos] Nenhum título vencido encontrado para este cliente -- mensagem personalizada não gerada.');
+      avisarNoConsole('[Atalhos] Nenhum título vencido encontrado para este cliente -- mensagem personalizada não gerada.');
       return null;
     }
 
@@ -748,7 +803,7 @@
     const omitirRelatorio = deveOmitirRelatorio(dados);
     const linhaSituacao = montarLinhaSituacao(escolhido, dados, omitirRelatorio);
     if (linhaSituacao === null) {
-      console.warn(
+      avisarNoConsole(
         `[Atalhos] Situação "${escolhido.situacaoKey}" não gera mensagem automática (situação incerta demais) -- escreva manualmente.`
       );
       return null;
@@ -820,14 +875,16 @@
 
 
   function obterDadosParaSubstituicao() {
+    // No ambiente (prévia) os dados vêm sempre de quem chama: a leitura da página real (Módulo 1) nunca acontece.
+    if (ambiente !== null) return null;
     if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') {
-      console.warn('[Atalhos] Módulo de Aviso de Cobrança (Módulo 1) indisponível -- variáveis da frase não serão substituídas.');
+      avisarNoConsole('[Atalhos] Módulo de Aviso de Cobrança (Módulo 1) indisponível -- variáveis da frase não serão substituídas.');
       return null;
     }
     try {
       return window.__avisoCobranca.simular();
     } catch (erro) {
-      console.warn('[Atalhos] Não foi possível calcular os dados do cliente para substituir variáveis:', erro.message);
+      avisarNoConsole('[Atalhos] Não foi possível calcular os dados do cliente para substituir variáveis:', erro.message);
       return null;
     }
   }
@@ -881,9 +938,9 @@
   // Na dúvida (erro ao ler a configuração) também sai sem nome.
   function numerosDiferentesAtivosNestaPagina() {
     try {
-      const nd = window.__numerosDiferentes;
+      const nd = numerosDiferentes();
       if (!nd) return false;
-      const cnpj = new URLSearchParams(window.location.search).get('cnpj') || '';
+      const cnpj = cnpjDaPagina();
       return Boolean(cnpj) && nd.numerosAtivos(cnpj).length > 0;
     } catch (_) {
       return true;
@@ -893,7 +950,7 @@
   /** @returns {string|null} o primeiro nome pronto para a saudação, ou null quando o nome não serve. */
   function primeiroNomeDoResponsavel(dados) {
     let bruto;
-    try { bruto = window.__RESPONSAVEL__?.nome; } catch (_) { return null; }
+    try { bruto = nomeCruDoResponsavel(); } catch (_) { return null; }
     if (typeof bruto !== 'string') return null;
     const nome = bruto.normalize('NFC').replace(/\s+/g, ' ').trim();
     if (!nome || nome.length > 150) return null;
@@ -915,7 +972,7 @@
 
   /** "Bom dia, Maria, tudo bem?" (com nome) ou "Bom dia, tudo bem?" (sem), pelo relógio. */
   function saudacaoPorHorario(nome) {
-    const hora = new Date().getHours();
+    const hora = agora().getHours();
     const periodo = hora < 12 ? 'manha' : hora < 18 ? 'tarde' : 'noite';
     return T('saudacao', { forma: `${periodo}|${nome ? 'comNome' : 'semNome'}`, vars: { nome } });
   }
@@ -940,7 +997,7 @@
         const valor = converterMoedaBrParaNumero(r.saldoTexto);
         if (valor === null) {
           // Censurado: só o FORMATO do saldo (dígitos viram #), sem o título.
-          console.warn(
+          avisarNoConsole(
             `[Atalhos] Não consegui interpretar um saldo (formato "${window.__diario?.valorMascarado?.(r.saldoTexto) ?? 'oculto'}") -- ` +
             'total não será preenchido automaticamente pra não enviar valor errado.'
           );
@@ -984,14 +1041,14 @@
         }
         return valor;
       } catch (erro) {
-        console.warn(`[Atalhos] Erro ao calcular a variável "${nomeVariavel}":`, erro.message);
+        avisarNoConsole(`[Atalhos] Erro ao calcular a variável "${nomeVariavel}":`, erro.message);
         naoResolvidas.push(nomeVariavel);
         return trechoOriginal;
       }
     });
 
     if (naoResolvidas.length > 0) {
-      console.warn(
+      avisarNoConsole(
         `[Atalhos] Variável(is) não preenchida(s) automaticamente -- confira a mensagem antes de enviar (Alt+S): ${naoResolvidas.join(', ')}`
       );
     }
@@ -1003,6 +1060,7 @@
     tituloNegativadoQueManda,
     FRASES,
     sementeDaFrase,
+    comAmbiente,
     obterPerguntaFinal,
     obterRessalvaPagamentoEmDiaNaoUtil,
     temOutraRazaoComVencido,

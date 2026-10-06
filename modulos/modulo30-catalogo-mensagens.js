@@ -18,7 +18,8 @@
  *   - Só texto e variáveis: nunca dado de cliente. Nada vai para o console além de chave e motivo.
  *   - A montagem é sempre por texto puro (nunca HTML) e a troca de variáveis é por função (sem `$&`).
  *
- * Nesta versão (R1) o módulo só LÊ: o editor (rascunho, publicar, histórico, backup) vem na R2, em outro módulo.
+ * R1 só LIA. A R2 acrescenta o RASCUNHO (o que o editor guarda enquanto o usuário digita, separado do publicado e NUNCA usado
+ * pelo Alt+A: só o editor e a prévia o leem). Publicar, histórico e backup vêm nas próximas etapas da R2.
  *
  * Depende de: Módulo 0 (toast e escolherVariante, opcionais). Precisa carregar ANTES do Módulo 19.
  * ========================================================================= */
@@ -35,6 +36,10 @@
   // Teto do que o validador percorre num catálogo salvo (o registro tem 35 textos e no máximo 6 formas por texto).
   const MAX_CHAVES_SALVAS = 500;
   const MAX_FORMAS_SALVAS = 50;
+  // Rascunho: o que está sendo digitado ainda não precisa passar nas regras (isso é na hora de publicar), mas tem teto de tamanho.
+  const MAX_CARACTERES_RASCUNHO = 2000;
+  // Se o catálogo salvo não puder ser lido e o editor for gravar, o original é guardado sob esta chave (+ instante): nunca se apaga.
+  const PREFIXO_ILEGIVEL = `${CHAVE_ARMAZENAMENTO}_ilegivel_`;
 
   // Variáveis que a substituição final do Módulo 19 (substituirVariaveisDaFrase) resolve com os dados do cliente.
   // `saudacao` e `saudacao_com_nome` ficam de fora de propósito: dentro de um texto duplicariam a saudação.
@@ -248,6 +253,13 @@
     return new Set([...(f?.variaveis ?? def.variaveis), ...(def.semGlobais ? [] : VARIAVEIS_GLOBAIS)]);
   };
 
+  /** As variáveis que ESTA forma aceita (as dela + as globais, menos nos textos `semGlobais`), na ordem em que o editor as oferece. */
+  function variaveisDaForma(chave, formaId = 'unico') {
+    const def = POR_CHAVE.get(chave);
+    if (!def || !def.formas.some((f) => f.id === formaId)) return null;
+    return Object.freeze([...variaveisPermitidas(def, formaId)]);
+  }
+
   function placeholdersDe(texto) {
     const nomes = [];
     String(texto).replace(RE_VARIAVEL, (_, nome) => { nomes.push(nome); return ''; });
@@ -268,6 +280,8 @@
     if (/[\r\n]/.test(texto)) erros.push('tem quebra de linha');
     const restante = texto.replace(RE_VARIAVEL, '');
     if (/\{\{|\}\}/.test(restante)) erros.push('tem {{ }} mal fechado');
+    // Endereço de internet e e-mail não vão numa mensagem de cobrança escrita aqui (o catálogo é texto da empresa; link e contato mudam por cliente).
+    if (/(?:https?:\/\/|www\.)\S/i.test(restante) || /[^\s@]+@[^\s@]+\.[^\s@]/.test(restante)) erros.push('não coloque endereço de internet nem e-mail no texto');
     const permitidas = variaveisPermitidas(def, formaId);
     placeholdersDe(texto).forEach((nome) => {
       if (!permitidas.has(nome)) erros.push(`variável não permitida neste texto: {{${nome}}}`);
@@ -323,11 +337,25 @@
     return o;
   }
 
-  const vazio = (estado) => congelarProfundo({ estado, publicado: Object.create(null), invalidos: [] });
+  const vazio = (estado) => congelarProfundo({ estado, publicado: Object.create(null), invalidos: [], rev: 0, rascunho: null, rascunhoInvalidos: [] });
+
+  const ehObjeto = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const temPropria = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  /** `o[k]` é objeto E é do próprio `o` (um protótipo poluído não conta). */
+  const objetoProprio = (o, k) => temPropria(o, k) && ehObjeto(o[k]);
+  /** Número de revisão salvo: inteiro >= 0, senão 0 (catálogos antigos ou editados à mão). */
+  const revDe = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+  /**
+   * O esquema salvo é MAIS NOVO que este código (só leitura, nada é sobrescrito): número maior que o conhecido, ou texto que é esse número
+   * ("2"). Qualquer outra coisa que não seja a versão 1 (objeto, lista, 0, negativo, texto sem número...) é lixo: "ilegível".
+   */
+  const ehVersaoNova = (v) => (typeof v === 'number' && v > VERSAO_ESQUEMA) || (typeof v === 'string' && Number(v) > VERSAO_ESQUEMA);
 
   /**
-   * @returns {{estado: 'ausente'|'ok'|'ilegivel'|'versao-nova'|'sem-armazenamento', publicado: Object, invalidos: Array<{chave: string, forma: string, motivo: string}>}}
+   * @returns {{estado: 'ausente'|'ok'|'ilegivel'|'versao-nova'|'sem-armazenamento', publicado: Object, invalidos: Array<{chave: string, forma: string, motivo: string}>,
+   *   rev: number, rascunho: ({baseRev: number, textos: Object}|null), rascunhoInvalidos: Array<{chave: string, forma: string, motivo: string}>}}
    *   `publicado`: só as formas JÁ VALIDADAS ({ chave: { forma: [texto...] } }); o resto usa o padrão. Resultado imutável.
+   *   `rascunho`: o que o editor guardou (só a ESTRUTURA é conferida; as regras de conteúdo ficam para o publicar). O Alt+A não o lê.
    *   Nunca lança: o que o JSON salvo tiver de estranho cai em 'ilegivel' (o Alt+A segue com o padrão).
    */
   function lerCatalogo() {
@@ -361,10 +389,14 @@
       avisarUmaVez('ilegivel', 'O catálogo de mensagens salvo não pôde ser lido: usando os textos padrão.', 'Catálogo de mensagens ilegível: usando os textos padrão.');
       return vazio('ilegivel');
     }
-    if (dados.versao !== VERSAO_ESQUEMA) {
-      // O valor de `versao` NÃO vai para a mensagem: vem do JSON salvo (dado do usuário) e nem sempre é texto.
+    // O valor de `versao` NÃO vai para a mensagem: vem do JSON salvo (dado do usuário) e nem sempre é texto.
+    if (ehVersaoNova(dados.versao)) {
       avisarUmaVez('versao-nova', 'O catálogo de mensagens salvo é de outra versão: usando os textos padrão.', 'Catálogo de mensagens de outra versão: usando os textos padrão.');
       return vazio('versao-nova');
+    }
+    if (dados.versao !== VERSAO_ESQUEMA) {
+      avisarUmaVez('ilegivel', 'O catálogo de mensagens salvo não pôde ser lido: usando os textos padrão.', 'Catálogo de mensagens ilegível: usando os textos padrão.');
+      return vazio('ilegivel');
     }
     const publicado = Object.create(null);
     const invalidos = [];
@@ -392,7 +424,46 @@
       `${i.chave ? `Texto "${i.chave}${i.forma ? ` (${i.forma})` : ''}"` : 'Catálogo salvo'} inválido (${i.motivo}): usando o padrão.`,
       `Um texto do catálogo de mensagens é inválido${i.chave ? ` (${i.chave})` : ''}: usei o padrão dele.`,
     ));
-    return congelarProfundo({ estado: 'ok', publicado, invalidos });
+    const { rascunho, rascunhoInvalidos } = lerRascunho(dados.rascunho);
+    rascunhoInvalidos.forEach((i) => avisarUmaVez(`rascunho:${i.chave}:${i.forma}:${i.motivo}`,
+      `Rascunho${i.chave ? ` de "${i.chave}${i.forma ? ` (${i.forma})` : ''}"` : ''} ignorado (${i.motivo}).`));
+    return congelarProfundo({ estado: 'ok', publicado, invalidos, rev: revDe(dados.rev), rascunho, rascunhoInvalidos });
+  }
+
+  /** O formato de UMA lista de rascunho (a mesma regra na leitura e na gravação): 1 a N textos (N = 12 com rodízio, 1 sem), cada um com até 2000 caracteres. */
+  function formatoDoRascunhoOk(def, lista) {
+    const max = def.rodizio ? MAX_VARIANTES : 1;
+    return Array.isArray(lista) && lista.length >= 1 && lista.length <= max && lista.every((t) => typeof t === 'string' && t.length <= MAX_CARACTERES_RASCUNHO);
+  }
+
+  /**
+   * O rascunho salvo: `{ baseRev, textos: { chave: { forma: [texto...] } } }`. Só a estrutura é conferida (chave e forma do registro,
+   * lista de textos, tamanho); o conteúdo pode estar incompleto ou inválido, é para isso que ele existe.
+   * Chave e forma desconhecidas vêm do JSON salvo: ficam fora do console (só o motivo).
+   */
+  function lerRascunho(bruto) {
+    const rascunhoInvalidos = [];
+    if (!ehObjeto(bruto)) return { rascunho: null, rascunhoInvalidos };
+    if (!ehObjeto(bruto.textos)) {
+      rascunhoInvalidos.push({ chave: '', forma: '', motivo: 'formato inválido' });
+      return { rascunho: null, rascunhoInvalidos };
+    }
+    const textos = Object.create(null);
+    const chaves = Object.keys(bruto.textos);
+    if (chaves.length > MAX_CHAVES_SALVAS) rascunhoInvalidos.push({ chave: '', forma: '', motivo: `mais de ${MAX_CHAVES_SALVAS} textos: o excesso foi ignorado` });
+    chaves.slice(0, MAX_CHAVES_SALVAS).forEach((chave) => {
+      const def = POR_CHAVE.get(chave);
+      if (!def) { rascunhoInvalidos.push({ chave: '', forma: '', motivo: 'chave desconhecida' }); return; }
+      if (!ehObjeto(bruto.textos[chave])) { rascunhoInvalidos.push({ chave, forma: '', motivo: 'formato inválido' }); return; }
+      Object.keys(bruto.textos[chave]).slice(0, MAX_FORMAS_SALVAS).forEach((formaId) => {
+        if (!def.formas.some((f) => f.id === formaId)) { rascunhoInvalidos.push({ chave, forma: '', motivo: 'forma desconhecida' }); return; }
+        const lista = bruto.textos[chave][formaId];
+        if (!formatoDoRascunhoOk(def, lista)) { rascunhoInvalidos.push({ chave, forma: formaId, motivo: 'formato inválido' }); return; }
+        (textos[chave] ||= Object.create(null))[formaId] = [...lista];
+      });
+    });
+    if (Object.keys(textos).length === 0) return { rascunho: null, rascunhoInvalidos };
+    return { rascunho: { baseRev: revDe(bruto.baseRev), textos }, rascunhoInvalidos };
   }
 
   /* ---------------------------------------------------------------------
@@ -407,10 +478,89 @@
     return f ? Object.freeze([...f.padrao]) : null;
   }
 
-  /** As variantes em uso (publicado válido, senão o padrão). */
-  function textosEmUso(chave, formaId) {
-    const publicado = lerCatalogo().publicado[chave]?.[formaId];
+  /**
+   * MODO PRÉVIA: só vale DENTRO de uma chamada síncrona de `comRascunho` (o editor, na prévia da mensagem). O Alt+A nunca o liga,
+   * então nunca lê rascunho. `rascunhoDaPrevia` = { chave: { forma: [texto...] } } ou null.
+   */
+  let rascunhoDaPrevia = null;
+  /** O catálogo salvo, lido UMA vez ao entrar na prévia (dentro dela nada o muda: a chamada é síncrona). */
+  let catalogoDaPrevia = null;
+  /** Variante forçada por texto na prévia: { chave: índice }. Só vale dentro da prévia; ausente = o rodízio normal (pela semente). */
+  let variantesDaPrevia = null;
+
+  /**
+   * Foto do rascunho que a prévia recebeu, tirada ao entrar: só chave e forma PRÓPRIAS, só listas de textos (o resto é ignorado), listas
+   * COPIADAS (a foto é privada do módulo: nada a congelar). Quem chamou pode seguir mexendo no objeto dele sem mudar a montagem em andamento, e um
+   * protótipo poluído não entra.
+   */
+  function fotografarRascunho(textos) {
+    if (!ehObjeto(textos)) return null;
+    const foto = Object.create(null);
+    Object.keys(textos).forEach((chave) => {
+      if (!ehObjeto(textos[chave])) return;
+      Object.keys(textos[chave]).forEach((formaId) => {
+        const lista = textos[chave][formaId];
+        if (!Array.isArray(lista) || lista.length === 0 || !lista.every((t) => typeof t === 'string')) return;
+        (foto[chave] ||= Object.create(null))[formaId] = [...lista];
+      });
+    });
+    return foto;
+  }
+
+  /** Foto das variantes forçadas: só índices inteiros >= 0, de chaves PRÓPRIAS do objeto. */
+  function fotografarVariantes(variantes) {
+    if (!ehObjeto(variantes)) return null;
+    const foto = Object.create(null);
+    Object.keys(variantes).forEach((chave) => {
+      if (Number.isInteger(variantes[chave]) && variantes[chave] >= 0) foto[chave] = variantes[chave];
+    });
+    return foto;
+  }
+
+  /** O texto da prévia para uma forma, ou null. */
+  const textosDaPrevia = (chave, formaId) => rascunhoDaPrevia?.[chave]?.[formaId] ?? null;
+
+  /** O que está VALENDO de verdade para o Alt+A: o publicado válido ou o padrão (nunca o rascunho da prévia). */
+  function textosEmUsoReal(chave, formaId) {
+    const publicado = (catalogoDaPrevia ?? lerCatalogo()).publicado[chave]?.[formaId];
     return publicado ?? padrao(chave, formaId);
+  }
+
+  /** As variantes em uso (na prévia: o rascunho, se houver; senão o publicado válido; senão o padrão). */
+  function textosEmUso(chave, formaId) {
+    return textosDaPrevia(chave, formaId) ?? textosEmUsoReal(chave, formaId);
+  }
+
+  /**
+   * Roda `fn` (SÍNCRONA) com o rascunho valendo no `T()`: precedência rascunho > publicado > padrão. Serve à prévia da mensagem do editor.
+   * Volta ao normal sempre, mesmo se `fn` lançar; aninhado, volta ao rascunho de fora quando o de dentro termina. Não grava nada.
+   * Um aninhado com `textos` que não é objeto (null, undefined, lixo) DESLIGA o rascunho lá dentro: não herda o de fora.
+   * O rascunho entra como está (mesmo incompleto ou inválido: a prévia mostra o que o usuário digitou). Entrada que não é lista de
+   * textos é ignorada (vale o publicado ou o padrão daquela forma).
+   * `fn` assíncrona (devolver uma Promise) é erro de programação: o modo prévia acaba quando `fn` devolve, e o que rodasse depois do
+   * primeiro `await` não veria o rascunho (a "prévia" sairia igual ao "antes", calada). Por isso lança.
+   * `opcoes.variantes` = { chave: índice (inteiro >= 0) }: força a variante do rodízio mostrada nesses textos (o índice dá a volta se a
+   * lista for menor); sem ele, o rodízio normal pela semente. Vale para o texto em uso e para o rascunho. Entrada que não é índice é ignorada.
+   * @param {Object|null} textos { chave: { forma: [texto...] } }
+   * @param {() => *} fn
+   * @param {{variantes?: Object}} [opcoes]
+   */
+  function comRascunho(textos, fn, opcoes) {
+    const anterior = rascunhoDaPrevia;
+    const catalogoAnterior = catalogoDaPrevia;
+    const variantesAnterior = variantesDaPrevia;
+    rascunhoDaPrevia = fotografarRascunho(textos);
+    variantesDaPrevia = fotografarVariantes(opcoes?.variantes);
+    catalogoDaPrevia = lerCatalogo();
+    try {
+      const resultado = fn();
+      if (resultado && typeof resultado.then === 'function') throw new TypeError('comRascunho: a função precisa ser síncrona (devolveu uma Promise)');
+      return resultado;
+    } finally {
+      rascunhoDaPrevia = anterior;
+      catalogoDaPrevia = catalogoAnterior;
+      variantesDaPrevia = variantesAnterior;
+    }
   }
 
   function substituir(texto, vars) {
@@ -436,11 +586,126 @@
     let texto = lista[0];
     if (lista.length > 1) {
       const escolher = util()?.escolherVariante;
-      texto = typeof escolher === 'function'
-        ? escolher(typeof semente === 'function' ? semente() : (semente ?? ''), lista)
-        : lista[0];
+      const forcada = variantesDaPrevia?.[chave];
+      if (forcada !== undefined) {
+        texto = lista[forcada % lista.length]; // prévia: o usuário escolheu qual variante ver (o índice dá a volta se a lista for menor)
+      } else {
+        texto = typeof escolher === 'function'
+          ? escolher(typeof semente === 'function' ? semente() : (semente ?? ''), lista)
+          : lista[0];
+      }
     }
     return substituir(texto, vars);
+  }
+
+  /* ---------------------------------------------------------------------
+   * RASCUNHO: gravação (só o editor chama; o Alt+A nunca lê o rascunho)
+   * ---------------------------------------------------------------------
+   * Cada gravação RELÊ o catálogo salvo, muda só a entrada do rascunho e grava de volta: o publicado, a revisão, o histórico e
+   * qualquer campo que não conhecemos ficam como estavam (a outra aba pode ter publicado enquanto este editor estava aberto).
+   * Retorna sempre `{ ok: true, ... }` ou `{ ok: false, motivo }`, e nada fica pela metade: o catálogo é gravado numa chamada só.
+   * Motivos: 'sem-armazenamento', 'versao-nova' (esquema mais novo que este código: só leitura), 'cota' (não coube ou o navegador
+   * recusou), 'texto-desconhecido', 'formato'. Nenhum texto digitado vai para o console.
+   */
+  const novoCatalogo = () => ({ versao: VERSAO_ESQUEMA, rev: 0, publicado: {} });
+
+  /** O catálogo salvo, pronto para mudar: `{ dados, preservar }` (preservar = o texto ilegível a guardar antes de sobrescrever) ou `{ erro }`. */
+  function carregarParaEscrita() {
+    let bruto = null;
+    try {
+      bruto = window.localStorage.getItem(CHAVE_ARMAZENAMENTO);
+    } catch (_) {
+      return { erro: 'sem-armazenamento' };
+    }
+    if (bruto === null || bruto === '') return { dados: novoCatalogo(), preservar: null };
+    let dados = null;
+    try {
+      dados = JSON.parse(bruto);
+    } catch (_) {
+      dados = null;
+    }
+    if (ehObjeto(dados)) {
+      if (ehVersaoNova(dados.versao)) return { erro: 'versao-nova' };
+      if (dados.versao === VERSAO_ESQUEMA) return { dados, preservar: null };
+    }
+    return { dados: novoCatalogo(), preservar: bruto }; // ilegível: começa um novo, guardando o original
+  }
+
+  /** Guarda o original ilegível sob outra chave (nunca apaga; o mesmo conteúdo não é guardado duas vezes). Lança se não couber. */
+  function guardarOriginalIlegivel(bruto) {
+    const armazenamento = window.localStorage;
+    const existentes = [];
+    for (let i = 0; i < armazenamento.length; i += 1) {
+      const k = armazenamento.key(i);
+      if (typeof k === 'string' && k.startsWith(PREFIXO_ILEGIVEL)) existentes.push(k);
+    }
+    if (existentes.some((k) => armazenamento.getItem(k) === bruto)) return;
+    let n = Date.now();
+    while (existentes.includes(`${PREFIXO_ILEGIVEL}${n}`)) n += 1;
+    armazenamento.setItem(`${PREFIXO_ILEGIVEL}${n}`, bruto);
+  }
+
+  function gravarCatalogo(dados, preservar) {
+    try {
+      if (preservar !== null) guardarOriginalIlegivel(preservar);
+      window.localStorage.setItem(CHAVE_ARMAZENAMENTO, JSON.stringify(dados));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const iguais = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((t, i) => t === b[i]);
+
+  /**
+   * Guarda o rascunho de UMA forma. Um rascunho igual ao texto em uso (publicado ou padrão) não é rascunho: é retirado.
+   * @param {string} chave @param {string} formaId @param {string[]} lista as variantes (1 só nos textos sem rodízio)
+   * @returns {{ok: true, removido: boolean}|{ok: false, motivo: string}}
+   */
+  function salvarRascunho(chave, formaId, lista) {
+    const def = defDe(chave);
+    const forma = def?.formas.find((f) => f.id === formaId);
+    if (!forma) return { ok: false, motivo: 'texto-desconhecido' };
+    if (!formatoDoRascunhoOk(def, lista)) return { ok: false, motivo: 'formato' };
+    // Compara com o que vale DE VERDADE (publicado ou padrão), mesmo se chamada de dentro de uma prévia.
+    return alterarRascunho(chave, formaId, iguais(lista, textosEmUsoReal(chave, formaId)) ? null : [...lista]);
+  }
+
+  /** Descarta o rascunho de uma forma (sem rascunho nela: nada é gravado). */
+  function descartarRascunho(chave, formaId) {
+    if (!defDe(chave)?.formas.some((f) => f.id === formaId)) return { ok: false, motivo: 'texto-desconhecido' };
+    return alterarRascunho(chave, formaId, null);
+  }
+
+  /** Descarta o rascunho inteiro. */
+  function descartarRascunhoTudo() {
+    const carga = carregarParaEscrita();
+    if (carga.erro) return { ok: false, motivo: carga.erro };
+    if (!ehObjeto(carga.dados) || !temPropria(carga.dados, 'rascunho')) return { ok: true, removido: false };
+    delete carga.dados.rascunho;
+    return gravarCatalogo(carga.dados, carga.preservar) ? { ok: true, removido: true } : { ok: false, motivo: 'cota' };
+  }
+
+  /** `lista` null = retirar a forma do rascunho. */
+  function alterarRascunho(chave, formaId, lista) {
+    const carga = carregarParaEscrita();
+    if (carga.erro) return { ok: false, motivo: carga.erro };
+    const { dados, preservar } = carga;
+    let rascunho = ehObjeto(dados.rascunho) && ehObjeto(dados.rascunho.textos) ? dados.rascunho : null;
+    const jaTinha = !!rascunho && objetoProprio(rascunho.textos, chave) && temPropria(rascunho.textos[chave], formaId);
+    if (lista === null && !jaTinha) return { ok: true, removido: false }; // nada a retirar: nada a gravar
+    if (lista !== null) {
+      // A revisão em que o rascunho nasceu (o publicar usa para avisar que outra aba publicou antes).
+      rascunho ||= { baseRev: revDe(dados.rev), textos: {} };
+      dados.rascunho = rascunho;
+      if (!objetoProprio(rascunho.textos, chave)) rascunho.textos[chave] = {};
+      rascunho.textos[chave][formaId] = lista;
+    } else {
+      delete rascunho.textos[chave][formaId];
+      if (Object.keys(rascunho.textos[chave]).length === 0) delete rascunho.textos[chave];
+      if (Object.keys(rascunho.textos).length === 0) delete dados.rascunho;
+    }
+    return gravarCatalogo(dados, preservar) ? { ok: true, removido: lista === null } : { ok: false, motivo: 'cota' };
   }
 
   window.__catalogoMensagens = Object.freeze({
@@ -448,9 +713,14 @@
     padrao,
     defDe,
     lerCatalogo,
+    comRascunho,
+    salvarRascunho,
+    descartarRascunho,
+    descartarRascunhoTudo,
     validarTexto,
     validarLista,
     placeholdersDe,
+    variaveisDaForma,
     REGISTRO: congelarProfundo(REGISTRO),
     BLOCOS,
     VARIAVEIS_GLOBAIS,
@@ -458,6 +728,8 @@
     VERSAO_ESQUEMA,
     MAX_VARIANTES,
     MAX_CARACTERES,
+    MAX_CARACTERES_RASCUNHO,
+    PREFIXO_ILEGIVEL,
   });
 
   // Só depois de montar o REGISTRO e a API: se algo acima lançar, o módulo não aparece como carregado.
