@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.81.0', data: '06/10/2026',
+      mudancas: [
+        'Alt+X agora tem o botão "Ver prévia": mostra a mensagem COMPLETA que o Alt+A montaria com os seus rascunhos, balão por balão, em situações inventadas (atraso comum, último dia, cartório, SCPC, promessa, acordo, primeiro contato...). Compara "Antes (em uso)" com "Depois (rascunho)" e mostra só as situações que o seu rascunho muda; "Ver todas as situações" mostra todas, cada uma com o grupo ao lado do título.',
+        'O balão novo (azul) e o que saiu (vermelho) ficam em destaque. Cada lado mostra quantos balões, quantos caracteres e o tamanho do maior balão. Se a mensagem passa de 5 balões, de 320 caracteres num balão ou de 600 no total, aparece o aviso (nos casos com acordo, passar de 600 é só aviso). O seletor "Variante da frase" compara a mesma variante em todos os textos com sorteio de frases.',
+        'Nada muda no Alt+A: a prévia só lê, não grava nada e não usa dados de cliente. Publicar, o histórico e o backup vêm nas próximas versões.',
+      ],
+    },
+    {
       versao: '1.80.1', data: '05/10/2026',
       mudancas: [
         'Ajustes internos na biblioteca de situações de exemplo que a prévia da mensagem vai usar (ainda sem tela): os casos de tamanho máximo agora são os piores de verdade, medidos em mais de 100 mil combinações. Nada muda no Alt+A.',

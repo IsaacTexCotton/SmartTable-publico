@@ -11,7 +11,13 @@
  * rodízio, com o aviso fixo de que mudar a quantidade muda a frase do dia de cada cliente), botões que inserem as variáveis da forma no
  * cursor, e os problemas (erros e avisos do Módulo 30) ao lado, enquanto digita. O rascunho é gravado sozinho pelo Módulo 30
  * (`salvarRascunho`: atraso, sair do campo, trocar de forma, Fechar edição, Esc e Alt+X) e a forma ganha o selo "rascunho". O Alt+A
- * NUNCA lê o rascunho. Publicar, prévia, histórico e backup vêm nas próximas etapas.
+ * NUNCA lê o rascunho. Publicar, histórico e backup vêm nas próximas etapas (a prévia veio na etapa 3, mais abaixo).
+ * R2, etapa 3, P4 (prévia): o botão "Ver prévia" do rodapé troca a lista por uma segunda tela, no mesmo diálogo, com a mensagem COMPLETA que o
+ * Alt+A montaria em situações FICTÍCIAS (Módulo 32), "Antes (em uso)" e "Depois (rascunho)", só nas situações que o rascunho muda (com a opção
+ * de ver todas), o balão novo e o removido em destaque, os contadores (balões, caracteres, maior balão) e um seletor de variante que vale
+ * para todos os textos com rodízio. A prévia só LÊ: não grava nada e não toca na página. Esc volta à lista.
+ * P5: sob os contadores do "Depois" entra uma faixa por limite de tamanho estourado (5 balões, 320 por balão, 600 no total; com acordo o total é só
+ * aviso) e as situações vêm por gravidade (quebrou, erro, aviso, o resto). Nesta etapa o erro só é MOSTRADO: o bloqueio do "Publicar" é da etapa 4.
  *
  * VISUAL aprovado pelo usuário (05/10/2026): diálogo centralizado com fundo escurecido, como o Alt+N (Módulo 17): o fundo
  * cobre só a área abaixo do cabeçalho do CRM e fica na camada dos popups (Módulo 0). Esc, "Fechar", ✕ e clique fora fecham;
@@ -39,6 +45,8 @@
     ID_CABECALHO: 'sit-header',
     ALTURA_CABECALHO_PADRAO: 80,
     LARGURA_PAINEL: 760,
+    // Na prévia o diálogo alarga (duas colunas lado a lado); em tela estreita as colunas empilham.
+    LARGURA_PREVIA: 1040,
     // Camada dos popups nossos: acima do menu dos atalhos e do cabeçalho do CRM (ver Módulo 0).
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
     // Atraso entre a última tecla e a gravação do rascunho (a gravação também sai ao sair do campo, trocar de forma e fechar).
@@ -59,6 +67,9 @@
   let catalogo = null; // foto do catálogo salvo, lida ao abrir e atualizada a cada gravação do rascunho
   let edicao = null; // a forma em edição: { chave, formaId, def, forma, areas, timer, ultimoFoco, ... } (uma por vez)
   let indiceDeBusca = new Map(); // chave do texto -> título + textos (em uso e padrão), sem acento e em minúsculas
+  let vista = 'lista'; // 'lista' (os textos) ou 'previa' (a mensagem completa, antes e depois)
+  let pv = null; // os elementos e o estado da tela da prévia: refeitos a cada abertura do diálogo; só valem com ele aberto
+  let ui = null; // peças do diálogo que mudam com a vista: título, lista, faixa da busca, dica e botão do rodapé (idem)
 
   /* ---------------------------------------------------------------------
    * 1. UTILIDADES
@@ -211,16 +222,19 @@
 
   const textosDaEdicao = () => edicao.areas.map((a) => a.ta.value);
 
+  /** A faixa de um problema: erro (✕, vermelho) ou aviso (⚠, âmbar). Serve ao editor (validação ao digitar) e à prévia (alertas de tamanho). */
+  function faixaDeProblema(nivel, texto) {
+    const erro = nivel === 'erro';
+    const e = el('div', { textContent: `${erro ? '✕' : '⚠'} ${texto}` }, {
+      fontSize: '12px', color: erro ? CORES.perigo : CORES.alerta, background: erro ? CORES.fundoPerigo : CORES.fundoAlerta, borderRadius: '6px', padding: '4px 8px', margin: '4px 0 0', overflowWrap: 'anywhere',
+    });
+    e.dataset.nivel = nivel;
+    return e;
+  }
+
   function desenharProblemas() {
     const { erros, avisos } = C.validarLista(edicao.def, textosDaEdicao(), edicao.formaId);
-    const itens = [
-      ...erros.map((t) => ['erro', `✕ ${t}`, CORES.perigo, CORES.fundoPerigo]),
-      ...avisos.map((t) => ['aviso', `⚠ ${t}`, CORES.alerta, CORES.fundoAlerta]),
-    ].map(([nivel, texto, cor, fundo]) => {
-      const e = el('div', { textContent: texto }, { fontSize: '12px', color: cor, background: fundo, borderRadius: '6px', padding: '4px 8px', margin: '4px 0 0', overflowWrap: 'anywhere' });
-      e.dataset.nivel = nivel;
-      return e;
-    });
+    const itens = [...erros.map((t) => faixaDeProblema('erro', t)), ...avisos.map((t) => faixaDeProblema('aviso', t))];
     // Só troca quando o conjunto de mensagens mudou: a região é anunciada ao leitor de tela, e trocar a cada tecla repetiria tudo a cada letra.
     const assinatura = itens.map((i) => i.textContent).join('\n');
     if (assinatura === edicao.assinaturaDosProblemas) return;
@@ -241,20 +255,24 @@
     const r = C.salvarRascunho(edicao.chave, edicao.formaId, textosDaEdicao());
     if (!r.ok) {
       mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO);
-      return false;
+      return false; // `digitado` segue true: o texto não foi gravado e o botão "Ver prévia" continua valendo
     }
     catalogo = C.lerCatalogo();
+    edicao.digitado = false;
     mostrarErroDaGravacao('');
     desenharSelos(edicao.def, edicao.forma, edicao.selosEl);
     edicao.descartarEl.disabled = !rascunhoDe(edicao.def, edicao.forma);
     indexar(edicao.def);
+    atualizarBotaoDaPrevia();
     return true;
   }
 
   function aoMudarTexto() {
     desenharProblemas();
     clearTimeout(edicao.timer);
+    edicao.digitado = true; // há texto que o rascunho gravado ainda não tem (até a próxima gravação que der certo)
     edicao.timer = setTimeout(salvarAgora, CONFIG_EDITOR.ATRASO_RASCUNHO_MS);
+    atualizarBotaoDaPrevia();
   }
 
   function inserirVariavel(nome) {
@@ -407,9 +425,11 @@
 
   function descartarEdicao() {
     clearTimeout(edicao.timer);
+    edicao.digitado = false; // o que foi descartado não conta como texto digitado
     const r = C.descartarRascunho(edicao.chave, edicao.formaId);
     if (!r.ok) { mostrarErroDaGravacao(MOTIVOS_DA_GRAVACAO[r.motivo] ?? MOTIVO_PADRAO_DA_GRAVACAO); return; }
     catalogo = C.lerCatalogo();
+    atualizarBotaoDaPrevia();
     fecharEdicao({ salvar: false });
   }
 
@@ -497,7 +517,361 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3. O DIÁLOGO
+   * 3. A PRÉVIA DA MENSAGEM COMPLETA (R2, etapa 3, P4)
+   * ---------------------------------------------------------------------
+   * Segunda tela do MESMO diálogo (a lista fica escondida, não destruída: a busca e a rolagem voltam como estavam). As situações vêm do
+   * Módulo 32 (fictícias) e a mensagem é montada pelo código real do Alt+A com o rascunho valendo (Módulo 30, `comRascunho`). Só lê.
+   * --------------------------------------------------------------------- */
+  const TEXTOS_DA_PREVIA = {
+    titulo: 'Prévia da mensagem completa',
+    tituloDaLista: 'Mensagens do Alt+A',
+    subtitulo: 'Mostra o que o cliente receberia com os seus rascunhos, em situações inventadas. Nada é gravado nem enviado.',
+    nota: 'Padrão da prévia não prevê o que um cliente real recebe. Textos com menos variantes repetem a volta.',
+    dicaDaLista: 'As edições ficam como rascunho neste navegador; publicar vem a seguir. Esc fecha.',
+    dicaDaPrevia: 'A prévia usa situações inventadas e não grava nada. Esc volta à lista.',
+    semRascunhoNoBotao: 'Sem rascunho para comparar.',
+    semRascunho: 'Você ainda não tem rascunho. Edite um texto para ver a prévia.',
+    semMensagem: 'O Alt+A não envia mensagem nesta situação.',
+    quebrou: 'Não consegui montar esta situação.',
+    imagem: '[imagem do relatório]',
+    falhou: 'Não consegui montar a prévia.',
+    novoParaLeitor: '(novo) ',
+    removidoParaLeitor: '(removido) ',
+  };
+
+  /**
+   * Os alertas de tamanho de uma situação (Módulo 32, `avaliarLimites`): o texto de cada um. Erro = passa de um limite combinado com o usuário
+   * (5 balões, 320 caracteres por balão, 600 no total); aviso = só o total COM acordo (o teto desse caso ainda está pendente de decisão).
+   */
+  const TEXTOS_DOS_ALERTAS = {
+    baloes: (a) => `Passa de ${a.limite} balões: esta situação gera ${a.valor}.`,
+    balao: (a) => `Um balão passa de ${a.limite} caracteres: o maior tem ${a.valor}.`,
+    total: (a) => (a.nivel === 'aviso'
+      ? `Com acordo, a mensagem tem ${a.valor} caracteres (o limite é ${a.limite}). Ainda não há teto definido para esse caso.`
+      : `A mensagem passa de ${a.limite} caracteres: tem ${a.valor}.`),
+  };
+
+  function alertaDeTamanho(alerta) {
+    const e = faixaDeProblema(alerta.nivel, TEXTOS_DOS_ALERTAS[alerta.codigo](alerta));
+    e.dataset.papel = 'alerta-tamanho';
+    e.dataset.codigo = alerta.codigo;
+    return e;
+  }
+
+  /** Há algum rascunho guardado neste catálogo? (uma lista de textos em alguma forma de algum texto) */
+  const temRascunho = (cat) => Object.values(cat?.rascunho?.textos ?? {}).some((formas) => Object.values(formas ?? {}).some((lista) => Array.isArray(lista) && lista.length > 0));
+
+  const textosComRodizio = () => C.REGISTRO.filter((def) => def.rodizio);
+  const chavesComRodizio = () => textosComRodizio().map((def) => def.chave);
+
+  /** A maior quantidade de variantes entre os textos com rodízio (em uso e rascunho; o Módulo 30 já limita cada lista a MAX_VARIANTES): quantas opções o seletor tem. */
+  function maiorQuantidadeDeVariantes(cat) {
+    let maior = 1;
+    textosComRodizio().forEach((def) => def.formas.forEach((forma) => {
+      [cat.publicado[def.chave]?.[forma.id] ?? forma.padrao, cat.rascunho?.textos?.[def.chave]?.[forma.id]].forEach((lista) => {
+        if (Array.isArray(lista)) maior = Math.max(maior, lista.length);
+      });
+    }));
+    return maior;
+  }
+
+  /**
+   * Quais balões de cada lado não têm igual no outro (comparando tipo e texto; um balão repetido casa uma vez só).
+   * @returns {{antes: boolean[], depois: boolean[]}} true = o balão é diferente (some do outro lado)
+   */
+  function diferencasEntreBaloes(antes, depois) {
+    const chave = (b) => `${b.tipo}\u0000${b.texto}`;
+    const marcar = (lado, outro) => {
+      const restante = new Map();
+      outro.forEach((b) => restante.set(chave(b), (restante.get(chave(b)) ?? 0) + 1));
+      return lado.map((b) => {
+        const n = restante.get(chave(b)) ?? 0;
+        if (n > 0) { restante.set(chave(b), n - 1); return false; }
+        return true;
+      });
+    };
+    return { antes: marcar(antes, depois), depois: marcar(depois, antes) };
+  }
+
+  const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
+  function balaoDaPrevia(balao, diferenca) {
+    const cores = diferenca === 'novo' ? [CORES.fundoMarca, CORES.marca] : diferenca === 'removido' ? [CORES.fundoPerigo, CORES.perigo] : ['#F7F8FA', CORES.borda];
+    const e = el('div', {}, {
+      fontSize: '13px', lineHeight: '1.45', color: CORES.tinta, padding: '4px 8px', margin: '2px 0', borderRadius: '6px', background: cores[0],
+      border: `1px solid ${CORES.borda}`, borderLeft: `3px solid ${cores[1]}`, overflowWrap: 'anywhere',
+      // Uma ideia por linha dentro do balão (o Módulo 19 junta as linhas com "\n"): sem isto o navegador as cola num parágrafo só.
+      whiteSpace: 'pre-wrap',
+    });
+    e.dataset.papel = 'balao';
+    e.dataset.tipo = balao.tipo;
+    if (diferenca) e.dataset.diferenca = diferenca;
+    if (balao.tipo === 'imagem') {
+      e.appendChild(el('div', { textContent: TEXTOS_DA_PREVIA.imagem }, { fontSize: '12px', fontWeight: '600', color: CORES.apagado }));
+      if (balao.texto) e.appendChild(el('div', { textContent: balao.texto }, { marginTop: '2px' }));
+    } else {
+      e.textContent = balao.texto;
+    }
+    if (diferenca) {
+      // O destaque é só cor: quem não enxerga a cor (leitor de tela, daltonismo) ouve "(novo)" ou "(removido)" antes do texto. Não ocupa lugar na tela.
+      const aviso = el('span', { textContent: diferenca === 'novo' ? TEXTOS_DA_PREVIA.novoParaLeitor : TEXTOS_DA_PREVIA.removidoParaLeitor }, {
+        position: 'absolute', width: '1px', height: '1px', margin: '-1px', padding: '0', border: '0', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap',
+      });
+      aviso.dataset.papel = 'aviso-leitor';
+      e.prepend(aviso);
+    }
+    return e;
+  }
+
+  /** A prévia não pôde ser montada (não deveria acontecer): o aviso vai para a tela e o erro para o console, nada fica calado. */
+  function avisarFalhaDaPrevia(erro) {
+    console.error('[Editor] Não consegui montar a prévia:', erro);
+    window.__smartTableUtil?.toast?.(TEXTOS_DA_PREVIA.falhou, 6000);
+  }
+
+  /** Uma coluna da prévia ("Antes (em uso)" ou "Depois (rascunho)"): os balões na ordem do envio e os contadores. */
+  function colunaDaPrevia(papel, rotulo, resultado, marcas, nomeDaDiferenca, comAlertas = false) {
+    const col = el('div', {}, { minWidth: '0' });
+    col.dataset.papel = papel;
+    col.appendChild(el('div', { textContent: rotulo }, { fontSize: '11px', fontWeight: '600', color: CORES.apagado, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '6px 0 2px' }));
+    if (!resultado) {
+      const vazio = el('div', { textContent: TEXTOS_DA_PREVIA.semMensagem }, { fontSize: '12px', color: CORES.apagado, padding: '4px 0' });
+      vazio.dataset.papel = 'sem-mensagem';
+      col.appendChild(vazio);
+      return col;
+    }
+    resultado.baloes.forEach((balao, i) => col.appendChild(balaoDaPrevia(balao, marcas?.[i] ? nomeDaDiferenca : null)));
+    const t = resultado.totais;
+    const contadores = el('div', { textContent: `${plural(t.baloes, 'balão', 'balões')} · ${plural(t.caracteres, 'caractere', 'caracteres')} · maior balão ${t.maiorBalao}` }, { fontSize: '12px', color: CORES.apagado, marginTop: '4px' });
+    contadores.dataset.papel = 'contadores';
+    col.appendChild(contadores);
+    // Só o "Depois" leva alerta: o "Antes" é o que já está em uso.
+    if (comAlertas) resultado.alertas.forEach((alerta) => col.appendChild(alertaDeTamanho(alerta)));
+    return col;
+  }
+
+  function cartaoDoCenario(r) {
+    const cartao = el('section', {}, { padding: '6px 0 12px', borderBottom: `1px solid ${CORES.borda}` });
+    cartao.dataset.cenario = r.id;
+    const titulo = el('div', {}, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: '6px' });
+    titulo.appendChild(el('span', { textContent: r.rotulo }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
+    // Pode quebrar linha e nunca passa da largura do corpo (com `nowrap` ela estourava o corpo em tela muito estreita).
+    const etiqueta = el('span', { textContent: r.grupo }, {
+      fontSize: '11px', fontWeight: '600', padding: '1px 8px', borderRadius: '999px', maxWidth: '100%', boxSizing: 'border-box', overflowWrap: 'anywhere', color: CORES.marca, background: CORES.fundoMarca, border: `1px solid ${CORES.marca}`,
+    });
+    etiqueta.dataset.papel = 'grupo-previa';
+    titulo.appendChild(etiqueta);
+    cartao.appendChild(titulo);
+    if (r.erro !== null) {
+      const quebrou = el('div', { textContent: TEXTOS_DA_PREVIA.quebrou }, { fontSize: '12px', color: CORES.perigo, background: CORES.fundoPerigo, borderRadius: '6px', padding: '4px 8px', marginTop: '6px' });
+      quebrou.dataset.papel = 'cenario-quebrou';
+      cartao.appendChild(quebrou);
+      return cartao;
+    }
+    // Um lado sem mensagem (o Alt+A não envia): todo balão do outro lado é novo (em "Depois") ou removido (em "Antes").
+    const todosDiferentes = (m) => (m ? m.baloes.map(() => true) : null);
+    const diferencas = r.antes && r.depois ? diferencasEntreBaloes(r.antes.baloes, r.depois.baloes) : { antes: todosDiferentes(r.antes), depois: todosDiferentes(r.depois) };
+    // Lado a lado quando cabe; as colunas empilham em tela estreita.
+    const colunas = el('div', {}, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: '0 12px' });
+    colunas.appendChild(colunaDaPrevia('antes', 'Antes (em uso)', r.antes, diferencas.antes, 'removido'));
+    colunas.appendChild(colunaDaPrevia('depois', 'Depois (rascunho)', r.depois, diferencas.depois, 'novo', true));
+    cartao.appendChild(colunas);
+    return cartao;
+  }
+
+  /** Monta todas as situações (antes e depois) com a variante escolhida. É o trabalho pesado: roda ao abrir e ao trocar a variante, não ao marcar "Ver todas". */
+  function calcularPrevia(variante) {
+    const forcada = variante === null ? undefined : Object.fromEntries(chavesComRodizio().map((chave) => [chave, variante]));
+    pv.todos = window.__cenariosPrevia.rodarTodos({ textos: pv.textos, variantes: forcada });
+    pv.variante = variante; // só depois de calcular: se falhar, o estado segue sendo o da escolha que a tela ainda mostra
+  }
+
+  /** Desenha o contador e a lista de situações já calculadas, conforme a caixa "Ver todas as situações". */
+  function desenharPrevia() {
+    const todos = pv.todos;
+    const afetadas = todos.filter((r) => r.afetado).length;
+    const mostrar = todos.filter((r) => pv.verTodas || r.afetado);
+    // O que o usuário precisa ver antes de tudo vem primeiro: situação que quebrou, depois a que estoura um limite (erro), depois a que só avisa;
+    // as demais ficam na ordem da biblioteca (a ordenação é estável).
+    const gravidade = (r) => {
+      if (r.erro !== null) return 0;
+      if (r.depois?.alertas.some((a) => a.nivel === 'erro')) return 1;
+      return r.depois?.alertas.some((a) => a.nivel === 'aviso') ? 2 : 3;
+    };
+    const ordenadas = [...mostrar].sort((a, b) => gravidade(a) - gravidade(b));
+
+    pv.contadorEl.textContent = afetadas === 0
+      ? `Nenhuma das ${todos.length} situações muda com os seus rascunhos.`
+      : `${afetadas} de ${todos.length} ${afetadas === 1 ? 'situação muda' : 'situações mudam'} com os seus rascunhos`;
+
+    // Sem cabeçalho por grupo: a ordem é por gravidade e mistura os grupos, então o grupo vai como etiqueta em cada cartão (decisão do usuário, 06/10/2026).
+    pv.corpoEl.replaceChildren(...ordenadas.map(cartaoDoCenario));
+  }
+
+  function desenharPreviaVazia() {
+    pv.contadorEl.textContent = '';
+    pv.controlesEl.style.display = 'none';
+    const aviso = el('div', { textContent: TEXTOS_DA_PREVIA.semRascunho }, { padding: '24px 0', textAlign: 'center', fontSize: '13px', color: CORES.apagado });
+    aviso.dataset.papel = 'sem-rascunho';
+    aviso.setAttribute('role', 'status');
+    pv.corpoEl.replaceChildren(aviso);
+  }
+
+  /** As peças da tela da prévia (escondida até o "Ver prévia"). */
+  function montarPrevia() {
+    const raiz = el('div', {}, { flex: '1 1 auto', minHeight: '0', display: 'none', flexDirection: 'column' });
+    raiz.dataset.papel = 'previa';
+
+    const faixa = el('div', {}, { flex: '0 0 auto', padding: '10px 18px', borderBottom: `1px solid ${CORES.borda}`, background: '#FAFBFC' });
+    const voltarEl = botaoTexto('← Voltar à lista', () => voltarDaPrevia(), 'voltar');
+    faixa.appendChild(voltarEl);
+    faixa.appendChild(el('div', { textContent: TEXTOS_DA_PREVIA.subtitulo }, { fontSize: '12px', color: CORES.texto, marginTop: '8px' }));
+
+    const controlesEl = el('div', {}, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 16px', marginTop: '8px' });
+    controlesEl.dataset.papel = 'controles-previa';
+    const rotuloVariante = el('label', {}, { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: CORES.texto });
+    rotuloVariante.appendChild(document.createTextNode('Variante da frase:'));
+    const selectEl = el('select', {}, { padding: '5px 8px', fontSize: '13px', border: `1px solid ${CORES.borda}`, borderRadius: '6px', color: CORES.tinta, background: CORES.fundo });
+    selectEl.dataset.papel = 'variante';
+    selectEl.addEventListener('change', () => {
+      try {
+        calcularPrevia(selectEl.value === '' ? null : Number(selectEl.value));
+      } catch (erro) {
+        // A tela segue mostrando a escolha anterior: o seletor volta a ela (senão ele mostraria uma variante e a lista outra).
+        selectEl.value = pv.variante === null ? '' : String(pv.variante);
+        avisarFalhaDaPrevia(erro);
+        return;
+      }
+      desenharPrevia();
+    });
+    rotuloVariante.appendChild(selectEl);
+    const rotuloTodas = el('label', {}, { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: CORES.texto, cursor: 'pointer' });
+    const todasEl = el('input', { type: 'checkbox' });
+    todasEl.dataset.papel = 'ver-todas';
+    todasEl.addEventListener('change', () => { pv.verTodas = todasEl.checked; desenharPrevia(); });
+    rotuloTodas.append(todasEl, document.createTextNode('Ver todas as situações'));
+    controlesEl.append(rotuloVariante, rotuloTodas);
+    faixa.appendChild(controlesEl);
+    const nota = el('div', { textContent: TEXTOS_DA_PREVIA.nota }, { fontSize: '11px', color: CORES.apagado, marginTop: '4px' });
+    nota.dataset.papel = 'nota-previa';
+    faixa.appendChild(nota);
+    const contadorEl = el('div', {}, { fontSize: '13px', fontWeight: '600', color: CORES.tinta, marginTop: '8px' });
+    contadorEl.dataset.papel = 'contador-previa';
+    contadorEl.setAttribute('role', 'status');
+    contadorEl.setAttribute('aria-live', 'polite');
+    faixa.appendChild(contadorEl);
+    raiz.appendChild(faixa);
+
+    const corpoEl = el('div', {}, { flex: '1 1 auto', minHeight: '0', overflowY: 'auto', padding: '4px 18px 14px' });
+    corpoEl.dataset.papel = 'corpo-previa';
+    corpoEl.tabIndex = 0;
+    corpoEl.setAttribute('role', 'region');
+    corpoEl.setAttribute('aria-label', 'Situações da prévia');
+    raiz.appendChild(corpoEl);
+
+    pv = { raiz, voltarEl, selectEl, todasEl, controlesEl, contadorEl, corpoEl, textos: null, variante: null, verTodas: false, rolagemDaLista: 0 };
+    return raiz;
+  }
+
+  /** Largura do diálogo e folga do fundo conforme a vista. */
+  function ajustarLargura() {
+    const largura = vista === 'previa' ? CONFIG_EDITOR.LARGURA_PREVIA : CONFIG_EDITOR.LARGURA_PAINEL;
+    painelEl.style.width = `${largura}px`;
+    fundoEl.style.padding = `16px 16px 16px ${folgaEsquerda(largura)}px`;
+  }
+
+  /** Título, dica e botão do rodapé conforme a vista (só quando a vista muda: o título é anunciado ao leitor de tela). */
+  function atualizarRodape() {
+    const naPrevia = vista === 'previa';
+    ui.tituloEl.textContent = naPrevia ? TEXTOS_DA_PREVIA.titulo : TEXTOS_DA_PREVIA.tituloDaLista;
+    painelEl.setAttribute('aria-label', ui.tituloEl.textContent);
+    ui.dicaEl.textContent = naPrevia ? TEXTOS_DA_PREVIA.dicaDaPrevia : TEXTOS_DA_PREVIA.dicaDaLista;
+    atualizarBotaoDaPrevia();
+  }
+
+  /** O botão "Ver prévia" (habilitado, dica, aparência): muda a cada tecla digitada e a cada gravação ou descarte do rascunho. */
+  function atualizarBotaoDaPrevia() {
+    const naPrevia = vista === 'previa';
+    if (!ui.previaBotaoEl) return;
+    // Texto digitado e ainda não gravado (o atraso de 400 ms, ou uma gravação recusada) já conta: abrir a prévia grava antes.
+    const sem = !temRascunho(catalogo) && !edicao?.digitado;
+    ui.previaBotaoEl.style.display = naPrevia ? 'none' : '';
+    ui.previaBotaoEl.disabled = sem;
+    ui.previaBotaoEl.style.opacity = sem ? '0.5' : '1';
+    ui.previaBotaoEl.style.cursor = sem ? 'not-allowed' : 'pointer';
+    ui.previaBotaoEl.title = sem ? TEXTOS_DA_PREVIA.semRascunhoNoBotao : '';
+  }
+
+  function abrirPrevia() {
+    // Grava a edição aberta antes: a prévia tem que ver o que acabou de ser digitado. Com a gravação recusada ela fica aberta (o texto não se perde).
+    if (edicao && !fecharEdicao({ devolverFoco: false })) {
+      edicao.erroEl.scrollIntoView?.({ block: 'nearest' });
+      edicao.ultimoFoco?.focus?.();
+      return;
+    }
+    // O catálogo é relido: outra aba pode ter publicado ou descartado o rascunho depois que este diálogo abriu.
+    const fresco = C.lerCatalogo();
+    pv.textos = temRascunho(fresco) ? fresco.rascunho.textos : null;
+    pv.verTodas = false;
+    pv.todasEl.checked = false;
+    pv.controlesEl.style.display = 'flex';
+    if (pv.textos) {
+      const opcoes = [el('option', { value: '', textContent: 'Padrão da prévia' })];
+      for (let i = 0; i < maiorQuantidadeDeVariantes(fresco); i += 1) opcoes.push(el('option', { value: String(i), textContent: `Variante ${i + 1}` }));
+      pv.selectEl.replaceChildren(...opcoes);
+      pv.selectEl.value = '';
+      // Se montar a prévia falhar, a vista não muda (nada fica pela metade): aviso na tela e erro no console.
+      try {
+        calcularPrevia(null);
+        desenharPrevia();
+      } catch (erro) {
+        avisarFalhaDaPrevia(erro);
+        ui.previaBotaoEl.focus(); // a edição foi fechada para gravar e o foco estava nela: volta ao botão (senão cairia no body)
+        return;
+      }
+    } else {
+      desenharPreviaVazia();
+    }
+    // Se outra aba mudou o catálogo, a lista (selos "rascunho"/"editado") e o botão ficaram para trás: o que foi relido vira o catálogo daqui e
+    // a lista é refeita ao voltar (só nesse caso; senão ela volta exatamente como estava).
+    pv.listaDesatualizada = fresco !== catalogo; // o Módulo 30 devolve o MESMO objeto enquanto o texto salvo não muda
+    if (pv.listaDesatualizada) catalogo = fresco;
+    pv.rolagemDaLista = ui.listaEl.scrollTop;
+    vista = 'previa';
+    ui.listaEl.hidden = true;
+    ui.buscaEl.hidden = true;
+    pv.raiz.style.display = 'flex';
+    pv.corpoEl.scrollTop = 0;
+    ajustarLargura();
+    atualizarRodape();
+    pv.voltarEl.focus();
+  }
+
+  function voltarDaPrevia() {
+    vista = 'lista';
+    pv.raiz.style.display = 'none';
+    if (pv.listaDesatualizada) {
+      ui.listaEl.replaceChildren();
+      desenharLista(ui.listaEl);
+      filtrarLista(); // a busca digitada continua valendo
+    }
+    ui.listaEl.hidden = false;
+    ui.buscaEl.hidden = false;
+    // A largura volta ANTES de restaurar a rolagem: mudar a largura depois reflui a lista e o navegador reajusta o scrollTop (no Chromium a lista voltava ~20 px abaixo).
+    ajustarLargura();
+    ui.listaEl.scrollTop = pv.rolagemDaLista;
+    atualizarRodape();
+    (ui.previaBotaoEl && !ui.previaBotaoEl.disabled ? ui.previaBotaoEl : painelEl).focus();
+  }
+
+  /** Esc: na prévia volta à lista; na lista fecha o diálogo. */
+  function aoApertarEsc() {
+    if (vista === 'previa') voltarDaPrevia();
+    else fecharPainel({ devolverFoco: true });
+  }
+
+  /* ---------------------------------------------------------------------
+   * 4. O DIÁLOGO
    * --------------------------------------------------------------------- */
 
   /** Fecha o diálogo e o fundo. Só Esc, ✕, Fechar e clique fora devolvem o foco a quem abriu. */
@@ -511,6 +885,9 @@
     fundoEl = null;
     catalogo = null;
     indiceDeBusca = new Map();
+    vista = 'lista';
+    pv = null; // a árvore da prévia e os resultados das 54 situações não ficam na memória do CRM depois de fechar
+    ui = null;
     const volta = focoAnterior;
     focoAnterior = null;
     if (devolverFoco && volta?.isConnected) {
@@ -525,26 +902,30 @@
   }
 
   /** Folga à esquerda do fundo: 16px, e mais só se o diálogo centralizado de verdade encostaria no menu lateral do CRM. */
-  function folgaEsquerda() {
+  function folgaEsquerda(larguraDoPainel = CONFIG_EDITOR.LARGURA_PAINEL) {
     const menu = window.__smartTableUtil?.margemMenuLateral?.() ?? 0;
-    const largura = Math.min(CONFIG_EDITOR.LARGURA_PAINEL, window.innerWidth - 32);
+    const largura = Math.min(larguraDoPainel, window.innerWidth - 32);
     const esquerdaCentral = (window.innerWidth - largura) / 2;
     return menu > 0 && esquerdaCentral < menu + 16 ? menu + 16 : 16;
   }
 
   /** O que dá pra focar dentro do diálogo (pro Tab não sair dele). */
   function focaveisDoPainel() {
-    return [...painelEl.querySelectorAll('button, input, select, textarea, [data-papel="corpo"]')].filter((e) => !e.disabled && visivel(e));
+    return [...painelEl.querySelectorAll('button, input, select, textarea, [data-papel="corpo"], [data-papel="corpo-previa"]')].filter((e) => !e.disabled && visivel(e));
   }
 
   /**
    * Rolagem pelo teclado: com o foco no diálogo (ou na lista), as setas, PageUp/PageDown, Home/End e Espaço rolam A LISTA.
-   * Sem isto, o navegador rola a página do CRM que está atrás do diálogo (o diálogo tem overflow oculto). Nos campos e botões
-   * as teclas seguem nativas (cursor da busca, Espaço no botão).
+   * Sem isto, o navegador rola a página do CRM que está atrás do diálogo (o diálogo tem overflow oculto). Nos campos (a busca, o seletor,
+   * as caixas de edição) as teclas seguem nativas. Com o foco num BOTÃO (a prévia abre com o foco em "← Voltar à lista") as setas,
+   * PageUp/PageDown, Home e End também rolam a lista, em qualquer botão do diálogo; o Espaço fica com o botão (é o clique dele).
    */
   function rolarPelaTecla(e) {
-    const corpo = painelEl.querySelector('[data-papel="corpo"]');
-    if (!corpo || (e.target !== painelEl && e.target !== corpo) || e.altKey || e.ctrlKey || e.metaKey) return false;
+    const corpo = painelEl.querySelector(vista === 'previa' ? '[data-papel="corpo-previa"]' : '[data-papel="corpo"]');
+    // Com o foco num BOTÃO (a prévia abre com o foco em "← Voltar à lista") as setas, PageUp/PageDown, Home e End também rolam a lista; o Espaço
+    // fica com o botão (é o clique dele).
+    const noBotao = e.target?.tagName === 'BUTTON';
+    if (!corpo || (e.target !== painelEl && e.target !== corpo && !noBotao) || (noBotao && e.key === ' ') || e.altKey || e.ctrlKey || e.metaKey) return false;
     const pagina = Math.max(40, Math.round(corpo.clientHeight * 0.9));
     const passos = {
       ArrowDown: () => corpo.scrollBy(0, 40), ArrowUp: () => corpo.scrollBy(0, -40),
@@ -562,7 +943,7 @@
   function aoTeclar(e) {
     // O Módulo 4 pode fechar o diálogo (Alt+X) na fase de captura e a tecla ainda chegar ao campo que já saiu da tela.
     if (!painelEl) return;
-    if (e.key === 'Escape') { e.preventDefault(); fecharPainel({ devolverFoco: true }); return; }
+    if (e.key === 'Escape') { e.preventDefault(); aoApertarEsc(); return; }
     if (rolarPelaTecla(e)) return;
     if (e.key === 'Tab') {
       // Tab conduzido por nós (mesmo cuidado do Alt+N): o nativo do Chromium às vezes passa por "nenhum elemento".
@@ -605,14 +986,16 @@
     painelEl.setAttribute('aria-label', 'Mensagens do Alt+A');
 
     const topo = el('div', {}, { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', padding: '14px 18px 10px', borderBottom: `1px solid ${CORES.borda}` });
-    topo.appendChild(el('div', { textContent: 'Mensagens do Alt+A' }, { fontWeight: '700', fontSize: '16px', color: CORES.tinta }));
+    const tituloEl = el('div', { textContent: TEXTOS_DA_PREVIA.tituloDaLista }, { fontWeight: '700', fontSize: '16px', color: CORES.tinta });
+    topo.appendChild(tituloEl);
     const x = el('button', { type: 'button', textContent: '✕' }, { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '16px', color: CORES.apagado, padding: '2px 4px' });
     x.setAttribute('aria-label', 'Fechar (Esc)');
     x.addEventListener('click', () => fecharPainel({ devolverFoco: true }));
     topo.appendChild(x);
     painelEl.appendChild(topo);
 
-    painelEl.appendChild(campoDeBusca());
+    const buscaEl = campoDeBusca();
+    painelEl.appendChild(buscaEl);
 
     const meio = el('div', {}, { flex: '1 1 auto', minHeight: '0', overflowY: 'auto', padding: '8px 18px 14px' });
     meio.dataset.papel = 'corpo';
@@ -622,16 +1005,31 @@
     meio.setAttribute('aria-label', 'Lista de textos');
     desenharLista(meio);
     painelEl.appendChild(meio);
+    // A prévia só existe se o Módulo 32 (as situações) carregou; sem ele, o botão "Ver prévia" nem aparece.
+    const comPrevia = !!window.__cenariosPrevia;
+    if (comPrevia) painelEl.appendChild(montarPrevia());
 
     const rodape = el('div', {}, { borderTop: `1px solid ${CORES.borda}`, padding: '10px 18px 14px', background: '#FAFBFC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' });
-    rodape.appendChild(el('div', { textContent: 'As edições ficam como rascunho neste navegador; publicar vem a seguir. Esc fecha.' }, { fontSize: '12px', color: CORES.apagado }));
-    const fechar = el('button', { type: 'button', textContent: 'Fechar' }, {
-      padding: '9px 14px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '13px', cursor: 'pointer',
-    });
+    const dicaEl = el('div', { textContent: TEXTOS_DA_PREVIA.dicaDaLista }, { fontSize: '12px', color: CORES.apagado });
+    dicaEl.dataset.papel = 'dica';
+    rodape.appendChild(dicaEl);
+    const botoesDoRodape = el('div', {}, { display: 'flex', gap: '8px', flex: '0 0 auto' });
+    const estiloDoBotao = { padding: '9px 14px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '13px', cursor: 'pointer' };
+    let previaBotaoEl = null;
+    if (comPrevia) {
+      previaBotaoEl = el('button', { type: 'button', textContent: 'Ver prévia' }, estiloDoBotao);
+      previaBotaoEl.dataset.papel = 'ver-previa';
+      previaBotaoEl.addEventListener('click', abrirPrevia);
+      botoesDoRodape.appendChild(previaBotaoEl);
+    }
+    const fechar = el('button', { type: 'button', textContent: 'Fechar' }, estiloDoBotao);
     fechar.dataset.papel = 'fechar';
     fechar.addEventListener('click', () => fecharPainel({ devolverFoco: true }));
-    rodape.appendChild(fechar);
+    botoesDoRodape.appendChild(fechar);
+    rodape.appendChild(botoesDoRodape);
     painelEl.appendChild(rodape);
+    ui = { tituloEl, buscaEl, listaEl: meio, dicaEl, previaBotaoEl };
+    atualizarRodape();
 
     painelEl.addEventListener('keydown', (e) => { e.stopPropagation(); aoTeclar(e); });
     fundoEl.appendChild(painelEl);
@@ -646,7 +1044,7 @@
 
   document.addEventListener('keydown', (e) => {
     if (!painelEl) return;
-    if (e.code === 'Escape') { fecharPainel({ devolverFoco: true }); return; }
+    if (e.code === 'Escape') { aoApertarEsc(); return; }
     // Foco perdido pra página (nenhum elemento focado): o diálogo reassume e trata a tecla.
     if (e.target === document.body || e.target === document.documentElement) {
       painelEl.focus({ preventScroll: true });
