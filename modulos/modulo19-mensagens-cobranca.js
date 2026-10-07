@@ -47,7 +47,9 @@
   } = window.__smartTableUtil;
 
   // Catálogo de textos (Módulo 30): T devolve o texto da forma pedida com as variáveis trocadas; padrao devolve o texto embutido.
-  const { T, padrao } = window.__catalogoMensagens;
+  const { T: textoDoCatalogo, padrao } = window.__catalogoMensagens;
+  // Todo texto aceita variantes (RN-F4): a variante do dia sai de cliente + dia em QUALQUER texto (a semente só é calculada com mais de uma).
+  const T = (chave, opcoes = {}) => textoDoCatalogo(chave, { semente: sementeDaFrase, ...opcoes });
 
   /* ---------------------------------------------------------------------
    * AMBIENTE (R2, etapa 3: prévia do editor de mensagens)
@@ -750,7 +752,8 @@
     if (resumo?.inadimplente) {
       frases.push(T('acordo.misto.inadimplente', { vars: { acordo_data: dataCurtaIso(resumo.inadimplente.dataCriacao) } }));
     }
-    return frases.length > 0 ? [frases.join(' ')] : [];
+    const presentes = frases.filter(Boolean); // frase desativada no catálogo sai vazia: não deixa espaço nem balão
+    return presentes.length > 0 ? [presentes.join(' ')] : [];
   }
 
   /** Tudo em acordo ATIVA: sem relatório, só a parcela (A ou B). */
@@ -758,6 +761,7 @@
     const linhas = [obterLinhaApresentacao(), obterLinhaContatoRecente()].filter(Boolean);
     const frase = ativa.atrasada ? fraseParcelaAtrasada(ativa.parcela) : fraseLembreteParcela(ativa.parcela);
     return [linhas.length > 0 ? `{{saudacao_com_nome}} ${linhas[0]}` : '{{saudacao_com_nome}}', ...linhas.slice(1), frase]
+      .filter(Boolean) // parcela desativada no catálogo: sem balão vazio
       .map((parte) => substituirVariaveisDaFrase(parte, dados));
   }
 
@@ -779,9 +783,9 @@
       return [
         // Primeiro contato: {{saudacao}} (SEM nome) de propósito (decisão do usuário, 05/10/2026). Ainda não se sabe com quem
         // se fala: a pergunta abaixo é justamente a confirmação, e cumprimentar pelo nome antes dela se contradiz.
-        `{{saudacao}} ${montarApresentacao()}`,
+        ['{{saudacao}}', montarApresentacao()].filter(Boolean).join(' '),
         T('primeiroContato.pergunta'),
-      ].map((parte) => substituirVariaveisDaFrase(parte, dados));
+      ].filter(Boolean).map((parte) => substituirVariaveisDaFrase(parte, dados));
     }
 
     const resumoAcordos = negociacoes()?.resumoDeCobranca?.(dados?.registros ?? []) ?? null;
@@ -826,14 +830,17 @@
     // prévia, a legenda, ambas pelo Win+V (ver textoAvisoDasPartes).
     if (precisaDoRelatorio(omitirRelatorio, linhaSituacao, montarBlocoSobreADivida(dados))) {
       partes.push(MARCADOR_IMAGEM_RELATORIO);
-      partes.push(montarLegendaRelatorio(escolhido, dados));
+      const legenda = montarLegendaRelatorio(escolhido, dados);
+      if (legenda) partes.push(legenda); // legenda desativada no catálogo: só a imagem, sem balão vazio
     } else if (linhaSituacao) {
       partes.push(linhaSituacao);
     }
     if (precisaDePerguntaFinal(linhaSituacao, blocoContexto)) {
       const pergunta = obterPerguntaFinal(escolhido, dados);
       const ressalva = obterRessalvaPagamentoEmDiaNaoUtil(dados);
-      partes.push(ressalva ? `${pergunta} ${ressalva}` : pergunta);
+      // Pergunta final desativada no catálogo: sem ela a ressalva segue sozinha e, sem as duas, nenhum balão vazio.
+      const finalDaMensagem = [pergunta, ressalva].filter(Boolean).join(' ');
+      if (finalDaMensagem) partes.push(finalDaMensagem);
     }
 
     return partes.map((parte) => (parte === MARCADOR_IMAGEM_RELATORIO ? parte : substituirVariaveisDaFrase(parte, dados)));

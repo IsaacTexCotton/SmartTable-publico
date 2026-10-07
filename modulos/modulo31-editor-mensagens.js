@@ -111,6 +111,7 @@
     padrao: ['padrão', CORES.ok, CORES.fundoOk],
     editado: ['editado', CORES.alerta, CORES.fundoAlerta],
     rascunho: ['rascunho', CORES.marca, CORES.fundoMarca],
+    desativado: ['desativado', CORES.alerta, CORES.fundoAlerta],
   };
   function selo(tipo) {
     const [texto, cor, fundo] = SELOS[tipo];
@@ -140,7 +141,9 @@
 
   /** Tudo o que a busca enxerga de um texto: título e os textos (em uso, padrão e rascunho) de todas as formas. */
   function indexar(def) {
-    const palavras = [def.titulo];
+    // A busca olha o nome e só a nota que o usuário escreveu (o "quando aparece" de fábrica fica fora, como sempre).
+    const dosEstados = [estadoEmUso(def), ...(estadoRascunho(def) ? [estadoRascunho(def)] : [])].flatMap(([, nome, nota]) => [nome, ...(nota === def.quando ? [] : [nota])]);
+    const palavras = [def.titulo, situacaoDe(def), ...dosEstados];
     def.formas.forEach((forma) => palavras.push(...emUsoDe(def, forma), ...forma.padrao, ...(rascunhoDe(def, forma) ?? [])));
     indiceDeBusca.set(def.chave, semAcento(palavras.join(' ')));
   }
@@ -183,11 +186,288 @@
     return linha;
   }
 
+  /* ---- estado do texto (ativo, nome e nota): é uma "forma" especial do Módulo 30 e passa por rascunho, prévia e publicação como as frases ---- */
+  const FE = C.FORMA_ESTADO;
+  const TEXTOS_DO_ESTADO = {
+    usar: 'Usar este trecho na mensagem',
+    desativado: 'Desativado: a mensagem sai sem este trecho. Reative quando quiser.',
+    reativar: 'Reativar',
+    desativar: 'Desativar',
+    confirmarPergunta: 'Sem esta pergunta final, a mensagem sai sem pergunta para o cliente. Desativar mesmo?',
+    renomear: 'Renomear',
+    nome: 'Nome',
+    nota: 'Nota (não muda quando a frase vale)',
+    aplicar: 'Aplicar',
+    cancelar: 'Cancelar',
+    restaurar: 'Restaurar o padrão',
+    pedacoDeFrase: 'Este trecho é um pedaço de outra frase: dá para renomear, mas não para desativar.',
+    notaDoCartao: 'Nota: ',
+    ativoNaLista: 'Ativo',
+    desativadoNaLista: 'Desativado: a mensagem sai sem este trecho',
+  };
+  /** O estado em uso (publicado ou padrão), o do rascunho (ou null) e o que vale na tela (rascunho, senão em uso): `[ativo, nome, nota]`. */
+  const estadoEmUso = (def) => catalogo.publicado[def.chave]?.[FE] ?? C.padrao(def.chave, FE);
+  const estadoRascunho = (def) => catalogo.rascunho?.textos?.[def.chave]?.[FE] ?? null;
+  const estadoDe = (def) => estadoRascunho(def) ?? estadoEmUso(def);
+  const mesmaLista = (a, b) => a.length === b.length && a.every((t, i) => t === b[i]);
+  /** As linhas que a tela mostra para um estado guardado (a mesma forma de ler no Publicar e no Histórico). */
+  const linhasDoEstado = (lista) => [lista[0] === '0' ? TEXTOS_DO_ESTADO.desativadoNaLista : TEXTOS_DO_ESTADO.ativoNaLista, `${TEXTOS_DO_ESTADO.nome}: ${lista[1]}`, `Nota: ${lista[2] || '(sem nota)'}`];
+  /** Textos que ainda estão sendo renomeados e os que esperam a confirmação de "Desativar". */
+  const renomeando = new Set();
+  const confirmandoDesativar = new Set();
+
+  /** Grava o estado de um texto como rascunho e redesenha o cabeçalho dele. @returns {boolean} gravou */
+  function gravarEstado(def, lista) {
+    const r = C.salvarRascunho(def.chave, FE, lista);
+    if (!r.ok) {
+      window.__smartTableUtil?.toast?.(textoDaFalha(r.motivo, 'o rascunho'), 6000);
+      return false;
+    }
+    catalogo = C.lerCatalogo();
+    renomeando.delete(def.chave);
+    confirmandoDesativar.delete(def.chave);
+    redesenharCabecalho(def);
+    indexar(def);
+    atualizarBotoesDoRodape();
+    return true;
+  }
+
+  function redesenharCabecalho(def) {
+    const cartao = [...painelEl.querySelectorAll('section[data-chave]')].find((c) => c.dataset.chave === def.chave);
+    cartao?.querySelector('[data-papel="cabecalho-texto"]')?.replaceWith(cabecalhoDoTexto(def));
+  }
+
+  function formularioDeNome(def, [ativo, nome, nota]) {
+    const caixa = el('div', {}, { marginTop: '6px', padding: '8px 10px', border: `1px solid ${CORES.marca}`, borderRadius: '8px', background: '#FAFCFE' });
+    caixa.dataset.papel = 'renomear';
+    const campo = (rotulo, valor, papel, max) => {
+      caixa.appendChild(el('label', { textContent: rotulo }, { display: 'block', fontSize: '11px', fontWeight: '600', color: CORES.apagado, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '4px 0 2px' }));
+      const c = el('input', { type: 'text', value: valor, maxLength: max, 'aria-label': rotulo }, {
+        width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: '13px', fontFamily: 'inherit', color: CORES.tinta, border: `1px solid ${CORES.borda}`, borderRadius: '6px', background: CORES.fundo,
+      });
+      c.dataset.papel = papel;
+      caixa.appendChild(c);
+      return c;
+    };
+    const nomeEl = campo(TEXTOS_DO_ESTADO.nome, nome, 'campo-nome', C.MAX_NOME);
+    const notaEl = campo(TEXTOS_DO_ESTADO.nota, nota, 'campo-nota', C.MAX_NOTA_TEXTO);
+    const erroEl = el('div');
+    erroEl.dataset.papel = 'erro-renomear';
+    erroEl.setAttribute('role', 'alert');
+    caixa.appendChild(erroEl);
+    const botoes = el('div', {}, { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' });
+    const aplicar = () => {
+      const lista = [ativo, nomeEl.value.replace(/\s+/g, ' ').trim(), notaEl.value.replace(/\s+/g, ' ').trim()];
+      const { erros } = C.validarLista(def, lista, FE);
+      if (erros.length > 0) { erroEl.replaceChildren(...erros.map((t) => faixaDeProblema('erro', t))); return; }
+      gravarEstado(def, lista);
+    };
+    botoes.append(
+      botaoTexto(TEXTOS_DO_ESTADO.cancelar, () => { renomeando.delete(def.chave); redesenharCabecalho(def); }, 'cancelar-renomear'),
+      botaoTexto(TEXTOS_DO_ESTADO.aplicar, aplicar, 'aplicar-renomear'),
+    );
+    caixa.appendChild(botoes);
+    return caixa;
+  }
+
+  /* ---- organização das situações (sprint 3, RN-B1 e RN-B2): só agrupa a tela, nenhuma mensagem muda. É o pseudo-texto `_organizacao` do Módulo 30 ---- */
+  const CO = C.CHAVE_ORGANIZACAO;
+  const TEXTOS_DAS_SITUACOES = {
+    nova: '+ Nova situação',
+    nomeInicial: 'Nova situação',
+    subir: (nome) => `Subir a situação “${nome}”`,
+    descer: (nome) => `Descer a situação “${nome}”`,
+    renomear: 'Renomear',
+    renomearRotulo: 'Nome da situação',
+    apagar: 'Apagar situação',
+    confirmarApagar: (nome) => `Apagar a situação “${nome}”? Ela está vazia, então nenhuma mensagem muda. Se publicar e se arrepender, a versão anterior volta pelo Histórico.`,
+    apagarSim: 'Apagar',
+    doSistema: 'Situação do sistema: só renomeia e reordena.',
+    vazia: 'Nenhum texto aqui. Mova um texto para cá.',
+    vaziaPodeApagar: 'Nenhum texto aqui. Mova um texto para cá ou apague a situação.',
+    mover: 'Mover para',
+    moverRotulo: (nome) => `Mover “${nome}” para outra situação`,
+    limite: (n) => `Já são ${n} situações: esse é o limite.`,
+    organizacao: 'Organização das situações',
+    movido: (texto, situacao) => `Movido: ${texto} → ${situacao}`,
+    semMudanca: 'Só organiza a tela: nenhuma mensagem muda.',
+  };
+  const orgEmUso = () => catalogo.publicado[CO]?.unico ?? C.padrao(CO, 'unico');
+  const orgRascunho = () => catalogo.rascunho?.textos?.[CO]?.unico ?? null;
+  /** A organização que a tela mostra (rascunho, senão em uso), já lida: `{ situacoes, movidos }`. */
+  const orgAtual = () => C.organizacaoDe(orgRascunho() ?? orgEmUso());
+  /** As linhas legíveis de uma organização guardada (o Publicar e o Histórico). */
+  function linhasDaOrganizacao(lista) {
+    const org = C.organizacaoDe(lista);
+    const nomeDe = (id) => org.situacoes.find((x) => x.id === id)?.nome ?? '?';
+    return [
+      ...org.situacoes.map((x, i) => `${i + 1}. ${x.nome}`),
+      ...Object.keys(org.movidos).map((chave) => TEXTOS_DAS_SITUACOES.movido(C.defDe(chave)?.titulo ?? chave, nomeDe(org.movidos[chave]))),
+    ];
+  }
+  /** A situação (nome) em que o texto aparece na tela, para a busca. */
+  const situacaoDe = (def) => {
+    const org = orgAtual();
+    return (org.situacoes.find((x) => x.id === C.situacaoDoTexto(def, org)) ?? org.situacoes[0]).nome;
+  };
+  const renomeandoSituacao = new Set();
+  const apagandoSituacao = new Set();
+
+  /** Grava a organização como rascunho e redesenha a lista (a busca e a rolagem ficam). `foco`: o papel (e o id) do controle que recebe o foco depois. */
+  function gravarOrganizacao(org, foco) {
+    if (!fecharEdicao()) return false; // a lista vai ser refeita: grava antes o texto que estava sendo digitado
+    const r = C.salvarRascunho(CO, 'unico', C.listaDaOrganizacao(org));
+    if (!r.ok) {
+      window.__smartTableUtil?.toast?.(textoDaFalha(r.motivo, 'o rascunho'), 6000);
+      return false;
+    }
+    catalogo = C.lerCatalogo();
+    refazerListaMantendoRolagem(foco?.papel, foco?.id);
+    atualizarBotoesDoRodape();
+    return true;
+  }
+
+  function criarSituacao() {
+    const org = orgAtual();
+    if (org.situacoes.length >= C.MAX_SITUACOES) { window.__smartTableUtil?.toast?.(TEXTOS_DAS_SITUACOES.limite(org.situacoes.length), 5000); return; }
+    const numeros = org.situacoes.map((x) => /^n(\d+)$/.exec(x.id)).filter(Boolean).map((m) => Number(m[1]));
+    const id = `n${Math.max(0, ...numeros) + 1}`;
+    const usados = new Set(org.situacoes.map((x) => x.nome.toLowerCase()));
+    let nome = TEXTOS_DAS_SITUACOES.nomeInicial;
+    for (let n = 2; usados.has(nome.toLowerCase()); n += 1) nome = `${TEXTOS_DAS_SITUACOES.nomeInicial} ${n}`;
+    org.situacoes.push({ id, nome, base: false });
+    renomeandoSituacao.add(id);
+    if (!gravarOrganizacao(org, { papel: 'campo-nome-situacao', id })) renomeandoSituacao.delete(id);
+  }
+
+  function renomearSituacao(id, nomeDigitado) {
+    const org = orgAtual();
+    const nome = nomeDigitado.replace(/\s+/g, ' ').trim();
+    org.situacoes.find((x) => x.id === id).nome = nome;
+    const { erros } = C.validarLista(C.defDe(CO), C.listaDaOrganizacao(org), 'unico');
+    if (erros.length > 0) return erros;
+    renomeandoSituacao.delete(id);
+    gravarOrganizacao(org, { papel: 'renomear-situacao', id });
+    return [];
+  }
+
+  function moverSituacao(id, delta) {
+    const org = orgAtual();
+    const i = org.situacoes.findIndex((x) => x.id === id);
+    const j = i + delta;
+    if (j < 0 || j >= org.situacoes.length) return;
+    [org.situacoes[i], org.situacoes[j]] = [org.situacoes[j], org.situacoes[i]];
+    gravarOrganizacao(org, { papel: delta < 0 ? 'subir-situacao' : 'descer-situacao', id });
+  }
+
+  function apagarSituacao(id) {
+    const org = orgAtual();
+    org.situacoes = org.situacoes.filter((x) => x.id !== id); // (o botão só existe em situação criada e vazia)
+    apagandoSituacao.delete(id);
+    gravarOrganizacao(org, { papel: 'nova-situacao' });
+  }
+
+  /** Move um texto para a situação `id` (voltar à de origem apaga o movimento). */
+  function moverTexto(def, id) {
+    const org = orgAtual();
+    if (id === String(def.bloco)) delete org.movidos[def.chave]; else org.movidos[def.chave] = id;
+    gravarOrganizacao(org, { papel: 'mover-texto', id: def.chave });
+  }
+
+  /** "Restaurar o padrão" do cartão: reativa, devolve o nome e a nota e volta o texto para a situação de origem. */
+  function restaurarTexto(def) {
+    const movido = orgAtual().movidos[def.chave] !== undefined;
+    if (movido && !fecharEdicao()) return; // (mover refaz a lista inteira)
+    if (!mesmaLista(estadoDe(def), C.padrao(def.chave, FE)) && !gravarEstado(def, [...C.padrao(def.chave, FE)])) return;
+    if (movido) moverTexto(def, String(def.bloco));
+  }
+
+  /** O alto do cartão: nome, nota, selos e os controles de "Usar este trecho", "Renomear" e "Restaurar o padrão". */
+  function cabecalhoDoTexto(def) {
+    const estado = estadoDe(def);
+    const [ativo, nome, nota] = estado;
+    const cab = el('div');
+    cab.dataset.papel = 'cabecalho-texto';
+    const titulo = el('div', {}, { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' });
+    titulo.appendChild(el('span', { textContent: nome }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
+    titulo.dataset.papel = 'titulo-do-texto';
+    if (ativo === '0') titulo.appendChild(selo('desativado'));
+    if (estadoRascunho(def)) titulo.appendChild(selo('rascunho'));
+    cab.appendChild(titulo);
+    const notaEl = el('div', { textContent: `${TEXTOS_DO_ESTADO.notaDoCartao}${nota}`, hidden: !nota }, { fontSize: '12px', color: CORES.apagado, marginTop: '1px' });
+    notaEl.dataset.papel = 'nota-do-texto';
+    cab.appendChild(notaEl);
+    if (somenteLeitura()) return cab;
+
+    const controles = el('div', {}, { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '6px' });
+    controles.dataset.papel = 'controles-do-texto';
+    if (def.semDesativar) {
+      const aviso = el('span', { textContent: TEXTOS_DO_ESTADO.pedacoDeFrase }, { fontSize: '12px', color: CORES.apagado });
+      aviso.dataset.papel = 'pedaco-de-frase';
+      controles.appendChild(aviso);
+    } else {
+      const rotulo = el('label', {}, { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: CORES.texto, cursor: 'pointer' });
+      const caixa = el('input', { type: 'checkbox', checked: ativo === '1' });
+      caixa.dataset.papel = 'usar-trecho';
+      caixa.addEventListener('change', () => {
+        if (caixa.checked) { gravarEstado(def, ['1', nome, nota]); return; }
+        if (def.pergunta === 'obrigatoria' && def.bloco === 1) { // pergunta final: a confirmação é mais forte
+          caixa.checked = true;
+          confirmandoDesativar.add(def.chave);
+          redesenharCabecalho(def);
+          return;
+        }
+        gravarEstado(def, ['0', nome, nota]);
+      });
+      rotulo.append(caixa, el('span', { textContent: TEXTOS_DO_ESTADO.usar }));
+      controles.appendChild(rotulo);
+    }
+    controles.appendChild(botaoTexto(TEXTOS_DO_ESTADO.renomear, () => { renomeando.add(def.chave); redesenharCabecalho(def); }, 'abrir-renomear'));
+    const org = orgAtual();
+    const atual = C.situacaoDoTexto(def, org);
+    const seletor = el('select', {}, { padding: '4px 6px', borderRadius: '8px', border: `1px solid ${CORES.borda}`, background: CORES.fundo, color: CORES.texto, fontSize: '12px', maxWidth: '200px' });
+    seletor.dataset.papel = 'mover-texto';
+    seletor.dataset.id = def.chave;
+    seletor.setAttribute('aria-label', TEXTOS_DAS_SITUACOES.moverRotulo(nome));
+    org.situacoes.forEach((x) => seletor.appendChild(el('option', { value: x.id, textContent: x.nome })));
+    seletor.value = atual;
+    seletor.addEventListener('change', () => moverTexto(def, seletor.value));
+    const rotuloMover = el('label', {}, { display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: CORES.apagado });
+    rotuloMover.append(el('span', { textContent: `${TEXTOS_DAS_SITUACOES.mover}:` }), seletor);
+    controles.appendChild(rotuloMover);
+    const movido = atual !== String(def.bloco);
+    if (!mesmaLista(estado, C.padrao(def.chave, FE)) || movido) {
+      controles.appendChild(botaoTexto(TEXTOS_DO_ESTADO.restaurar, () => restaurarTexto(def), 'restaurar-estado'));
+    }
+    cab.appendChild(controles);
+
+    if (ativo === '0') {
+      const faixa = el('div', {}, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', fontSize: '12px', color: CORES.alerta, background: CORES.fundoAlerta, borderRadius: '6px', padding: '4px 8px', marginTop: '6px' });
+      faixa.dataset.papel = 'faixa-desativado';
+      faixa.appendChild(el('span', { textContent: `⚠ ${TEXTOS_DO_ESTADO.desativado}` }));
+      faixa.appendChild(botaoTexto(TEXTOS_DO_ESTADO.reativar, () => gravarEstado(def, ['1', nome, nota]), 'reativar'));
+      cab.appendChild(faixa);
+    }
+    if (confirmandoDesativar.has(def.chave)) {
+      const conf = el('div', {}, { marginTop: '6px', padding: '8px 10px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', background: '#F7F8FA' });
+      conf.dataset.papel = 'confirmar-desativar';
+      conf.appendChild(el('div', { textContent: TEXTOS_DO_ESTADO.confirmarPergunta }, { fontSize: '13px', color: CORES.tinta, marginBottom: '8px' }));
+      const botoes = el('div', {}, { display: 'flex', gap: '8px' });
+      botoes.append(
+        botaoTexto(TEXTOS_DO_ESTADO.cancelar, () => { confirmandoDesativar.delete(def.chave); redesenharCabecalho(def); }, 'cancelar-desativar'),
+        botaoTexto(TEXTOS_DO_ESTADO.desativar, () => gravarEstado(def, ['0', nome, nota]), 'confirmar-desativar-sim'),
+      );
+      conf.appendChild(botoes);
+      cab.appendChild(conf);
+    }
+    if (renomeando.has(def.chave)) cab.appendChild(formularioDeNome(def, estado));
+    return cab;
+  }
+
   function cartaoDoTexto(def) {
     const cartao = el('section', {}, { padding: '10px 0 12px', borderBottom: `1px solid ${CORES.borda}` });
     cartao.dataset.chave = def.chave;
-    cartao.appendChild(el('div', { textContent: def.titulo }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
-    cartao.appendChild(el('div', { textContent: def.quando }, { fontSize: '12px', color: CORES.apagado, marginTop: '1px' }));
+    cartao.appendChild(cabecalhoDoTexto(def));
     def.formas.forEach((forma) => cartao.appendChild(linhaDaForma(def, forma)));
     indexar(def);
     return cartao;
@@ -359,6 +639,36 @@
     aoMudarTexto();
   }
 
+  /** Liga ou desliga o modo "Editar por texto": mostra a caixa única (com as frases de agora) ou volta às caixas. */
+  function alternarEdicaoPorTexto(ligar) {
+    edicao.areasEl.hidden = ligar;
+    edicao.adicionarEl.hidden = ligar || !edicao.def.rodizio;
+    edicao.porTextoEl.hidden = ligar || !edicao.def.rodizio;
+    edicao.blocoTextoEl.hidden = !ligar;
+    if (ligar) {
+      edicao.textoEl.value = edicao.areas.map((a) => a.ta.value).join('\n');
+      edicao.contagemTextoEl.textContent = `Máximo de ${C.MAX_VARIANTES} frases (agora: ${edicao.areas.length}).`;
+      edicao.textoEl.focus();
+    } else {
+      edicao.areas[0].ta.focus();
+    }
+  }
+
+  /** As linhas da caixa única viram as caixas de variante (a partir da 13ª, cortadas com aviso); com tudo apagado fica uma caixa vazia. */
+  function sincronizarPorTexto() {
+    const linhas = edicao.textoEl.value.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '');
+    const aceitas = linhas.slice(0, C.MAX_VARIANTES);
+    edicao.areasEl.replaceChildren();
+    edicao.areas = [];
+    edicao.ultimoFoco = null;
+    (aceitas.length > 0 ? aceitas : ['']).forEach((v) => adicionarArea(v));
+    renumerarVariantes();
+    edicao.contagemTextoEl.textContent = linhas.length > C.MAX_VARIANTES
+      ? `Máximo de ${C.MAX_VARIANTES} frases: as ${linhas.length - C.MAX_VARIANTES} linhas extras foram ignoradas.`
+      : `Máximo de ${C.MAX_VARIANTES} frases (agora: ${aceitas.length}).`;
+    aoMudarTexto();
+  }
+
   function formularioDeEdicao(def, forma) {
     const caixa = el('div', {}, { marginTop: '6px', padding: '10px 12px', border: `1px solid ${CORES.marca}`, borderRadius: '8px', background: '#FAFCFE' });
     caixa.dataset.papel = 'edicao';
@@ -383,6 +693,30 @@
     Object.assign(edicao.adicionarEl.style, { marginTop: '8px' });
     edicao.adicionarEl.hidden = !def.rodizio;
     caixa.appendChild(edicao.adicionarEl);
+
+    // "Editar por texto": uma caixa só, uma frase por linha. As caixas (`edicao.areas`) seguem sendo a fonte da verdade: a cada tecla as linhas
+    // viram caixas (linha vazia é ignorada; da 13ª em diante é cortada, com aviso), então validação e gravação são as de sempre.
+    edicao.porTextoEl = botaoTexto('Editar por texto', () => alternarEdicaoPorTexto(true), 'editar-por-texto');
+    Object.assign(edicao.porTextoEl.style, { marginTop: '8px', marginLeft: '8px' });
+    edicao.porTextoEl.hidden = !def.rodizio;
+    caixa.appendChild(edicao.porTextoEl);
+    edicao.blocoTextoEl = el('div', { hidden: true }, { marginTop: '6px' });
+    edicao.blocoTextoEl.dataset.papel = 'bloco-por-texto';
+    edicao.blocoTextoEl.appendChild(el('div', { textContent: 'Uma frase por linha. Linha vazia é ignorada.' }, { fontSize: '12px', color: CORES.apagado, marginBottom: '2px' }));
+    edicao.textoEl = el('textarea', { rows: 6, spellcheck: true, 'aria-label': 'Todas as frases, uma por linha' }, {
+      width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: '13px', lineHeight: '1.45', fontFamily: 'inherit', color: CORES.tinta,
+      border: `1px solid ${CORES.borda}`, borderRadius: '6px', background: CORES.fundo, resize: 'vertical',
+    });
+    edicao.textoEl.dataset.papel = 'campo-por-texto';
+    edicao.textoEl.addEventListener('input', sincronizarPorTexto);
+    edicao.textoEl.addEventListener('blur', () => { if (edicao?.timer) salvarAgora(); });
+    edicao.contagemTextoEl = el('div', {}, { fontSize: '12px', color: CORES.apagado, marginTop: '2px' });
+    edicao.contagemTextoEl.dataset.papel = 'contagem-por-texto';
+    edicao.contagemTextoEl.setAttribute('role', 'status');
+    edicao.voltarCaixasEl = botaoTexto('Voltar para as caixas', () => alternarEdicaoPorTexto(false), 'voltar-para-caixas');
+    Object.assign(edicao.voltarCaixasEl.style, { marginTop: '6px' });
+    edicao.blocoTextoEl.append(edicao.textoEl, edicao.contagemTextoEl, edicao.voltarCaixasEl);
+    caixa.appendChild(edicao.blocoTextoEl);
 
     const variaveis = C.variaveisDaForma(def.chave, forma.id) ?? [];
     if (variaveis.length) {
@@ -429,6 +763,8 @@
   }
 
   function pedirRestauro() {
+    const padraoDoEstado = C.padrao(edicao.chave, FE);
+    edicao.restauroEl.firstChild.textContent = TEXTOS_DO_PADRAO.confirmar + (mesmaLista(estadoDe(edicao.def), padraoDoEstado) ? '' : ' Também reativa o trecho e devolve o nome e a nota originais.');
     edicao.restauroEl.hidden = false;
     edicao.cancelarRestauroEl.focus();
   }
@@ -440,6 +776,7 @@
 
   /** Põe o texto padrão nos campos e grava como RASCUNHO (publicar continua sendo um passo do usuário). */
   function restaurarPadrao() {
+    if (!mesmaLista(estadoDe(edicao.def), C.padrao(edicao.chave, FE))) gravarEstado(edicao.def, [...C.padrao(edicao.chave, FE)]); // reativa e devolve nome e nota
     edicao.areas.forEach((a) => a.wrap.remove());
     edicao.areas = [];
     edicao.forma.padrao.forEach((texto) => adicionarArea(texto));
@@ -521,7 +858,7 @@
       if (casa) visiveis += 1;
     });
     painelEl.querySelectorAll('[data-bloco]').forEach((bloco) => {
-      bloco.hidden = !bloco.querySelector('section[data-chave]:not([hidden])');
+      bloco.hidden = termos.length > 0 && !bloco.querySelector('section[data-chave]:not([hidden])');
     });
     painelEl.querySelector('[data-papel="sem-resultado"]').hidden = visiveis > 0;
   }
@@ -538,7 +875,88 @@
     return faixa;
   }
 
-  /** Monta a lista inteira: um cabeçalho por bloco (na ordem 1 a 5) e um cartão por texto. */
+  /** O cabeçalho de uma situação: o nome e, fora do modo leitura, subir, descer, renomear e (nas criadas e vazias) apagar. */
+  function cabecalhoDaSituacao(situacao, i, total, vazia) {
+    const caixa = el('div');
+    caixa.dataset.papel = 'cabecalho-situacao';
+    const cab = el('div', {}, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', paddingBottom: '2px', borderBottom: `2px solid ${CORES.fundoMarca}` });
+    cab.appendChild(el('h3', { textContent: situacao.nome }, { margin: '0', fontSize: '13px', fontWeight: '700', color: CORES.marca, textTransform: 'uppercase', letterSpacing: '0.04em', overflowWrap: 'anywhere' }));
+    caixa.appendChild(cab);
+    if (somenteLeitura()) return caixa;
+    const botao = (texto, aoClicar, papel, rotulo) => {
+      const b = botaoTexto(texto, aoClicar, papel);
+      b.dataset.id = situacao.id;
+      if (rotulo) b.setAttribute('aria-label', rotulo);
+      return b;
+    };
+    const acoes = el('div', {}, { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' });
+    const subir = botao('↑', () => moverSituacao(situacao.id, -1), 'subir-situacao', TEXTOS_DAS_SITUACOES.subir(situacao.nome));
+    const descer = botao('↓', () => moverSituacao(situacao.id, 1), 'descer-situacao', TEXTOS_DAS_SITUACOES.descer(situacao.nome));
+    habilitarBotao(subir, i > 0);
+    habilitarBotao(descer, i < total - 1);
+    acoes.append(subir, descer, botao(TEXTOS_DAS_SITUACOES.renomear, () => { renomeandoSituacao.add(situacao.id); refazerListaMantendoRolagem('campo-nome-situacao', situacao.id); }, 'renomear-situacao', `${TEXTOS_DAS_SITUACOES.renomear} a situação “${situacao.nome}”`));
+    if (!situacao.base && vazia) {
+      acoes.appendChild(botao(TEXTOS_DAS_SITUACOES.apagar, () => { apagandoSituacao.add(situacao.id); refazerListaMantendoRolagem('confirmar-apagar-situacao', situacao.id); }, 'apagar-situacao', `${TEXTOS_DAS_SITUACOES.apagar} “${situacao.nome}”`));
+    }
+    cab.appendChild(acoes);
+    if (situacao.base) {
+      const dica = el('div', { textContent: TEXTOS_DAS_SITUACOES.doSistema }, { fontSize: '11px', color: CORES.apagado, marginTop: '2px' });
+      dica.dataset.papel = 'situacao-do-sistema';
+      caixa.appendChild(dica);
+    }
+    if (renomeandoSituacao.has(situacao.id)) caixa.appendChild(formularioDaSituacao(situacao));
+    if (apagandoSituacao.has(situacao.id) && !situacao.base && vazia) caixa.appendChild(confirmacaoDeApagar(situacao));
+    return caixa;
+  }
+
+  /** Refaz a lista (a busca e a rolagem ficam) e, se pedido, põe o foco no controle `papel` da situação `id`. */
+  function refazerListaMantendoRolagem(papel, id) {
+    if (!fecharEdicao()) return; // a lista vai ser refeita: grava antes o texto que estava sendo digitado
+    const topo = ui.listaEl.scrollTop;
+    refazerLista();
+    ui.listaEl.scrollTop = topo;
+    if (papel) [...painelEl.querySelectorAll(`[data-papel="${papel}"]`)].find((e) => id === undefined || e.dataset.id === id)?.focus();
+  }
+
+  function formularioDaSituacao(situacao) {
+    const caixa = el('div', {}, { marginTop: '6px', padding: '8px 10px', border: `1px solid ${CORES.marca}`, borderRadius: '8px', background: '#FAFCFE' });
+    caixa.dataset.papel = 'formulario-situacao';
+    caixa.appendChild(el('label', { textContent: TEXTOS_DAS_SITUACOES.renomearRotulo }, { display: 'block', fontSize: '11px', fontWeight: '600', color: CORES.apagado, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '4px 0 2px' }));
+    const campo = el('input', { type: 'text', value: situacao.nome, maxLength: C.MAX_NOME_SITUACAO, 'aria-label': TEXTOS_DAS_SITUACOES.renomearRotulo }, {
+      width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: '13px', fontFamily: 'inherit', color: CORES.tinta, border: `1px solid ${CORES.borda}`, borderRadius: '6px', background: CORES.fundo,
+    });
+    campo.dataset.papel = 'campo-nome-situacao';
+    campo.dataset.id = situacao.id;
+    caixa.appendChild(campo);
+    const erroEl = el('div');
+    erroEl.dataset.papel = 'erro-situacao';
+    erroEl.setAttribute('role', 'alert');
+    caixa.appendChild(erroEl);
+    const aplicar = () => {
+      const erros = renomearSituacao(situacao.id, campo.value);
+      if (erros.length > 0) erroEl.replaceChildren(...erros.map((t) => faixaDeProblema('erro', t)));
+    };
+    const cancelar = () => { renomeandoSituacao.delete(situacao.id); refazerListaMantendoRolagem('renomear-situacao', situacao.id); };
+    campo.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); aplicar(); } });
+    const botoes = el('div', {}, { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' });
+    botoes.append(botaoTexto(TEXTOS_DO_ESTADO.cancelar, cancelar, 'cancelar-renomear-situacao'), botaoTexto(TEXTOS_DO_ESTADO.aplicar, aplicar, 'aplicar-renomear-situacao'));
+    caixa.appendChild(botoes);
+    return caixa;
+  }
+
+  function confirmacaoDeApagar(situacao) {
+    const conf = el('div', {}, { marginTop: '6px', padding: '8px 10px', border: `1px solid ${CORES.borda}`, borderRadius: '8px', background: '#F7F8FA' });
+    conf.dataset.papel = 'confirmar-apagar-situacao-caixa';
+    conf.appendChild(el('div', { textContent: TEXTOS_DAS_SITUACOES.confirmarApagar(situacao.nome) }, { fontSize: '13px', color: CORES.tinta, marginBottom: '8px' }));
+    const botoes = el('div', {}, { display: 'flex', gap: '8px' });
+    const sim = botaoTexto(TEXTOS_DAS_SITUACOES.apagarSim, () => apagarSituacao(situacao.id), 'confirmar-apagar-situacao');
+    sim.dataset.id = situacao.id;
+    botoes.append(botaoTexto(TEXTOS_DO_ESTADO.cancelar, () => { apagandoSituacao.delete(situacao.id); refazerListaMantendoRolagem('apagar-situacao', situacao.id); }, 'cancelar-apagar-situacao'), sim);
+    conf.appendChild(botoes);
+    return conf;
+  }
+
+  /** Monta a lista inteira: um cabeçalho por situação (na ordem da organização) e um cartão por texto. */
   function desenharLista(corpo) {
     indiceDeBusca = new Map();
     if (somenteLeitura()) {
@@ -553,13 +971,28 @@
     }
     const lista = el('div');
     lista.dataset.papel = 'lista';
-    Object.keys(C.BLOCOS).map(Number).sort((a, b) => a - b).forEach((bloco) => {
-      const defs = C.REGISTRO.filter((d) => d.bloco === bloco);
-      if (!defs.length) return;
+    const org = orgAtual();
+    if (!somenteLeitura()) {
+      const nova = botaoTexto(TEXTOS_DAS_SITUACOES.nova, criarSituacao, 'nova-situacao');
+      nova.style.marginTop = '12px';
+      lista.appendChild(nova);
+    }
+    // Cada texto na situação dele (a de origem ou a que o usuário escolheu); uma situação que o rascunho não conhece não esconde o texto: ele cai na primeira.
+    const ids = new Set(org.situacoes.map((x) => x.id));
+    const daSituacao = (x, i) => C.REGISTRO.filter((d) => {
+      const id = C.situacaoDoTexto(d, org);
+      return id === x.id || (i === 0 && !ids.has(id));
+    });
+    org.situacoes.forEach((situacao, i) => {
+      const defs = daSituacao(situacao, i);
       const secao = el('div', {}, { marginTop: '14px' });
-      secao.dataset.bloco = String(bloco);
-      const cab = el('h3', { textContent: C.BLOCOS[bloco] }, { margin: '0', fontSize: '13px', fontWeight: '700', color: CORES.marca, textTransform: 'uppercase', letterSpacing: '0.04em', paddingBottom: '2px', borderBottom: `2px solid ${CORES.fundoMarca}` });
-      secao.appendChild(cab);
+      secao.dataset.bloco = situacao.id;
+      secao.appendChild(cabecalhoDaSituacao(situacao, i, org.situacoes.length, defs.length === 0));
+      if (defs.length === 0) {
+        const vazia = el('div', { textContent: situacao.base ? TEXTOS_DAS_SITUACOES.vazia : TEXTOS_DAS_SITUACOES.vaziaPodeApagar }, { padding: '10px 0', fontSize: '13px', color: CORES.apagado });
+        vazia.dataset.papel = 'situacao-vazia';
+        secao.appendChild(vazia);
+      }
       defs.forEach((def) => secao.appendChild(cartaoDoTexto(def)));
       lista.appendChild(secao);
     });
@@ -589,6 +1022,7 @@
     quebrou: 'Não consegui montar esta situação.',
     imagem: '[imagem do relatório]',
     falhou: 'Não consegui montar a prévia.',
+    trechoDesativado: 'Este trecho está desativado: a mensagem sai sem ele.',
     novoParaLeitor: '(novo) ',
     removidoParaLeitor: '(removido) ',
   };
@@ -703,6 +1137,12 @@
     col.appendChild(contadores);
     // Só o "Depois" leva alerta: o "Antes" é o que já está em uso.
     if (comAlertas) resultado.alertas.forEach((alerta) => col.appendChild(alertaDeTamanho(alerta)));
+    if (comAlertas && resultado.desativados?.length > 0) {
+      const nomes = resultado.desativados.map((chave) => estadoDe(C.defDe(chave))[1]).join('; ');
+      const f = faixaDeProblema('aviso', `${TEXTOS_DA_PREVIA.trechoDesativado} (${nomes})`);
+      f.dataset.papel = 'aviso-desativado';
+      col.appendChild(f);
+    }
     return col;
   }
 
@@ -791,7 +1231,7 @@
     selectEl.dataset.papel = 'variante';
     selectEl.addEventListener('change', () => {
       try {
-        calcularPrevia(selectEl.value === '' ? null : Number(selectEl.value));
+        calcularPrevia(selectEl.value === '' ? null : selectEl.value === 'maior' ? 'maior' : Number(selectEl.value));
       } catch (erro) {
         // A tela segue mostrando a escolha anterior: o seletor volta a ela (senão ele mostraria uma variante e a lista outra).
         selectEl.value = pv.variante === null ? '' : String(pv.variante);
@@ -873,7 +1313,7 @@
     pv.todasEl.checked = false;
     pv.controlesEl.style.display = 'flex';
     if (pv.textos) {
-      const opcoes = [el('option', { value: '', textContent: 'Padrão da prévia' })];
+      const opcoes = [el('option', { value: '', textContent: 'Padrão da prévia' }), el('option', { value: 'maior', textContent: 'Pior caso (frase mais longa)' })];
       for (let i = 0; i < maiorQuantidadeDeVariantes(fresco); i += 1) opcoes.push(el('option', { value: String(i), textContent: `Variante ${i + 1}` }));
       pv.selectEl.replaceChildren(...opcoes);
       pv.selectEl.value = '';
@@ -958,12 +1398,27 @@
     regiao: 'Textos que mudam',
   };
   const textoDoContador = (n) => `${n} ${n === 1 ? 'texto muda' : 'textos mudam'}`;
-  const textoDoAvisoDeAcordo = ({ n, limite, teto }) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} de ${limite} caracteres e ${n === 1 ? 'cabe' : 'cabem'} no limite do acordo (${teto}). Isso não impede de publicar.`;
-  const textoDoTamanho = (n) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} do limite de tamanho. Isso não impede de publicar.`;
+  /** O contador da tela Publicar: os textos que mudam e, à parte, a organização das situações (que só arruma a tela). */
+  function textoDoContadorDaPublicacao(mudancas) {
+    const textos = mudancas.filter((m) => m.chave !== CO).length;
+    if (textos === mudancas.length) return textoDoContador(textos);
+    const organizacao = `a organização das situações ${textos > 0 ? 'também ' : ''}muda (não altera nenhuma mensagem)`;
+    return textos > 0 ? `${textoDoContador(textos)}; ${organizacao}` : `${organizacao[0].toUpperCase()}${organizacao.slice(1)}`;
+  }
+  const textoDoAvisoDeAcordo = ({ n, limite, teto }) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} de ${limite} caracteres no pior caso e ${n === 1 ? 'cabe' : 'cabem'} no limite do acordo (${teto}). É só um lembrete: não impede de publicar.`;
+  const textoDoTamanho = (n) => `${n} ${n === 1 ? 'situação passa' : 'situações passam'} do limite de tamanho no pior caso (a frase mais longa de cada texto). É só um lembrete: não impede de publicar.`;
+
+  const textoDosDesativados = (nomes) => `${nomes.length} ${nomes.length === 1 ? 'trecho fica desativado' : 'trechos ficam desativados'}: a mensagem sai sem ${nomes.length === 1 ? 'ele' : 'eles'} (${nomes.join('; ')}). É só um lembrete: não impede de publicar.`;
+  /** Os nomes dos textos que ficam desativados depois de publicar o rascunho de agora (rascunho, senão o publicado). */
+  function textosDesativadosAposPublicar() {
+    const cat = C.lerCatalogo();
+    return C.REGISTRO.map((def) => ({ def, e: cat.rascunho?.textos?.[def.chave]?.[FE] ?? cat.publicado[def.chave]?.[FE] ?? null })).filter(({ e }) => e && e[0] === '0').map(({ e }) => e[1]);
+  }
 
   /** O nome de um texto (e da forma, quando há mais de uma) como a lista o mostra. */
   function tituloDoTexto(chave, formaId) {
     const def = C.defDe(chave);
+    if (formaId === FE) return `${def.titulo} — nome, nota e uso`;
     return `${def.titulo}${def.formas.length > 1 ? ` — ${def.formas.find((f) => f.id === formaId).rotulo}` : ''}`;
   }
 
@@ -974,8 +1429,9 @@
     item.dataset.texto = m.chave;
     item.appendChild(el('div', { textContent: tituloDoTexto(m.chave, m.forma) }, { fontWeight: '600', fontSize: '14px', color: CORES.tinta }));
     const colunas = el('div', {}, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(380px, 100%), 1fr))', gap: '0 12px' });
-    colunas.appendChild(colunaDeTextos(r.rotuloAntes, m.antes ?? C.padrao(m.chave, m.forma), r.papelAntes));
-    colunas.appendChild(colunaDeTextos(r.rotuloDepois, m.depois ?? C.padrao(m.chave, m.forma), r.papelDepois));
+    const legivel = (lista) => (m.chave === CO ? linhasDaOrganizacao(lista) : m.forma === FE ? linhasDoEstado(lista) : lista);
+    colunas.appendChild(colunaDeTextos(r.rotuloAntes, legivel(m.antes ?? C.padrao(m.chave, m.forma)), r.papelAntes));
+    colunas.appendChild(colunaDeTextos(r.rotuloDepois, legivel(m.depois ?? C.padrao(m.chave, m.forma)), r.papelDepois));
     item.appendChild(colunas);
     return item;
   }
@@ -990,7 +1446,7 @@
   function alertasDeTamanhoDaPublicacao() {
     const textos = C.lerCatalogo().rascunho?.textos; // (sem rascunho nenhuma situação é afetada)
     try {
-      const afetadas = window.__cenariosPrevia.rodarTodos({ textos }).filter((r) => r.afetado && r.depois);
+      const afetadas = window.__cenariosPrevia.rodarTodos({ textos, variantes: Object.fromEntries(chavesComRodizio().map((chave) => [chave, 'maior'])) }).filter((r) => r.afetado && r.depois);
       const comErro = afetadas.filter((r) => r.depois.alertas.some((a) => a.nivel === 'erro'));
       const avisos = afetadas.filter((r) => !comErro.includes(r)).map((r) => r.depois.alertas.find((a) => a.nivel === 'aviso')).filter(Boolean);
       return { erros: comErro.length, acordo: avisos.length > 0 ? { n: avisos.length, limite: avisos[0].limite, teto: avisos[0].teto } : null };
@@ -1012,7 +1468,7 @@
       pb.outraAba = false;
     } else {
       pb.outraAba = plano.outraAba;
-      pb.contadorEl.textContent = textoDoContador(plano.mudancas.length);
+      pb.contadorEl.textContent = textoDoContadorDaPublicacao(plano.mudancas);
       if (plano.outraAba) {
         const f = faixaDeProblema('aviso', TEXTOS_DA_PUBLICACAO.outraAba);
         f.dataset.papel = 'outra-aba';
@@ -1034,6 +1490,12 @@
         f.dataset.papel = 'aviso-publicacao';
         avisos.push(f);
       }));
+      const desativados = textosDesativadosAposPublicar();
+      if (desativados.length > 0) {
+        const f = faixaDeProblema('aviso', textoDosDesativados(desativados));
+        f.dataset.papel = 'aviso-desativados-publicacao';
+        avisos.push(f);
+      }
       const tamanho = alertasDeTamanhoDaPublicacao();
       if (tamanho.erros > 0) {
         const f = faixaDeProblema('aviso', textoDoTamanho(tamanho.erros));

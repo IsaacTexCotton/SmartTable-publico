@@ -24,6 +24,39 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.86.0', data: '07/10/2026',
+      mudancas: [
+        'Alt+X: agora você organiza as situações (os grupos da lista). "+ Nova situação" cria uma vazia; "Renomear", "↑" e "↓" mudam o nome e a ordem de qualquer uma, inclusive das 5 de sempre.',
+        'Alt+X: cada texto ganhou "Mover para", para trocá-lo de situação. "Restaurar o padrão" também devolve o texto à situação de origem.',
+        'Só situação criada por você e vazia pode ser apagada (com confirmação). As 5 de sempre não se apagam. Vale só depois de publicar, e a versão anterior volta pelo Histórico.',
+        'É só organização da tela: nenhuma mensagem do Alt+A muda. O Publicar mostra a organização à parte dos textos que mudam.',
+      ],
+    },
+    {
+      versao: '1.85.0', data: '06/10/2026',
+      mudancas: [
+        'Alt+X: cada texto ganhou o interruptor "Usar este trecho na mensagem". Desativado, a mensagem do Alt+A sai sem aquele trecho (vale só depois de publicar; "Reativar" volta). Nas perguntas finais pede confirmação, porque sem elas a mensagem sai sem pergunta.',
+        'Alt+X: novo botão "Renomear" em cada texto, para mudar o nome e a nota (a nota não muda quando a frase vale; é só um lembrete seu). "Restaurar o padrão" também reativa o trecho e devolve o nome e a nota originais.',
+        'Pedaços de uma frase maior (a saudação, "ontem", o destino do encaminhamento e as cores da legenda) só podem ser renomeados: vazios, a frase em volta sairia quebrada.',
+        'A prévia avisa nas situações em que o trecho desativado faz diferença, e a tela Publicar conta quantos trechos ficam desativados (é só um lembrete: não impede de publicar).',
+        'Correção: com a pergunta final, a apresentação ou uma frase do acordo desativadas, a mensagem não sai mais com espaço sobrando nem balão vazio.',
+      ],
+    },
+    {
+      versao: '1.84.0', data: '06/10/2026',
+      mudancas: [
+        'Alt+X: novo botão "Editar por texto" em cada texto. Junta todas as frases numa caixa só, uma por linha (linha vazia é ignorada, e a partir da 13ª frase as linhas são cortadas com aviso). "Voltar para as caixas" devolve as caixas de sempre.',
+        'A prévia ganhou a opção "Pior caso (frase mais longa)" no seletor: cada texto usa a sua frase mais longa, para você ver o maior tamanho que um cliente pode receber.',
+        'A tela Publicar agora mede o tamanho (5 balões, 320 por balão, 600 no total, 750 com acordo) nesse pior caso. É só um lembrete: nunca impede de publicar.',
+      ],
+    },
+    {
+      versao: '1.83.0', data: '06/10/2026',
+      mudancas: [
+        'Alt+X: todo texto agora aceita até 12 frases, não só as perguntas finais. Em "Editar", qualquer texto mostra "Adicionar variante" e "Remover". Com mais de uma frase, o Alt+A escolhe por cliente e dia (o mesmo cliente recebe a mesma frase no dia; clientes diferentes recebem frases diferentes). Com uma frase só, a mensagem é a mesma de antes.',
+      ],
+    },
+    {
       versao: '1.82.0', data: '06/10/2026',
       mudancas: [
         'Alt+X agora publica: na prévia, o botão "Publicar…" abre uma tela com o que muda ("Em uso" e "Novo"), os erros que impedem a publicação, os avisos de tamanho (que não impedem) e uma nota opcional. Depois de publicado, o texto passa a valer no Alt+A, neste navegador.',

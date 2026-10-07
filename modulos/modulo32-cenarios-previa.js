@@ -257,10 +257,14 @@
   // A montagem de um cenário, SEM abrir o modo prévia do catálogo (quem chama já está dentro de um `comRascunho`).
   function montar(c) {
     const { dados, ambiente, temAcordo } = entradasDe(c);
-    const partes = window.__mensagensCobranca.comAmbiente(ambiente, () => window.__mensagensCobranca.montarPartesMensagemPersonalizada(dados));
+    const C = window.__catalogoMensagens;
+    const montarPartes = () => window.__mensagensCobranca.comAmbiente(ambiente, () => window.__mensagensCobranca.montarPartesMensagemPersonalizada(dados));
+    const { resultado: partes, desativados: pedidos } = C.comColetaDeDesativados(montarPartes);
     if (!Array.isArray(partes)) return null;
     const { baloes, totais } = contarBaloes(partes);
-    return { partes, baloes, totais, alertas: avaliarLimites(totais, temAcordo) };
+    // `desativados`: chaves dos textos desativados que MUDAM esta mensagem (T pode ser chamado e o resultado descartado: só conta se religar o texto muda as partes).
+    const desativados = pedidos.filter((chave) => JSON.stringify(C.comTextosAtivos([chave], montarPartes)) !== JSON.stringify(partes));
+    return { partes, baloes, totais, alertas: avaliarLimites(totais, temAcordo), desativados };
   }
 
   const tentar = (fn) => {

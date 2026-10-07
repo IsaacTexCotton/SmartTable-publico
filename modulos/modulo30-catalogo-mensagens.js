@@ -34,6 +34,14 @@
   const VERSAO_ESQUEMA = 1;
   const MAX_VARIANTES = 12;
   const MAX_CARACTERES = 400;
+  /**
+   * Forma ESPECIAL de todo texto do registro (fora de `formas`): o ESTADO dele, guardado como lista de 3 textos `[ativo, nome, nota]`
+   * (`ativo` = '1' ou '0'). Passa pelo mesmo rascunho, publicação, histórico e "voltar versão" das frases; o padrão é `['1', título, quando]`.
+   * Desativado, o texto sai da mensagem (`T` devolve ''). O nome e a nota só aparecem no editor: não mudam a mensagem.
+   */
+  const FORMA_ESTADO = '_estado';
+  const MAX_NOME = 80;
+  const MAX_NOTA_TEXTO = 300;
   // Teto do que o validador percorre num catálogo salvo (o registro tem 35 textos e no máximo 6 formas por texto).
   const MAX_CHAVES_SALVAS = 500;
   const MAX_FORMAS_SALVAS = 50;
@@ -57,7 +65,7 @@
   });
 
   /* ---------------------------------------------------------------------
-   * REGISTRO. `formas`: lista { id, rotulo, padrao: [texto...] } (mais de um texto só nos que ROTACIONAM). `rodizio`: a lista de
+   * REGISTRO. `formas`: lista { id, rotulo, padrao: [texto...] } (todo texto aceita até 12 variantes). `rodizio` (true em todos): a lista de
    * variantes é escolhida por hash(cliente|dia). `pergunta`: 'obrigatoria' (todo texto tem "?"), 'proibida' (nenhum tem: a
    * pergunta final da mensagem já cumpre o papel, ver precisaDePerguntaFinal no Módulo 19) ou 'livre'. `exigir`/`evitar`:
    * regras de conteúdo JÁ documentadas (tests/rotacao-frases.test.js e comentários do Módulo 19, decisões do usuário).
@@ -66,8 +74,10 @@
   // `variaveis` (opcional): as variáveis que ESTA forma recebe; sem ela vale a lista do texto (`variaveis` de t()).
   const forma = (id, rotulo, texto, variaveis) => ({ id, rotulo, padrao: [texto], ...(variaveis ? { variaveis } : {}) });
   const t = (chave, bloco, titulo, quando, formas, opcoes = {}) => ({
-    chave, bloco, titulo, quando, formas, variaveis: [], semGlobais: false, rodizio: false, pergunta: 'livre', exigir: [], evitar: [], ...opcoes,
+    chave, bloco, titulo, quando, formas, variaveis: [], semGlobais: false, rodizio: true, pergunta: 'livre', exigir: [], evitar: [], semDesativar: false, ...opcoes,
   });
+  // `semDesativar` (true): o texto é um PEDAÇO de frase (uma palavra ou um trecho que entra dentro de outra frase): vazio, a frase em volta sairia quebrada.
+  // Esses só podem ser renomeados; o interruptor "Usar este trecho" não existe para eles (decisão do usuário, 06/10/2026).
 
   const REGISTRO = [
     // ---- Bloco 1: perguntas finais (rodízio) e retomada ----
@@ -77,26 +87,25 @@
         'Consegue regularizar ainda hoje?',
         'Como podemos resolver isso hoje?',
         'Consegue me confirmar se dá para acertar hoje?',
-      ), { rodizio: true, pergunta: 'obrigatoria' }),
+      ), { pergunta: 'obrigatoria' }),
     t('cta.ultimoDia', 1, 'Pergunta final — último dia', 'Título no último dia de pagamento antes do encaminhamento.',
       unico(
         'Consegue regularizar hoje para evitarmos o encaminhamento?',
         'Conseguimos quitar isso hoje antes que o título siga para o encaminhamento?',
         'Consegue acertar hoje para o título não seguir para encaminhamento?',
-      ), { rodizio: true, pergunta: 'obrigatoria', exigir: [{ padrao: /encaminhamento/i, motivo: 'a pergunta do último dia fala do encaminhamento' }] }),
+      ), { pergunta: 'obrigatoria', exigir: [{ padrao: /encaminhamento/i, motivo: 'a pergunta do último dia fala do encaminhamento' }] }),
     t('cta.cartorio', 1, 'Pergunta final — em cartório', 'Título já em cartório (e negativado fora das janelas do aviso).',
       unico(
         'Consegue regularizar hoje para eu confirmar a baixa da restrição?',
         'Assim que o pagamento for confirmado, sinalizo em nosso sistema. Consegue regularizar hoje?',
         'Consegue fechar isso hoje? Confirmado o pagamento, já sinalizo a baixa.',
-      ), { rodizio: true, pergunta: 'obrigatoria', exigir: [{ padrao: /baixa|sinaliz/i, motivo: 'a pergunta do cartório fala da baixa ou da sinalização' }] }),
+      ), { pergunta: 'obrigatoria', exigir: [{ padrao: /baixa|sinaliz/i, motivo: 'a pergunta do cartório fala da baixa ou da sinalização' }] }),
     t('cta.suspensaoScpc', 1, 'Pergunta final — SCPC do 16º ao 18º dia', 'Negativado de 16 a 18 dias: a suspensão ainda NÃO é hoje.',
       unico(
         'Consegue regularizar hoje para evitarmos a suspensão do cadastro?',
         'A suspensão do cadastro é automática se o pagamento não for identificado. Consegue resolver hoje?',
         'Regularizando hoje, o cadastro segue ativo normalmente. Conseguimos agendar?',
       ), {
-        rodizio: true,
         pergunta: 'obrigatoria',
         exigir: [{ padrao: /cadastro/i, motivo: 'a pergunta da suspensão fala do cadastro' }],
         evitar: [{ padrao: /at[ée] o fim do dia/i, nivel: 'erro', motivo: 'nos dias 16 a 18 o prazo ainda não é hoje: "até o fim do dia" seria falso' }],
@@ -105,7 +114,7 @@
       unico(
         'Consegue regularizar hoje, o último dia antes da suspensão?',
         'Sem a identificação do pagamento até o fim do dia o cadastro é suspenso automaticamente. Consegue resolver hoje?',
-      ), { rodizio: true, pergunta: 'obrigatoria' }),
+      ), { pergunta: 'obrigatoria' }),
     t('cta.promessaDia', 1, 'Pergunta final — dia da promessa', 'Hoje é o dia combinado para o pagamento (promessa ativa).',
       unico('Assim que efetuar, pode me enviar o comprovante?'), { pergunta: 'obrigatoria' }),
     t('cta.promessaParcial', 1, 'Pergunta final — pagamento parcial', 'Promessa com pagamento parcial já identificado.',
@@ -116,7 +125,6 @@
         'Voltando aqui sobre o contato de {{referencia}}.',
         'Dando sequência ao contato de {{referencia}}.',
       ), {
-        rodizio: true,
         variaveis: ['referencia'],
         pergunta: 'proibida',
         exigir: [{ padrao: /\{\{\s*referencia\s*\}\}/, motivo: 'a retomada precisa dizer de quando foi o contato ({{referencia}})' }],
@@ -130,7 +138,7 @@
       forma('tarde|comNome', 'Tarde, com nome', 'Boa tarde, {{nome}}, tudo bem?', ['nome']),
       forma('noite|semNome', 'Noite, sem nome', 'Boa noite, tudo bem?', []),
       forma('noite|comNome', 'Noite, com nome', 'Boa noite, {{nome}}, tudo bem?', ['nome']),
-    ], { semGlobais: true }),
+    ], { semGlobais: true, semDesativar: true }),
     t('apresentacao', 2, 'Apresentação', 'Cliente com contato só de outro negociador, ou contato antigo; e no primeiro contato.',
       unico('Sou {{nome_negociador}}, do financeiro da Tex Cotton (Animê, Bimbi, Youccie, Authoria e Momi).'),
       { variaveis: ['nome_negociador'], pergunta: 'proibida' }),
@@ -164,7 +172,7 @@
       forma('restamVarios', 'Restam vários títulos', 'Identificamos o pagamento parcial do combinado para {{data_prometida}}; ainda restam {{quantidade}} títulos em aberto.'),
     ], { variaveis: ['data_prometida', 'quantidade'], pergunta: 'proibida' }),
     t('glossario.ontem', 3, 'Glossário — "ontem"', 'Palavra que entra na retomada quando o último contato foi literalmente ontem.',
-      unico('ontem'), { pergunta: 'proibida' }),
+      unico('ontem'), { pergunta: 'proibida', semDesativar: true }),
 
     // ---- Bloco 4: situação dos títulos ----
     t('situacao.semProtesto', 4, 'Situação — "não protestar" vencido', 'Título "não protestar" vencido: sem cartório, prazo final nem encaminhamento.', [
@@ -211,7 +219,7 @@
     t('glossario.destino', 4, 'Glossário — destino do encaminhamento', 'Entra em "{{destino}}" na situação do último dia.', [
       forma('scpc', 'Fluxo SCPC', 'ao SCPC'),
       forma('cartorio', 'Fluxo cartório', 'para cartório'),
-    ], { pergunta: 'proibida' }),
+    ], { pergunta: 'proibida', semDesativar: true }),
 
     // ---- Bloco 5: acordo e legenda do relatório ----
     t('acordo.lembreteParcela', 5, 'Acordo — lembrete da parcela', 'Todos os títulos em acordo ativo, parcela em dia (sem relatório).',
@@ -234,9 +242,9 @@
       forma('singular|cartorio', 'Um título, fluxo cartório', 'o título no prazo final antes do cartório'),
       forma('plural|scpc', 'Vários títulos, fluxo SCPC', 'os títulos no prazo final antes do SCPC'),
       forma('plural|cartorio', 'Vários títulos, fluxo cartório', 'os títulos no prazo final antes do cartório'),
-    ]),
+    ], { semDesativar: true }),
     t('cores.amarelo', 5, 'Legenda — o que é o amarelo', 'Pedaço da legenda das cores: título em cartório (entra em "em amarelo, ...").',
-      unico('o que já está em cartório (o restante ainda pode ser pago via boleto)')),
+      unico('o que já está em cartório (o restante ainda pode ser pago via boleto)'), { semDesativar: true }),
     t('cores.composta', 5, 'Legenda — frase das cores', 'Junta o vermelho e o amarelo na legenda da imagem do relatório.', [
       forma('vermelhoEAmarelo', 'Vermelho e amarelo', 'Em vermelho, {{vermelho}}; em amarelo, {{amarelo}}.', ['vermelho', 'amarelo']),
       forma('soVermelho', 'Só vermelho', 'Em vermelho, {{vermelho}}.', ['vermelho']),
@@ -244,10 +252,34 @@
     ]),
   ];
 
-  const POR_CHAVE = new Map(REGISTRO.map((d) => [d.chave, d]));
+  /**
+   * ORGANIZAÇÃO das situações (sprint 3, RN-B1 e RN-B2): é só como a TELA agrupa os textos; nenhuma mensagem muda. Mora no mesmo catálogo, como um
+   * pseudo-texto `_organizacao` (fora do REGISTRO: só o editor o conhece) com uma forma `unico` de linhas, que passa pelo rascunho, publicação,
+   * histórico e "voltar versão" como qualquer texto. Linhas: `S|id|nome` (uma situação, na ordem da tela; id '1' a '5' = as 5 de hoje, que não se
+   * apagam; id `n<número>` = criada pelo usuário) e `M|chave|id` (o texto `chave` foi movido para a situação `id`). Forma canônica: todas as S, depois
+   * as M na ordem do registro; mover um texto de volta à situação de origem apaga a linha M. O `T()` nunca lê isto.
+   */
+  const CHAVE_ORGANIZACAO = '_organizacao';
+  const MAX_SITUACOES = 20;
+  const MAX_NOME_SITUACAO = 60;
+  const ORGANIZACAO_PADRAO = Object.freeze(Object.keys(BLOCOS).map((id) => `S|${id}|${BLOCOS[id]}`));
+  const DEF_ORGANIZACAO = Object.freeze({
+    chave: CHAVE_ORGANIZACAO, bloco: 0, titulo: 'Organização das situações', quando: '', variaveis: [], semGlobais: true, rodizio: false, maxItens: MAX_SITUACOES + REGISTRO.length,
+    pergunta: 'livre', exigir: [], evitar: [], semDesativar: true, organizacao: true,
+    formas: [Object.freeze({ id: 'unico', rotulo: 'Organização', padrao: ORGANIZACAO_PADRAO })],
+  });
+  const POR_CHAVE = new Map([...REGISTRO.map((d) => [d.chave, d]), [CHAVE_ORGANIZACAO, DEF_ORGANIZACAO]]);
+  const RE_ID_SITUACAO = /^(?:[1-5]|n\d{1,4})$/;
   const RE_VARIAVEL = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
 
   const util = () => window.__smartTableUtil;
+
+  /** O estado padrão de um texto: ligado, com o nome e a nota que o registro traz. */
+  const estadoPadrao = (def) => ['1', def.titulo, def.quando];
+  const ehEstado = (formaId) => formaId === FORMA_ESTADO;
+  /** A forma do registro, ou o estado (que não está em `formas`). `padrao` é o que `padrao()` devolve. */
+  const formaDe = (def, formaId) => (ehEstado(formaId) ? { id: FORMA_ESTADO, padrao: estadoPadrao(def) } : def.formas.find((f) => f.id === formaId));
+  const formaConhecida = (def, formaId) => !!formaDe(def, formaId);
 
   /* ---------------------------------------------------------------------
    * VALIDAÇÃO (usada na leitura do catálogo salvo e, na R2, pelo editor ao publicar)
@@ -299,8 +331,95 @@
     return { erros, avisos };
   }
 
+  /** Valida o ESTADO `[ativo, nome, nota]`: nome com 1 a MAX_NOME caracteres, nota com até MAX_NOTA_TEXTO, os dois numa linha só; texto "semDesativar" não desliga. */
+  function validarEstado(def, lista) {
+    const erros = [];
+    if (!Array.isArray(lista) || lista.length !== 3 || !lista.every((x) => typeof x === 'string')) return { erros: ['estado do texto em formato inválido'], avisos: [] };
+    const [ativo, nome, nota] = lista;
+    if (ativo !== '1' && ativo !== '0') erros.push('estado do texto em formato inválido');
+    if (ativo === '0' && def.semDesativar) erros.push('este texto é um pedaço de frase e não pode ser desativado');
+    if (!nome.trim()) erros.push('o nome não pode ficar vazio');
+    if (nome.length > MAX_NOME) erros.push(`o nome passa de ${MAX_NOME} caracteres`);
+    if (nota.length > MAX_NOTA_TEXTO) erros.push(`a nota passa de ${MAX_NOTA_TEXTO} caracteres`);
+    if (/[\r\n]/.test(nome) || /[\r\n]/.test(nota)) erros.push('o nome e a nota têm de ficar numa linha só');
+    return { erros, avisos: [] };
+  }
+
+  /**
+   * Lê as linhas da organização (sem validar): `{ situacoes: [{ id, nome, base }], movidos: { chave: id } }`. Linha que não entende é ignorada
+   * (quem confere é `validarOrganizacao`); o nome é tudo depois do segundo `|`.
+   */
+  function organizacaoDe(lista) {
+    const situacoes = [];
+    const movidos = Object.create(null);
+    (Array.isArray(lista) ? lista : []).forEach((linha) => {
+      if (typeof linha !== 'string') return;
+      const partes = linha.split('|');
+      if (partes[0] === 'S' && partes.length >= 3) situacoes.push({ id: partes[1], nome: partes.slice(2).join('|'), base: /^[1-5]$/.test(partes[1]) });
+      else if (partes[0] === 'M' && partes.length === 3) movidos[partes[1]] = partes[2];
+    });
+    return { situacoes, movidos };
+  }
+
+  /** O inverso: as linhas canônicas (todas as S, depois as M na ordem do registro). */
+  function listaDaOrganizacao({ situacoes, movidos }) {
+    return [
+      ...situacoes.map((s) => `S|${s.id}|${s.nome}`),
+      ...REGISTRO.filter((d) => movidos[d.chave] !== undefined).map((d) => `M|${d.chave}|${movidos[d.chave]}`),
+    ];
+  }
+
+  /** A situação (id) em que o texto de `def` aparece, dada a organização lida: a que ele foi movido ou a de origem. */
+  const situacaoDoTexto = (def, org) => org.movidos[def.chave] ?? String(def.bloco);
+
+  /** Valida as linhas da organização. Só a ESTRUTURA e os nomes; apagar só situação vazia é garantido pelo editor (a linha M de um texto sempre aponta para uma situação que existe). */
+  function validarOrganizacao(lista) {
+    const erros = [];
+    if (!Array.isArray(lista) || lista.length === 0 || !lista.every((l) => typeof l === 'string')) return { erros: ['organização em formato inválido'], avisos: [] };
+    if (lista.length > DEF_ORGANIZACAO.maxItens) return { erros: ['organização grande demais'], avisos: [] };
+    const ids = new Set();
+    const nomes = new Set();
+    const movidas = new Set();
+    const movimentos = [];
+    lista.forEach((linha) => {
+      const partes = linha.split('|');
+      if (partes[0] === 'S' && partes.length >= 3) {
+        const id = partes[1];
+        const nome = partes.slice(2).join('|');
+        if (!RE_ID_SITUACAO.test(id)) { erros.push('situação com identificador inválido'); return; }
+        if (ids.has(id)) erros.push('situação repetida');
+        ids.add(id);
+        if (!nome.trim()) erros.push('o nome da situação não pode ficar vazio');
+        if (nome !== nome.trim() || /\s{2,}/.test(nome)) erros.push('o nome da situação tem espaços sobrando');
+        if (nome.length > MAX_NOME_SITUACAO) erros.push(`o nome da situação passa de ${MAX_NOME_SITUACAO} caracteres`);
+        if (/[\r\n]/.test(nome)) erros.push('o nome da situação tem de ficar numa linha só');
+        if (/(?:https?:\/\/|www\.)\S/i.test(nome) || /[^\s@]+@[^\s@]+\.[^\s@]/.test(nome)) erros.push('não coloque endereço de internet nem e-mail no nome da situação');
+        const chaveNome = nome.trim().toLowerCase();
+        if (nomes.has(chaveNome)) erros.push('duas situações com o mesmo nome');
+        nomes.add(chaveNome);
+      } else if (partes[0] === 'M' && partes.length === 3) {
+        movimentos.push(partes);
+      } else {
+        erros.push('linha da organização em formato inválido');
+      }
+    });
+    if (ids.size > MAX_SITUACOES) erros.push(`mais de ${MAX_SITUACOES} situações`);
+    Object.keys(BLOCOS).forEach((id) => { if (!ids.has(id)) erros.push('as situações que já existem não podem ser apagadas'); });
+    movimentos.forEach(([, chave, id]) => {
+      const def = REGISTRO.find((d) => d.chave === chave);
+      if (!def) { erros.push('texto movido não existe'); return; }
+      if (!ids.has(id)) erros.push('texto movido para uma situação que não existe');
+      if (movidas.has(chave)) erros.push('texto movido duas vezes');
+      movidas.add(chave);
+      if (id === String(def.bloco)) erros.push('texto movido para a situação onde já está');
+    });
+    return { erros: [...new Set(erros)], avisos: [] };
+  }
+
   /** Valida a lista de textos (variantes) de uma forma: TODAS as variantes precisam passar. */
   function validarLista(def, lista, formaId) {
+    if (ehEstado(formaId)) return validarEstado(def, lista);
+    if (def.organizacao) return validarOrganizacao(lista);
     if (!Array.isArray(lista) || lista.length === 0) return { erros: ['a forma não tem texto'], avisos: [] };
     const max = def.rodizio ? MAX_VARIANTES : 1;
     // Estourou o limite: nem percorre (uma lista gigante não pode travar a leitura).
@@ -419,7 +538,7 @@
         return;
       }
       Object.keys(formasSalvas).slice(0, MAX_FORMAS_SALVAS).forEach((formaId) => {
-        if (!def.formas.some((f) => f.id === formaId)) { invalidos.push({ chave, forma: '', motivo: 'forma desconhecida' }); return; }
+        if (!formaConhecida(def, formaId)) { invalidos.push({ chave, forma: '', motivo: 'forma desconhecida' }); return; }
         const r = validarLista(def, formasSalvas[formaId], formaId);
         if (r.erros.length > 0) { invalidos.push({ chave, forma: formaId, motivo: r.erros[0] }); return; }
         (publicado[chave] ||= Object.create(null))[formaId] = [...formasSalvas[formaId]];
@@ -438,8 +557,9 @@
   }
 
   /** O formato de UMA lista de rascunho (a mesma regra na leitura e na gravação): 1 a N textos (N = 12 com rodízio, 1 sem), cada um com até 2000 caracteres. */
-  function formatoDoRascunhoOk(def, lista) {
-    const max = def.rodizio ? MAX_VARIANTES : 1;
+  function formatoDoRascunhoOk(def, lista, formaId) {
+    if (ehEstado(formaId)) return Array.isArray(lista) && lista.length === 3 && lista.every((t) => typeof t === 'string' && t.length <= MAX_CARACTERES_RASCUNHO);
+    const max = def.maxItens ?? (def.rodizio ? MAX_VARIANTES : 1);
     return Array.isArray(lista) && lista.length >= 1 && lista.length <= max && lista.every((t) => typeof t === 'string' && t.length <= MAX_CARACTERES_RASCUNHO);
   }
 
@@ -463,9 +583,9 @@
       if (!def) { rascunhoInvalidos.push({ chave: '', forma: '', motivo: 'chave desconhecida' }); return; }
       if (!ehObjeto(bruto.textos[chave])) { rascunhoInvalidos.push({ chave, forma: '', motivo: 'formato inválido' }); return; }
       Object.keys(bruto.textos[chave]).slice(0, MAX_FORMAS_SALVAS).forEach((formaId) => {
-        if (!def.formas.some((f) => f.id === formaId)) { rascunhoInvalidos.push({ chave, forma: '', motivo: 'forma desconhecida' }); return; }
+        if (!formaConhecida(def, formaId)) { rascunhoInvalidos.push({ chave, forma: '', motivo: 'forma desconhecida' }); return; }
         const lista = bruto.textos[chave][formaId];
-        if (!formatoDoRascunhoOk(def, lista)) { rascunhoInvalidos.push({ chave, forma: formaId, motivo: 'formato inválido' }); return; }
+        if (!formatoDoRascunhoOk(def, lista, formaId)) { rascunhoInvalidos.push({ chave, forma: formaId, motivo: 'formato inválido' }); return; }
         (textos[chave] ||= Object.create(null))[formaId] = [...lista];
       });
     });
@@ -486,9 +606,9 @@
       if (!def || !bruto[chave]) return null;
       lado[chave] = Object.create(null);
       for (const formaId of Object.keys(bruto[chave])) {
-        if (!def.formas.some((f) => f.id === formaId)) return null;
+        if (!formaConhecida(def, formaId)) return null;
         const lista = bruto[chave][formaId];
-        if (lista !== null && !formatoDoRascunhoOk(def, lista)) return null;
+        if (lista !== null && !formatoDoRascunhoOk(def, lista, formaId)) return null;
         lado[chave][formaId] = lista;
         formas += 1;
       }
@@ -525,7 +645,7 @@
   /** O texto PADRÃO (embutido) de uma forma: lista congelada de variantes. */
   function padrao(chave, formaId = 'unico') {
     const def = defDe(chave);
-    const f = def?.formas.find((x) => x.id === formaId);
+    const f = def ? formaDe(def, formaId) : null;
     return f ? Object.freeze([...f.padrao]) : null;
   }
 
@@ -558,12 +678,12 @@
     return foto;
   }
 
-  /** Foto das variantes forçadas: só índices inteiros >= 0, de chaves PRÓPRIAS do objeto. */
+  /** Foto das variantes forçadas: índices inteiros >= 0 ou 'maior' (a frase mais longa da lista: o "Pior caso" da prévia), de chaves PRÓPRIAS do objeto. */
   function fotografarVariantes(variantes) {
     if (!ehObjeto(variantes)) return null;
     const foto = Object.create(null);
     Object.keys(variantes).forEach((chave) => {
-      if (Number.isInteger(variantes[chave]) && variantes[chave] >= 0) foto[chave] = variantes[chave];
+      if (variantes[chave] === 'maior' || (Number.isInteger(variantes[chave]) && variantes[chave] >= 0)) foto[chave] = variantes[chave];
     });
     return foto;
   }
@@ -572,14 +692,14 @@
   const textosDaPrevia = (chave, formaId) => rascunhoDaPrevia?.[chave]?.[formaId] ?? null;
 
   /** O que está VALENDO de verdade para o Alt+A: o publicado válido ou o padrão (nunca o rascunho da prévia). */
-  function textosEmUsoReal(chave, formaId) {
-    const publicado = (catalogoDaPrevia ?? lerCatalogo()).publicado[chave]?.[formaId];
+  function textosEmUsoReal(chave, formaId, cat = catalogoDaPrevia ?? lerCatalogo()) {
+    const publicado = cat.publicado[chave]?.[formaId];
     return publicado ?? padrao(chave, formaId);
   }
 
   /** As variantes em uso (na prévia: o rascunho, se houver; senão o publicado válido; senão o padrão). */
-  function textosEmUso(chave, formaId) {
-    return textosDaPrevia(chave, formaId) ?? textosEmUsoReal(chave, formaId);
+  function textosEmUso(chave, formaId, cat) {
+    return textosDaPrevia(chave, formaId) ?? textosEmUsoReal(chave, formaId, cat);
   }
 
   /**
@@ -614,6 +734,33 @@
     }
   }
 
+  /** Quando a prévia pede, guarda as chaves dos textos desativados que a montagem tentou usar (para avisar "este trecho está desativado"). */
+  let coletorDeDesativados = null;
+  /** Textos que a prévia deve tratar como ATIVOS mesmo desativados (serve a "este trecho muda a mensagem?"). */
+  let forcadosAtivos = null;
+  /** Roda `fn` (síncrona) com os textos `chaves` ligados, mesmo que estejam desativados (nada é gravado). */
+  function comTextosAtivos(chaves, fn) {
+    const anterior = forcadosAtivos;
+    forcadosAtivos = new Set(chaves);
+    try {
+      return fn();
+    } finally {
+      forcadosAtivos = anterior;
+    }
+  }
+
+  /** Roda `fn` (síncrona) coletando os textos desativados que `T` devolveu vazios. @returns {{resultado: *, desativados: string[]}} */
+  function comColetaDeDesativados(fn) {
+    const anterior = coletorDeDesativados;
+    const meu = new Set();
+    coletorDeDesativados = meu;
+    try {
+      return { resultado: fn(), desativados: [...meu] };
+    } finally {
+      coletorDeDesativados = anterior;
+    }
+  }
+
   function substituir(texto, vars) {
     return texto.replace(RE_VARIAVEL, (trecho, nome) => {
       if (Object.prototype.hasOwnProperty.call(vars, nome) && vars[nome] !== null && vars[nome] !== undefined) return String(vars[nome]);
@@ -629,7 +776,13 @@
    * @returns {string} '' (com erro no console) só para chave ou forma que NÃO existe no registro: erro de programação.
    */
   function T(chave, { forma: formaId = 'unico', vars = {}, semente } = {}) {
-    const lista = textosEmUso(chave, formaId);
+    const cat = catalogoDaPrevia ?? lerCatalogo(); // UMA leitura por T (a mesma para o texto e para o estado)
+    const lista = textosEmUso(chave, formaId, cat);
+    // Desativado (só vale em texto que pode ser desativado): a mensagem sai sem este trecho.
+    if (lista && !defDe(chave).semDesativar && !forcadosAtivos?.has(chave) && textosEmUso(chave, FORMA_ESTADO, cat)?.[0] === '0') {
+      coletorDeDesativados?.add(chave);
+      return '';
+    }
     if (!lista) {
       console.error(`[Catálogo] Texto "${chave}" (forma "${formaId}") não existe no registro.`);
       return '';
@@ -638,7 +791,9 @@
     if (lista.length > 1) {
       const escolher = util()?.escolherVariante;
       const forcada = variantesDaPrevia?.[chave];
-      if (forcada !== undefined) {
+      if (forcada === 'maior') {
+        texto = lista.reduce((m, f) => (f.length > m.length ? f : m), lista[0]); // "Pior caso": a frase mais longa (empate: a primeira)
+      } else if (forcada !== undefined) {
         texto = lista[forcada % lista.length]; // prévia: o usuário escolheu qual variante ver (o índice dá a volta se a lista for menor)
       } else {
         texto = typeof escolher === 'function'
@@ -715,16 +870,16 @@
    */
   function salvarRascunho(chave, formaId, lista) {
     const def = defDe(chave);
-    const forma = def?.formas.find((f) => f.id === formaId);
-    if (!forma) return { ok: false, motivo: 'texto-desconhecido' };
-    if (!formatoDoRascunhoOk(def, lista)) return { ok: false, motivo: 'formato' };
+    if (!def || !formaConhecida(def, formaId)) return { ok: false, motivo: 'texto-desconhecido' };
+    if (!formatoDoRascunhoOk(def, lista, formaId)) return { ok: false, motivo: 'formato' };
     // Compara com o que vale DE VERDADE (publicado ou padrão), mesmo se chamada de dentro de uma prévia.
     return alterarRascunho(chave, formaId, iguais(lista, textosEmUsoReal(chave, formaId)) ? null : [...lista]);
   }
 
   /** Descarta o rascunho de uma forma (sem rascunho nela: nada é gravado). */
   function descartarRascunho(chave, formaId) {
-    if (!defDe(chave)?.formas.some((f) => f.id === formaId)) return { ok: false, motivo: 'texto-desconhecido' };
+    const def = defDe(chave);
+    if (!def || !formaConhecida(def, formaId)) return { ok: false, motivo: 'texto-desconhecido' };
     return alterarRascunho(chave, formaId, null);
   }
 
@@ -938,6 +1093,8 @@
     defDe,
     lerCatalogo,
     comRascunho,
+    comColetaDeDesativados,
+    comTextosAtivos,
     salvarRascunho,
     descartarRascunho,
     descartarRascunhoTudo,
@@ -950,9 +1107,18 @@
     variaveisDaForma,
     REGISTRO: congelarProfundo(REGISTRO),
     BLOCOS,
+    CHAVE_ORGANIZACAO,
+    MAX_SITUACOES,
+    MAX_NOME_SITUACAO,
+    organizacaoDe,
+    listaDaOrganizacao,
+    situacaoDoTexto,
     VARIAVEIS_GLOBAIS,
     CHAVE_ARMAZENAMENTO,
     VERSAO_ESQUEMA,
+    FORMA_ESTADO,
+    MAX_NOME,
+    MAX_NOTA_TEXTO,
     MAX_VARIANTES,
     MAX_CARACTERES,
     MAX_CARACTERES_RASCUNHO,
