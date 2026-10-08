@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.92.0', data: '08/10/2026',
+      mudancas: [
+        'Limpeza pedida por você: saíram os atalhos Alt+F (selecionar a 1ª frase padrão), Alt+G (abrir em abas as outras razões do grupo), Alt+K (console de diagnóstico) e Alt+T (copiar títulos um por um, com o Shift+Alt+T). O Alt+A segue gerando o relatório das outras razões do grupo.',
+        'Os comandos de diagnóstico do ritmo do operador continuam no console do navegador (window.__diag.qualidade(), .ritmo() e .filaDefasada()); só o painel do Alt+K, que tinha botões para eles, saiu.',
+      ],
+    },
+    {
       versao: '1.91.0', data: '08/10/2026',
       mudancas: [
         'Lista de clientes: o botão "▶ Iniciar Fila de Atendimento" saiu da barra. A fila de atendimento original continua no atalho Alt+I (e a fila por prioridade no Alt+U); o botão "Continuar fila anterior" segue onde estava.',

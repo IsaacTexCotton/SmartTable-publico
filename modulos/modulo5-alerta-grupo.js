@@ -11,11 +11,11 @@
  *   window.__numerosDiferentes (seção 4)
  *
  * A detecção não desenha nada: o CRM já avisa "N CNPJ do grupo vencido".
- * Quem e quanto continua no Alt+G. A única coisa desenhada é o checkbox
+ * Quem e quanto o Alt+A mostra no relatório. A única coisa desenhada é o checkbox
  * "Números diferentes" (seção 4), ao lado do aviso do CRM.
  *
  * Quem depende deste módulo:
- *   - Módulo 4: Alt+G (abre as outras razões com vencido);
+ *   - Módulo 4: Alt+A (gera o relatório das outras razões com vencido);
  *     temOutraRazaoComVencido() (muda a frase da MENSAGEM QUE O CLIENTE
  *     RECEBE, "de cada razão social"); Alt+S (envia aos números diferentes).
  *   - Módulo 7: só a razão mais urgente do grupo entra na fila; sem isso o
@@ -532,7 +532,7 @@
   /* ---------------------------------------------------------------------
    * 3. EXPOSIÇÃO E INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
-  // Exposto ao Módulo 4 (linha extra do Alt+A, Alt+G). Decisão do usuário:
+  // Exposto ao Módulo 4 (linha extra do Alt+A). Decisão do usuário:
   // com outra razão vencida a mensagem muda e cada razão gera seu próprio
   // relatório (um por página, sem combinar numa imagem só).
   function expor(empresas) {

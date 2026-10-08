@@ -7,5 +7,4 @@ próxima cópia.
 
 ## Instalar (Tampermonkey)
 
-- Canal de desenvolvimento: https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js
-- Canal estável: https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table-estavel.user.js
+- https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js

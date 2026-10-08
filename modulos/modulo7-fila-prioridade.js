@@ -733,7 +733,7 @@
 
     // Confirmado com o usuário: se outra empresa do mesmo grupo econômico também
     // tem título vencido, só a representante mais urgente entra na fila (as
-    // outras são cobradas por tabela via essa visita; Alt+A/Alt+G, Módulos 4/5).
+    // outras são cobradas por tabela via essa visita; Alt+A, Módulos 4/5).
     // O Módulo 5 lê a aba "Grupo" de verdade (não o grupoId da lista) em toda
     // visita, então window.__alertaGrupo já está disponível nesta aba.
     const empresasComVencido = (aba.__alertaGrupo && aba.__alertaGrupo.empresasComVencido) || [];

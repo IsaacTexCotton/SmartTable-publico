@@ -6,17 +6,17 @@
  * Alt+H). Também monta a mensagem personalizada do Alt+A e o envio em
  * sequência do Alt+S.
  *
- * Fluxo típico: Alt+C (contato) -> Alt+F (frase) -> Alt+S (registra e envia)
+ * Fluxo típico: Alt+C (contato) -> Alt+A (mensagem) -> Alt+S (registra e envia)
  * -> Alt+P (próximo da fila; o Módulo 3 nunca navega sozinho).
  *
  * Depende de: Módulo 0 (window.__smartTableUtil), Módulo 3
  * (window.filaDebug.iniciarFila/irParaProximo/irParaAnterior), Módulo 7
  * (window.filaPrioridadeDebug.iniciar, Alt+U) e Módulo 5
- * (window.__alertaGrupo, linha de grupo na mensagem e Alt+G). Todos precisam
+ * (window.__alertaGrupo, linha de grupo na mensagem). Todos precisam
  * ser carregados ANTES deste arquivo.
  *
  * Alt+C não tem ID confirmado: procura o botão por TEXTO
- * (CONFIG_ATALHOS.TEXTO_BOTAO_CONTATO). Alt+F, Alt+R e Alt+S usam classe/ID
+ * (CONFIG_ATALHOS.TEXTO_BOTAO_CONTATO). Alt+R e Alt+S usam classe/ID
  * confirmados no CRM real.
  * ========================================================================= */
 (function () {
@@ -58,7 +58,6 @@
   } = window.__mensagensCobranca;
   const {
     estaDigitando,
-    elementoVisivel,
     encontrarElementoVisivelPorTexto,
     clicarBotaoPorTexto,
     esperarElementoVisivelPorTextoNaJanela,
@@ -100,20 +99,16 @@
     TECLA_ABRIR_CONTATO: 'KeyC',
     TECLA_PROXIMO_DA_FILA: 'KeyP',
     TECLA_VOLTAR_FILA: 'KeyV',
-    TECLA_SELECIONAR_FRASE: 'KeyF',
     TECLA_REGISTRAR_ENVIAR: 'KeyS',
     TECLA_AJUDA: 'KeyH',
     TECLA_NOVIDADES: 'KeyL',
     TECLA_BUSCA_RAPIDA: 'KeyB',
     TECLA_ATENDIMENTO_RAPIDO: 'KeyA',
-    TECLA_ABRIR_GRUPO_VENCIDO: 'KeyG',
     TECLA_CONFIGURACOES: 'KeyO',
     TECLA_RECEBIDO_SEMANA: 'KeyD',
     TECLA_CARTEIRA: 'KeyM',
-    TECLA_CONSOLE_DIAGNOSTICO: 'KeyK',
     TECLA_PROMESSA_RAPIDA: 'KeyN',
     TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
-    TECLA_COPIAR_TITULOS: 'KeyT',
     TECLA_CONTATOS_GOOGLE: 'KeyJ',
     TECLA_EDITOR_MENSAGENS: 'KeyX',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
@@ -133,9 +128,6 @@
     // plano B. Só TEXTO_BOTAO_CONTATO não tem ID confirmado.
     TEXTO_BOTAO_RELATORIO: 'relatório',
     TEXTO_BOTAO_CONTATO: 'contato',
-    // Confirmado no CRM real: cada frase padrão é um botão com esta classe,
-    // e a ordem deles muda (o mais recente/favoritado aparece primeiro).
-    SELETOR_BOTAO_FRASE: '.btn-inserir-frase',
     // Id do botão de relatório, criado pelo Módulo 1. Buscar por ID (não por
     // texto) sobrevive à troca do rótulo pra "Gerando..." durante a geração.
     ID_BOTAO_RELATORIO: 'aviso-cobranca-botao',
@@ -150,24 +142,20 @@
     { tecla: 'Shift+Alt+U', descricao: 'Refazer a fila por prioridade do zero (tira quem já foi contatado hoje)' },
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
-    { tecla: 'Alt+F', descricao: 'Selecionar a 1ª frase padrão' },
     { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório(s) de outra(s) razão(ões) do grupo, se houver, + relatório + contato + mensagem personalizada)' },
     // Texto aprovado pelo usuário.
     { tecla: 'Alt+S', descricao: 'Registrar e Enviar. Logo depois do Alt+A, espera a mensagem e o relatório irem para a área de transferência e envia sozinho; se a cópia falhar, não envia até "Copiar de novo" dar certo. Com "Números diferentes" marcado: cada Alt+S abre o próximo número' },
     { tecla: 'Alt+N', descricao: 'Registrar promessa: marque o(s) título(s) (1 a 9), escolha a data (H hoje, A amanhã) e Enter -- o SmartTable preenche o contato do CRM, salva e confere' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
-    { tecla: 'Alt+G', descricao: 'Abrir em nova aba as outras razões do grupo com saldo vencido' },
     { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
     { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },
     { tecla: 'Alt+E', descricao: 'Regras de lembrete de bloqueio (só avisa, não bloqueia nada)' },
     { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
-    { tecla: 'Alt+T', descricao: 'Copiar os títulos do cliente um por um (número, depois parcela) para o Win+V: escolha os títulos e aperte Alt+T para copiar o próximo. Shift+Alt+T reabre a escolha' },
     { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos, editar como rascunho, ver a prévia da mensagem completa, publicar, ver o histórico e voltar a uma versão' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
-    { tecla: 'Alt+K', descricao: 'Abrir/fechar o console de diagnóstico' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
 
@@ -210,25 +198,6 @@
     } else {
       console.warn('[Atalhos] Módulo de Fila (Módulo 3) não encontrado, ou está desatualizado (sem irParaAnterior). Confirme se ele foi colado ANTES deste arquivo.');
     }
-  }
-
-  // Abre cada outra razão do grupo com saldo vencido em nova aba; o relatório
-  // de cada uma continua sendo Alt+R manual. Confirmado com o usuário: um
-  // relatório por página, sem combinar numa imagem (exigiria mexer no Módulo 1).
-  function acionarAbrirGrupoComVencido() {
-    const grupo = window.__alertaGrupo;
-    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) {
-      console.warn('[Atalhos] Nenhuma outra razão do grupo com saldo vencido nesta página (ou o Módulo 5 ainda não carregou -- confirme se ele foi colado ANTES deste arquivo).');
-      return;
-    }
-    grupo.empresasComVencido.forEach((empresa) => {
-      if (!empresa.url) {
-        console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
-        return;
-      }
-      // Alt+G é gesto do usuário, mas aba faltando pode ser bloqueador de popup.
-      window.open(empresa.url, '_blank', 'noopener,noreferrer');
-    });
   }
 
   // Alt+A com outras razões do grupo vencidas: visita cada uma em aba de
@@ -565,94 +534,6 @@
     elemento.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function encontrarSelectDeFrase() {
-    // Estratégia 1: select cujo id/name/aria-label sugira "frase" ou "mensagem".
-    const porAtributo = document.querySelector(
-      'select[id*="frase" i], select[name*="frase" i], select[aria-label*="frase" i], ' +
-      'select[id*="mensagem" i], select[name*="mensagem" i], select[aria-label*="mensagem" i]'
-    );
-    if (porAtributo) return porAtributo;
-
-    // Estratégia 2: <label> com texto "frase" -> pega o select associado.
-    const labelFrase = Array.from(document.querySelectorAll('label')).find((l) =>
-      (l.textContent || '').toLowerCase().includes('frase')
-    );
-    if (labelFrase) {
-      if (labelFrase.htmlFor) {
-        const el = document.getElementById(labelFrase.htmlFor);
-        if (el && el.tagName === 'SELECT') return el;
-      }
-      const selectProximo = labelFrase.parentElement ? labelFrase.parentElement.querySelector('select') : null;
-      if (selectProximo) return selectProximo;
-    }
-
-    return null;
-  }
-
-  function selecionarPrimeiraOpcaoValida(select) {
-    const opcaoValida = Array.from(select.options).find((op) => {
-      const texto = (op.textContent || '').trim().toLowerCase();
-      const vazio = !op.value || texto === '' || texto.includes('selecione') || texto.includes('escolha');
-      return !vazio;
-    });
-    if (!opcaoValida) return false;
-
-    definirValorControlado(select, opcaoValida.value);
-    select.selectedIndex = opcaoValida.index;
-    dispararEventosDeMudanca(select);
-    return true;
-  }
-
-
-  function acionarSelecionarPrimeiraFrase() {
-    // Estratégia 1 (confirmada no CRM real): botões ".btn-inserir-frase". A
-    // ordem muda (o mais recente/favoritado vem primeiro): vale o primeiro
-    // visível no momento do atalho.
-    const botoesDeFrase = Array.from(
-      document.querySelectorAll(CONFIG_ATALHOS.SELETOR_BOTAO_FRASE)
-    ).filter(elementoVisivel);
-
-    if (botoesDeFrase.length > 0) {
-      const botao = botoesDeFrase[0];
-      const textoOriginal = botao.dataset ? botao.dataset.texto : null;
-
-      if (!textoOriginal) {
-        console.warn('[Atalhos] O botão de frase não tem o atributo data-texto esperado.');
-        return;
-      }
-
-      // Variáveis {{ }} substituídas aqui (seção 3.0a).
-      const texto = substituirVariaveisDaFrase(textoOriginal);
-
-      // NÃO clicar no botão da frase: o clique real foca a caixa de
-      // observações e trava os atalhos seguintes (briga de foco). Escreve o
-      // texto direto na caixa, sem dar foco.
-      const caixa = encontrarCaixaDeObservacoes();
-      if (caixa) {
-        definirValorControlado(caixa, texto);
-        dispararEventosDeMudanca(caixa);
-        console.log('[Atalhos] Texto da frase escrito direto na caixa de observações (sem clicar no botão da frase).');
-      } else {
-        console.warn(
-          `[Atalhos] Não encontrei a caixa de observações (#${CONFIG_ENVIO.ID_CAIXA_OBSERVACOES}) pra escrever o texto da frase.`
-        );
-      }
-      return;
-    }
-
-    // Estratégia 2 (fallback): select de frase, caso apareça em outra tela.
-    const select = encontrarSelectDeFrase();
-    if (select) {
-      if (selecionarPrimeiraOpcaoValida(select)) return;
-      console.warn('[Atalhos] Achei um <select> de frase, mas não consegui escolher uma opção válida nele (todas pareciam placeholder).');
-      return;
-    }
-
-    console.warn(
-      `[Atalhos] Não encontrei nenhum botão "${CONFIG_ATALHOS.SELETOR_BOTAO_FRASE}" nem um <select> de frase. ` +
-      'Confirme se a tela de contato está aberta antes de usar Alt+F.'
-    );
-  }
 
   /* ---------------------------------------------------------------------
    * 3.3a LOG DE ATUALIZAÇÃO (Alt+L)
@@ -708,7 +589,7 @@
   }
 
   /**
-   * Pontes pros painéis dos módulos 9 (Alt+O), 10 (Alt+D), 13 (Alt+K), 14
+   * Pontes pros painéis dos módulos 9 (Alt+O), 10 (Alt+D), 14
    * (Alt+M), 17 (Alt+N) e 25 (Alt+E): checam a existência em vez de assumir; módulo que
    * não carregou (cache antigo, @require 404) avisa e não derruba os outros.
    */
@@ -752,16 +633,6 @@
     painel.alternarPainel();
   }
 
-  function acionarCopiarTitulos(opcoes) {
-    const copiador = window.__copiarTitulos;
-    if (!copiador || typeof copiador.aoAtalho !== 'function') {
-      console.warn('[Atalhos] O Módulo 27 (copiar títulos) não carregou -- Alt+T sem efeito.');
-      window.__smartTableUtil?.toast?.('Copiar títulos não carregou (veja o console).');
-      return;
-    }
-    copiador.aoAtalho(opcoes);
-  }
-
   function alternarEditorMensagens() {
     const editor = window.__editorMensagens;
     if (!editor || typeof editor.alternarPainel !== 'function') {
@@ -787,16 +658,6 @@
     if (!painel || typeof painel.alternarPainel !== 'function') {
       console.warn('[Atalhos] O Módulo 9 (painel de configurações) não carregou -- Alt+O sem efeito.');
       window.__smartTableUtil?.toast?.('Painel de configurações não carregou (veja o console).');
-      return;
-    }
-    painel.alternarPainel();
-  }
-
-  function alternarConsoleDiagnostico() {
-    const painel = window.__consoleDiagnostico;
-    if (!painel || typeof painel.alternarPainel !== 'function') {
-      console.warn('[Atalhos] O Módulo 13 (console de diagnóstico) não carregou -- Alt+K sem efeito.');
-      window.__smartTableUtil?.toast?.('Console de diagnóstico não carregou (veja o console).');
       return;
     }
     painel.alternarPainel();
@@ -1023,17 +884,6 @@
         return;
       }
 
-      // Shift+Alt+T: reabre a escolha de títulos do Alt+T no meio da lista (recomeçar
-      // ou recopiar o último). Alt+T sozinho segue copiando o próximo valor.
-      if (
-        e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.repeat &&
-        e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && !estaDigitando()
-      ) {
-        e.preventDefault();
-        acionarCopiarTitulos({ painel: true });
-        return;
-      }
-
       // Só Alt sozinho (sem Ctrl/Shift/Meta), pra não colidir com navegador/CRM.
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.repeat) return;
@@ -1072,14 +922,6 @@
         return;
       }
 
-      // Mesma exceção pro Alt+T: o painel dos títulos tem caixas de marcar, e com o foco
-      // nelas estaDigitando() barraria o próprio toggle. Só FECHA.
-      if (e.code === CONFIG_ATALHOS.TECLA_COPIAR_TITULOS && window.__copiarTitulos?.estaAberto?.()) {
-        e.preventDefault();
-        window.__copiarTitulos.fecharPainel();
-        return;
-      }
-
       // Mesma exceção pro Alt+X: o editor tem campo de busca (e, adiante, de edição), e com o foco neles
       // estaDigitando() barraria o próprio toggle. Só FECHA.
       if (e.code === CONFIG_ATALHOS.TECLA_EDITOR_MENSAGENS && window.__editorMensagens?.estaAberto?.()) {
@@ -1115,14 +957,6 @@
           e.preventDefault();
           acionarVoltarFila();
           break;
-        case CONFIG_ATALHOS.TECLA_ABRIR_GRUPO_VENCIDO:
-          e.preventDefault();
-          acionarAbrirGrupoComVencido();
-          break;
-        case CONFIG_ATALHOS.TECLA_SELECIONAR_FRASE:
-          e.preventDefault();
-          acionarSelecionarPrimeiraFrase();
-          break;
         case CONFIG_ATALHOS.TECLA_ATENDIMENTO_RAPIDO:
           e.preventDefault();
           acionarAtendimentoRapido();
@@ -1143,10 +977,6 @@
           e.preventDefault();
           alternarPainelConfiguracoes();
           break;
-        case CONFIG_ATALHOS.TECLA_CONSOLE_DIAGNOSTICO:
-          e.preventDefault();
-          alternarConsoleDiagnostico();
-          break;
         case CONFIG_ATALHOS.TECLA_RECEBIDO_SEMANA:
           e.preventDefault();
           alternarPainelRecebido();
@@ -1162,10 +992,6 @@
         case CONFIG_ATALHOS.TECLA_LEMBRETES_BLOQUEIO:
           e.preventDefault();
           alternarLembretesBloqueio();
-          break;
-        case CONFIG_ATALHOS.TECLA_COPIAR_TITULOS:
-          e.preventDefault();
-          acionarCopiarTitulos();
           break;
         case CONFIG_ATALHOS.TECLA_CONTATOS_GOOGLE:
           e.preventDefault();
