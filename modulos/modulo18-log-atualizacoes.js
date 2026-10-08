@@ -24,6 +24,23 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.88.0', data: '08/10/2026',
+      mudancas: [
+        'Alt+A, Celular: o nome do cliente aparece no cabeçalho (quando todos os títulos são da mesma razão social, e então some das linhas). Os cards ficam com fundo neutro: a cor está na barra e no selo, que sai cheio em último dia, cartório e SCPC.',
+        'Alt+A, Celular: a imagem ficou mais estreita (360px) e nenhum texto fica abaixo de 12px, para ler melhor no WhatsApp. A legenda do fim saiu, porque cada selo já diz a situação.',
+        'Alt+A, Celular: a ordem muda. Fora do SCPC: último dia, em atraso, em cartório (mais dias primeiro em cada grupo). Cliente SCPC: só os dias de atraso, do maior para o menor. O Desktop continua na ordem da tabela.',
+        'O seletor virou um botão só, "Formato: Celular ⇄", que alterna. O botão passa a dizer o formato do próximo relatório ("Gerar Relatório · Celular"). Desktop: nada mudou.',
+      ],
+    },
+    {
+      versao: '1.87.0', data: '08/10/2026',
+      mudancas: [
+        'Alt+A: ao lado do botão "Gerar Relatório" agora você escolhe o Formato, Celular ou Desktop. A escolha fica salva neste navegador e só vale na próxima geração (trocar não gera nada).',
+        'Celular: imagem vertical própria. Até 5 títulos saem em cards (título, saldo e dias de atraso em destaque); com 6 ou mais, em lista compacta, com a razão social na terceira linha. O total fica no topo.',
+        'Desktop: o relatório continua exatamente como era. Nenhuma regra de cobrança mudou.',
+      ],
+    },
+    {
       versao: '1.86.0', data: '07/10/2026',
       mudancas: [
         'Alt+X: agora você organiza as situações (os grupos da lista). "+ Nova situação" cria uma vazia; "Renomear", "↑" e "↓" mudam o nome e a ordem de qualquer uma, inclusive das 5 de sempre.',

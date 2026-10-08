@@ -838,6 +838,33 @@
     // RELATORIO
     // ============================================================
 
+    // Marcador discreto quando o CRM e o calculo divergem.
+    function marcaDivergencia(r) {
+        return r.divergenciaDias
+            ? ' <span title="Dias informados pelo CRM: ' + r.diasInformados + '" ' +
+              'style="color:' + TOKENS.atencao + '; font-weight:700;">*</span>'
+            : '';
+    }
+
+    // Selo da situacao (rotulo e cores vem so do SITUACOES). Usado pelo
+    // Desktop e pelo Celular.
+    // CAUSA RAIZ DE VERDADE (depois de seis rodadas de ajuste de CSS que não
+    // resolviam de vez): não era o HTML/CSS do badge, era a versão da lib
+    // html2canvas-pro (ver comentário em HTML2CANVAS_URL). Confirmado
+    // reproduzindo com Playwright + Chromium real -- o badge original (com
+    // padding/border-radius) renderiza perfeito na 2.4.4. Badge vazado:
+    // contorno + texto no rail. Le melhor que fundo solido sobre uma linha
+    // que ja e colorida.
+    // `cheio` (so o Celular): fundo na cor do rail e texto branco, para as
+    // situacoes de acao. Sem ele, o selo e o de sempre (Desktop inalterado).
+    function seloSituacao(s, r, tamanho, cheio) {
+        return '<span style="padding:3px 9px; border-radius:3px; ' +
+            'font-size:' + (tamanho || '11.5px') + '; font-weight:700; letter-spacing:0.01em; ' +
+            'border:1px solid ' + s.rail + '; color:' + (cheio ? '#FFFFFF' : s.rail) + '; ' +
+            'background:' + (cheio ? s.rail : 'rgba(255,255,255,0.55)') + ';">' +
+            esc(rotuloDocumento(s, r)) + '</span>';
+    }
+
     function montarLinhas(registros) {
         return registros.map(r => {
             const s = SITUACOES[r.situacaoKey];
@@ -849,11 +876,7 @@
             // em duas linhas. A coluna Cliente absorve a quebra no lugar.
             const numerica = celula + ' font-variant-numeric:tabular-nums; white-space:nowrap;';
 
-            // Marcador discreto quando o CRM e o calculo divergem.
-            const marca = r.divergenciaDias
-                ? ' <span title="Dias informados pelo CRM: ' + r.diasInformados + '" ' +
-                  'style="color:' + TOKENS.atencao + '; font-weight:700;">*</span>'
-                : '';
+            const marca = marcaDivergencia(r);
 
             return '<tr style="background:' + s.tint + ';">' +
                 // Rail: barra de cor a esquerda. Segundo canal de diferenciacao,
@@ -866,20 +889,8 @@
                 '<td style="' + numerica + ' text-align:right;">' + esc(r.saldoTexto) + '</td>' +
                 '<td style="' + numerica + ' text-align:center;">' +
                     r.diasAtrasoReal + ' dias' + marca + '</td>' +
-                // CAUSA RAIZ DE VERDADE (depois de seis rodadas de ajuste de
-                // CSS que não resolviam de vez): não era o HTML/CSS do badge,
-                // era a versão da lib html2canvas-pro (ver comentário em
-                // HTML2CANVAS_URL). Confirmado reproduzindo com Playwright +
-                // Chromium real -- o badge original (com padding/border-
-                // radius) renderiza perfeito na 2.4.4. Badge vazado: contorno
-                // + texto no rail. Le melhor que fundo solido sobre uma
-                // linha que ja e colorida.
                 '<td style="' + celula + ' text-align:center; white-space:nowrap;">' +
-                    '<span style="padding:3px 9px; border-radius:3px; ' +
-                    'font-size:11.5px; font-weight:700; letter-spacing:0.01em; ' +
-                    'border:1px solid ' + s.rail + '; color:' + s.rail + '; ' +
-                    'background:rgba(255,255,255,0.55);">' +
-                    esc(rotuloDocumento(s, r)) + '</span>' +
+                    seloSituacao(s, r) +
                 '</td>' +
             '</tr>';
         }).join('');
@@ -903,7 +914,7 @@
             .join('');
     }
 
-    function montarAvisos(registros, fluxo, hoje) {
+    function montarAvisos(registros, fluxo, hoje, tamanho) {
         // O aviso so aparece quando hoje e de fato o ultimo dia de algum titulo.
         const temUltimoDia = registros.some(r =>
             r.situacaoKey === 'ULTIMO_DIA' && mesmaData(r.prazos.dataLimitePagamento, hoje)
@@ -920,16 +931,16 @@
             '<div style="flex:1; min-width:280px; padding:11px 13px; border:1px solid ' + cfg.borda +
             '; border-left:3px solid ' + corBarra + '; background:' + cfg.fundo +
             '; border-radius:4px; box-sizing:border-box;">' +
-                '<div style="font-size:11.5px; font-weight:700; color:' + corBarra +
+                '<div style="font-size:' + (tamanho || '11.5px') + '; font-weight:700; color:' + corBarra +
                 '; margin-bottom:4px;">' + esc(cfg.titulo) + '</div>' +
-                '<div style="font-size:10.5px; line-height:1.45; color:' + TOKENS.tinta2 + ';">' +
+                '<div style="font-size:' + (tamanho || '10.5px') + '; line-height:1.45; color:' + TOKENS.tinta2 + ';">' +
                     esc(cfg.texto) + '</div>' +
             '</div></div>';
     }
 
-    function montarRodape(divergentes) {
+    function montarRodape(divergentes, tamanho) {
         if (divergentes.length === 0) return '';
-        return '<div style="margin-top:10px; font-size:10px; color:' + TOKENS.tinta2 + ';">' +
+        return '<div style="margin-top:10px; font-size:' + (tamanho || '10px') + '; color:' + TOKENS.tinta2 + ';">' +
             '<span style="color:' + TOKENS.atencao + '; font-weight:700;">*</span> ' +
             'Dias de atraso calculados a partir da data de vencimento. ' +
             divergentes.length + ' título(s) apresentam contagem diferente da exibida no sistema.' +
@@ -954,7 +965,7 @@
 
     // Cartão de total: só faz sentido com 2+ títulos (com 1 só, seria igual
     // ao saldo já mostrado na própria linha) -- CONFIRMADO com o usuário.
-    function montarTotalizador(registros) {
+    function montarTotalizador(registros, tamanho) {
         if (registros.length <= 1) return '';
 
         const valores = registros.map(r => converterMoedaBrasileira(r.saldoTexto));
@@ -972,11 +983,11 @@
         return '<div style="display:flex; justify-content:space-between; align-items:center; ' +
             'margin-top:12px; padding:9px 16px; background:' + TOKENS.cabecalho + '; ' +
             'border-radius:6px; box-sizing:border-box;">' +
-                '<div style="font-size:11px; font-weight:600; letter-spacing:0.03em; ' +
+                '<div style="font-size:' + (tamanho || '11px') + '; font-weight:600; letter-spacing:0.03em; ' +
                 'color:rgba(255,255,255,0.7); text-transform:uppercase;">' +
                     registros.length + ' títulos vencidos</div>' +
                 '<div style="text-align:right;">' +
-                    '<div style="font-size:10px; font-weight:600; letter-spacing:0.03em; ' +
+                    '<div style="font-size:' + (tamanho || '10px') + '; font-weight:600; letter-spacing:0.03em; ' +
                     'color:rgba(255,255,255,0.7); text-transform:uppercase; margin-bottom:1px;">' +
                         'Valor total</div>' +
                     '<div style="font-size:16px; font-weight:700; color:#FFFFFF; ' +
@@ -986,7 +997,173 @@
             '</div>';
     }
 
-    function montarRelatorio(dados, hoje) {
+    // ============================================================
+    // FORMATO DO RELATORIO (Celular / Desktop) -- so APRESENTACAO
+    // ============================================================
+    //
+    // O formato escolhido so decide qual HTML vai para a captura; coleta,
+    // classificacao, totalizador e avisos sao os mesmos. Desktop = relatorio
+    // de sempre. Celular = layout vertical proprio (420px): ate 5 titulos em
+    // cards, 6 ou mais em lista compacta.
+    const FORMATOS = ['celular', 'desktop'];
+    const CHAVE_FORMATO = 'smarttable_aviso_formato_v1';
+    const LIMITE_CARDS = 5;
+    const LARGURA_CELULAR_PX = 768;   // so o padrao do 1o acesso, nunca a fonte de verdade
+    let _formatoDaSessao = null;      // clique desta pagina (vale mesmo se o storage falhar)
+
+    function formatoAtual() {
+        if (FORMATOS.includes(_formatoDaSessao)) return _formatoDaSessao;
+        try {
+            const salvo = window.localStorage.getItem(CHAVE_FORMATO);
+            if (FORMATOS.includes(salvo)) return salvo;
+        } catch (e) { /* storage indisponivel: segue com o padrao */ }
+        return (window.innerWidth || 1024) < LARGURA_CELULAR_PX ? 'celular' : 'desktop';
+    }
+
+    function salvarFormato(formato) {
+        if (!FORMATOS.includes(formato)) return;
+        _formatoDaSessao = formato;
+        try { window.localStorage.setItem(CHAVE_FORMATO, formato); }
+        catch (e) { /* sem persistencia: a escolha vale so ate recarregar */ }
+    }
+
+    // Rotulo do botao Gerar: diz em qual formato o proximo relatorio sai.
+    function rotuloDoBotao() {
+        return 'Gerar Relatório · ' + (formatoAtual() === 'celular' ? 'Celular' : 'Desktop');
+    }
+
+    const FONTE_RELATORIO = "font-family:-apple-system,'Segoe UI',Arial,sans-serif;";
+    const LARGURA_RELATORIO_CELULAR_PX = 360;   // imagem mais estreita = texto maior no WhatsApp
+    const TAMANHO_MIN_CELULAR = '12px';         // piso do selo e das linhas secundarias
+
+    // Selo cheio so nas situacoes de acao que o cliente ve como tal.
+    const SELO_CHEIO = ['ULTIMO_DIA', 'EM_CARTORIO', 'NEGATIVADO_SCPC'];
+
+    // Ordem do Celular (AUTORIZADA em 08/10/2026). Cliente fora do SCPC:
+    // ultimo dia, prazo final, em atraso (e "vencido"), em cartorio; dentro de
+    // cada grupo, mais dias de atraso primeiro. Cliente SCPC: so mais dias
+    // primeiro. Ordena uma COPIA: `registros` alimenta total, mensagem e avisos.
+    const URGENCIA_CELULAR = {
+        ULTIMO_DIA: 0, PRAZO_FINAL: 1, EM_ATRASO: 2, SEM_PROTESTO: 2,
+        VERIFICAR_POSICAO: 2, EM_CARTORIO: 3, NEGATIVADO_SCPC: 3
+    };
+    function ordenarParaCelular(registros, fluxo) {
+        const posicao = new Map(registros.map((r, i) => [r, i]));
+        const grupo = (r) => (fluxo === 'SCPC' ? 0 : (URGENCIA_CELULAR[r.situacaoKey] ?? 2));
+        return registros.slice().sort((a, b) =>
+            (grupo(a) - grupo(b)) ||
+            (b.diasAtrasoReal - a.diasAtrasoReal) ||
+            (posicao.get(a) - posicao.get(b)));
+    }
+
+    // Nome do cliente no cabecalho: a razao social da propria tabela, so se
+    // TODAS as linhas tiverem a mesma. Com razoes diferentes (ou vazia), nao
+    // mostra nome no cabecalho e cada linha mantem a sua.
+    function nomeDoCabecalho(registros) {
+        const nomes = new Set(registros.map(r => (r.razaoSocial || '').trim()));
+        if (nomes.size !== 1) return '';
+        return [...nomes][0];
+    }
+
+    // Card detalhado (1 a 5 titulos), fundo neutro: a cor fica na barra e no
+    // selo. Prioridade: titulo, saldo, atraso, parcela, vencimento, situacao.
+    function montarCards(registros, nome) {
+        return registros.map(r => {
+            const s = SITUACOES[r.situacaoKey];
+            const cheio = SELO_CHEIO.includes(r.situacaoKey);
+            return '<div style="background:' + TOKENS.papel + '; border:1px solid ' + TOKENS.divisor + '; ' +
+                'border-left:6px solid ' + s.rail + '; ' +
+                'border-radius:6px; padding:12px 14px; margin-bottom:8px; color:' + s.corTexto + ';">' +
+                '<div style="font-size:18px; font-weight:700; letter-spacing:-0.1px;">' +
+                    'Título nº ' + esc(r.titulo) + '</div>' +
+                '<div style="display:flex; justify-content:space-between; align-items:baseline; ' +
+                'margin-top:6px; font-variant-numeric:tabular-nums;">' +
+                    '<span style="font-size:22px; font-weight:700;">' + esc(r.saldoTexto) + '</span>' +
+                    '<span style="font-size:16px; font-weight:700; white-space:nowrap;">' +
+                        r.diasAtrasoReal + ' dias' + marcaDivergencia(r) + '</span>' +
+                '</div>' +
+                '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; ' +
+                'margin-top:6px; font-size:' + TAMANHO_MIN_CELULAR + '; color:' + TOKENS.tinta2 + ';">' +
+                    '<span>Parcela ' + esc(r.parcela) + (nome ? '' : ' · ' + esc(r.razaoSocial)) + '</span>' +
+                    '<span style="white-space:nowrap; font-variant-numeric:tabular-nums;">' +
+                        esc(r.vencimentoTexto) + '</span>' +
+                '</div>' +
+                '<div style="margin-top:8px;">' + seloSituacao(s, r, TAMANHO_MIN_CELULAR, cheio) + '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    // Lista compacta (6 ou mais titulos): 3 linhas por titulo, sem cabecalho
+    // de colunas. Com o nome no cabecalho, a 3a linha leva so o selo.
+    function montarListaCompacta(registros, nome) {
+        return '<div style="border:1px solid ' + TOKENS.divisor + '; border-radius:6px;">' +
+            registros.map(r => {
+                const s = SITUACOES[r.situacaoKey];
+                const cheio = SELO_CHEIO.includes(r.situacaoKey);
+                return '<div style="background:' + TOKENS.papel + '; border-left:6px solid ' + s.rail + '; ' +
+                    'border-bottom:1px solid ' + TOKENS.divisor + '; padding:8px 12px; color:' + s.corTexto + ';">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:baseline; ' +
+                    'font-variant-numeric:tabular-nums;">' +
+                        '<span style="font-size:15px; font-weight:700;">' + esc(r.titulo) + '</span>' +
+                        '<span style="font-size:15px; font-weight:700;">' + esc(r.saldoTexto) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:space-between; align-items:baseline; ' +
+                    'margin-top:2px; font-size:' + TAMANHO_MIN_CELULAR + '; font-variant-numeric:tabular-nums;">' +
+                        '<span>Parc ' + esc(r.parcela) + ' · Venc. ' + esc(r.vencimentoTexto) + '</span>' +
+                        '<span style="font-size:13px; font-weight:700; white-space:nowrap;">' +
+                            r.diasAtrasoReal + ' dias' + marcaDivergencia(r) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; ' +
+                    'margin-top:4px;">' +
+                        (nome ? '' : '<span style="font-size:' + TAMANHO_MIN_CELULAR + '; color:' + TOKENS.tinta2 + ';">' +
+                            esc(r.razaoSocial) + '</span>') +
+                        '<span style="white-space:nowrap;">' + seloSituacao(s, r, TAMANHO_MIN_CELULAR, cheio) + '</span>' +
+                    '</div>' +
+                '</div>';
+            }).join('') + '</div>';
+    }
+
+    function montarRelatorioCelular(dados, hoje) {
+        const { fluxo, divergentes } = dados;
+        const registros = ordenarParaCelular(dados.registros, fluxo);
+        const nome = nomeDoCabecalho(registros);
+
+        const dataHora = new Date().toLocaleString('pt-BR', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+
+        return '<div style="width:' + LARGURA_RELATORIO_CELULAR_PX + 'px; ' + FONTE_RELATORIO + ' background:' + TOKENS.papel + '; ' +
+            'padding:18px; box-sizing:border-box; color:' + TOKENS.tinta + ';">' +
+
+            '<div style="display:flex; justify-content:space-between; align-items:flex-end; ' +
+            'border-bottom:2px solid ' + TOKENS.cabecalho + '; padding-bottom:10px;">' +
+                '<div>' +
+                    '<div style="font-size:18px; font-weight:700; letter-spacing:-0.2px;">Relatório</div>' +
+                    (nome ? '<div style="font-size:14px; font-weight:700; margin-top:3px;">' + esc(nome) + '</div>' : '') +
+                    '<div style="font-size:' + TAMANHO_MIN_CELULAR + '; color:' + TOKENS.tinta2 + '; margin-top:2px;">' +
+                        'Títulos vencidos em aberto</div>' +
+                '</div>' +
+                '<div style="font-size:' + TAMANHO_MIN_CELULAR + '; color:' + TOKENS.tinta2 + '; text-align:right;">' +
+                    '<strong style="color:' + TOKENS.tinta + '; font-variant-numeric:tabular-nums;">' +
+                    dataHora + '</strong></div>' +
+            '</div>' +
+
+            // Totalizador no topo (prioridade de leitura), mesmo cartao do Desktop.
+            montarTotalizador(registros, TAMANHO_MIN_CELULAR) +
+            '<div style="margin-top:12px;">' +
+                (registros.length <= LIMITE_CARDS ? montarCards(registros, nome) : montarListaCompacta(registros, nome)) +
+            '</div>' +
+
+            // Sem legenda no Celular: cada selo ja traz o nome da situacao.
+            montarAvisos(registros, fluxo, hoje, TAMANHO_MIN_CELULAR) +
+            montarRodape(divergentes, TAMANHO_MIN_CELULAR) +
+
+        '</div>';
+    }
+
+    function montarRelatorio(dados, hoje, formato) {
+        if (formato === 'celular') return montarRelatorioCelular(dados, hoje);
         const { registros, fluxo, divergentes } = dados;
 
         const dataHora = new Date().toLocaleString('pt-BR', {
@@ -1368,7 +1545,7 @@
         aplicarDestaques(dados.registros);
         observarTabela(tabela, dados.registros);
 
-        const html = montarRelatorio(dados, hoje);
+        const html = montarRelatorio(dados, hoje, formatoAtual());
         const resultado = await capturarEExportar(html);
 
         return {
@@ -1387,8 +1564,6 @@
 
     async function aoClicar(evento) {
         const botao = evento.currentTarget;
-        const rotulo = botao.textContent;
-
         botao.disabled = true;
         botao.style.opacity = '0.6';
         botao.style.cursor = 'wait';
@@ -1423,7 +1598,7 @@
             botao.disabled = false;
             botao.style.opacity = '';
             botao.style.cursor = 'pointer';
-            botao.textContent = rotulo;
+            botao.textContent = rotuloDoBotao();
         }
     }
 
@@ -1542,14 +1717,56 @@
         document.body.appendChild(banner);
     }
 
+    // Seletor de formato (9B/10B, AUTORIZADOS em 08/10/2026): UM botao-pilula
+    // "Formato: Celular ⇄" que alterna entre os dois formatos. So grava a
+    // preferencia e atualiza o rotulo do Gerar; quem gera continua sendo o
+    // botao unico. Rotulo com largura propria (nao encolhe nem some).
+    function criarSeletorFormato(fixo) {
+        const chip = document.createElement('button');
+        chip.id = 'aviso-cobranca-formato';
+        chip.type = 'button';
+        Object.assign(chip.style, {
+            display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '8px',
+            padding: '5px 10px', borderRadius: '14px', border: '1px solid #C5CCD3',
+            background: '#FFFFFF', color: TOKENS.tinta, fontSize: '12px', fontWeight: '600',
+            cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: '0',
+            fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
+        });
+        if (fixo) {
+            Object.assign(chip.style, {
+                position: 'fixed', bottom: '68px', right: '20px', zIndex: '999999',
+                boxShadow: '0 4px 12px rgba(21,26,33,0.25)'
+            });
+        }
+        const pintar = () => {
+            const ativo = formatoAtual();
+            const outro = ativo === 'celular' ? 'Desktop' : 'Celular';
+            chip.dataset.formato = ativo;
+            chip.textContent = 'Formato: ' + (ativo === 'celular' ? 'Celular' : 'Desktop') + ' ⇄';
+            chip.setAttribute('aria-label', 'Formato do relatório: ' + (ativo === 'celular' ? 'Celular' : 'Desktop') +
+                '. Ativar para trocar para ' + outro);
+            // Durante a geracao o botao mostra "Gerando..." (aoClicar restaura depois).
+            const botao = document.getElementById('aviso-cobranca-botao');
+            if (botao && !botao.disabled) botao.textContent = rotuloDoBotao();
+        };
+        chip.addEventListener('click', () => {
+            salvarFormato(formatoAtual() === 'celular' ? 'desktop' : 'celular');
+            pintar();
+        });
+        pintar();
+        return chip;
+    }
+
     function criarBotao() {
         // Evita duplicar se, por algum motivo, a instalacao rodar duas vezes.
         if (document.getElementById('aviso-cobranca-botao')) return;
+        // Seletor orfao (o CRM redesenhou a area e levou so o botao): troca por um novo.
+        document.getElementById('aviso-cobranca-formato')?.remove();
 
         const botao = document.createElement('button');
         botao.id = 'aviso-cobranca-botao';
         botao.type = 'button';
-        botao.textContent = 'Gerar Relatório';
+        botao.textContent = rotuloDoBotao();
         botao.onmouseenter = () => { if (!botao.disabled) botao.style.background = '#22394D'; };
         botao.onmouseleave = () => { if (!botao.disabled) botao.style.background = TOKENS.cabecalho; };
         botao.addEventListener('click', aoClicar);
@@ -1568,6 +1785,7 @@
                 border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
                 cursor: 'pointer', fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
             });
+            ancora.appendChild(criarSeletorFormato(false));
             ancora.appendChild(botao);
         } else {
             Object.assign(botao.style, {
@@ -1577,6 +1795,7 @@
                 cursor: 'pointer', boxShadow: '0 4px 12px rgba(21,26,33,0.25)',
                 fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
             });
+            document.body.appendChild(criarSeletorFormato(true));
             document.body.appendChild(botao);
         }
 
