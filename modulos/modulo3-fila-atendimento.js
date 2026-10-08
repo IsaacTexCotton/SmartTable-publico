@@ -325,18 +325,6 @@
     return (cnpj || '').replace(/\D/g, '').slice(0, 8);
   }
 
-  // O botão "Iniciar Fila" só aparece onde a fila consegue montar algo. Usa
-  // o mesmo critério de construirFilaAPartirDaPagina (linha com
-  // "Controle: X|Y"). A navegação do CRM é multi-página (confirmado com o
-  // usuário), então um check síncrono na carga basta, sem MutationObserver.
-  function paginaTemClientesParaFila() {
-    const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
-    for (const linha of linhas) {
-      if (CONFIG.REGEX_CONTROLE.test(linha.textContent || '')) return true;
-    }
-    return false;
-  }
-
   function construirFilaAPartirDaPagina() {
     const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
     // Chave = raiz do CNPJ, valor = melhor candidato da empresa. Matriz e
@@ -420,50 +408,6 @@
     setTimeout(() => {
       window.location.href = clientes[0].url;
     }, 400);
-  }
-
-  function criarBotaoIniciarFila() {
-    if (document.getElementById('fila-btn-iniciar')) return;
-
-    const btn = document.createElement('button');
-    btn.id = 'fila-btn-iniciar';
-    btn.type = 'button';
-    btn.textContent = '▶ Iniciar Fila de Atendimento';
-    btn.onclick = iniciarFila;
-
-    const ancora = ancoraToolbarLista();
-    if (ancora) {
-      // Classe dos botões nativos da barra; só o fundo muda, pra destacar
-      // que é uma ação e não um filtro.
-      btn.className = 'pbi-btn pbi-btn-quiet';
-      Object.assign(btn.style, {
-        background: '#16232F',
-        borderColor: '#16232F',
-        color: '#fff',
-      });
-      ancora.appendChild(btn);
-      return;
-    }
-
-    // Fallback flutuante.
-    Object.assign(btn.style, {
-      position: 'fixed',
-      bottom: '16px',
-      left: '16px',
-      background: '#16232F',
-      color: '#fff',
-      border: 'none',
-      padding: '10px 16px',
-      borderRadius: '8px',
-      fontSize: '13px',
-      cursor: 'pointer',
-      zIndex: 999997,
-      boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    });
-    document.body.appendChild(btn);
-    // Fora do menu lateral do CRM, acompanhando quando ele recolhe.
-    window.__smartTableUtil?.acompanharMenuLateral?.(btn);
   }
 
   function removerBotaoRetomar() {
@@ -857,10 +801,6 @@
    * 8. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   function iniciar() {
-    if (paginaTemClientesParaFila()) {
-      criarBotaoIniciarFila();
-    }
-
     // Instala o quanto antes; se a função da página ainda não existir,
     // aguardarEAvancar() tenta de novo. O try/catch é obrigatório: uma
     // exceção aqui pularia o registro do listener de clique (causa
@@ -906,7 +846,6 @@
     limparFila,
     validarFormatoDaFila,
     construirFilaAPartirDaPagina,
-    paginaTemClientesParaFila,
     criarBotaoRetomar,
     iniciarFila,
     irParaProximo,

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.91.0', data: '08/10/2026',
+      mudancas: [
+        'Lista de clientes: o botão "▶ Iniciar Fila de Atendimento" saiu da barra. A fila de atendimento original continua no atalho Alt+I (e a fila por prioridade no Alt+U); o botão "Continuar fila anterior" segue onde estava.',
+      ],
+    },
+    {
       versao: '1.90.0', data: '08/10/2026',
       mudancas: [
         'Contatos do Google (Alt+J e botão da lista): o nome do responsável passa a ser só o PRIMEIRO NOME do contato. "ANA PAULA SOUZA" vira "Ana" ao preencher o CRM; palavra toda em maiúsculas ou minúsculas ganha só a inicial maiúscula. Números, parênteses e separadores (/ , & ;) antes do nome são ignorados.',
