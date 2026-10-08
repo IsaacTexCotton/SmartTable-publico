@@ -292,6 +292,79 @@
     movido: (texto, situacao) => `Movido: ${texto} → ${situacao}`,
     semMudanca: 'Só organiza a tela: nenhuma mensagem muda.',
   };
+  /**
+   * Limites que o usuário escolhe (decisão de 08/10/2026: "eu escolho o limite no CRM"): quantas situações e quantos caracteres no nome de uma situação.
+   * Os limites moram fora do catálogo (Módulo 30, `salvarLimites`): valem na hora, não passam por rascunho nem Publicar e não mudam nenhuma mensagem.
+   */
+  const TEXTOS_DOS_LIMITES = {
+    abrir: 'Limites…',
+    abrirRotulo: 'Limites de situações e de nome',
+    titulo: 'Limites',
+    situacoes: 'Máximo de situações',
+    nomeSituacao: 'Máximo de caracteres no nome de uma situação',
+    faixa: (campo) => `De ${C.FAIXA_DOS_LIMITES[campo][0]} a ${C.FAIXA_DOS_LIMITES[campo][1]}. Padrão: ${C.LIMITES_PADRAO[campo]}.`,
+    salvar: 'Salvar limites',
+    padrao: 'Voltar ao padrão',
+    fechar: 'Fechar limites',
+    salvos: 'Limites salvos.',
+    voltou: 'Limites de volta ao padrão.',
+    erroFaixa: (campo) => `${campo === 'situacoes' ? 'Máximo de situações' : 'Máximo de caracteres do nome'}: use um número inteiro de ${C.FAIXA_DOS_LIMITES[campo][0]} a ${C.FAIXA_DOS_LIMITES[campo][1]}.`,
+    erroEmUso: (campo, minimo) => `${campo === 'situacoes' ? 'Já há' : 'O maior nome em uso tem'} ${minimo} ${campo === 'situacoes' ? 'situações no rascunho ou em uso' : 'caracteres'}: o limite não pode ficar abaixo disso.`,
+    erroCota: 'Este navegador não deixou guardar os limites.',
+  };
+  let limitesAbertos = false;
+
+  function painelDeLimites() {
+    const caixa = el('div', {}, { marginTop: '8px', padding: '8px 10px', border: `1px solid ${CORES.marca}`, borderRadius: '8px', background: '#FAFCFE' });
+    caixa.dataset.papel = 'painel-limites';
+    caixa.setAttribute('role', 'group');
+    caixa.setAttribute('aria-label', TEXTOS_DOS_LIMITES.titulo);
+    const atuais = C.limites();
+    const campos = {};
+    ['situacoes', 'nomeSituacao'].forEach((campo) => {
+      const id = `smarttable-limite-${campo}`;
+      caixa.appendChild(el('label', { textContent: TEXTOS_DOS_LIMITES[campo], htmlFor: id }, { display: 'block', fontSize: '11px', fontWeight: '600', color: CORES.apagado, textTransform: 'uppercase', letterSpacing: '0.04em', margin: '6px 0 2px' }));
+      const entrada = el('input', { type: 'number', id, value: String(atuais[campo]), min: String(C.FAIXA_DOS_LIMITES[campo][0]), max: String(C.FAIXA_DOS_LIMITES[campo][1]), step: '1' }, {
+        width: '90px', boxSizing: 'border-box', padding: '6px 8px', fontSize: '13px', fontFamily: 'inherit', color: CORES.tinta, border: `1px solid ${CORES.borda}`, borderRadius: '6px', background: CORES.fundo,
+      });
+      entrada.dataset.papel = `limite-${campo}`;
+      entrada.setAttribute('aria-describedby', `${id}-dica`);
+      campos[campo] = entrada;
+      caixa.appendChild(entrada);
+      caixa.appendChild(el('div', { id: `${id}-dica`, textContent: TEXTOS_DOS_LIMITES.faixa(campo) }, { fontSize: '11px', color: CORES.apagado, marginTop: '2px' }));
+    });
+    const recado = el('div');
+    recado.dataset.papel = 'recado-limites';
+    recado.setAttribute('role', 'alert');
+    caixa.appendChild(recado);
+    const recusar = (r) => {
+      const texto = r.motivo === 'faixa' ? TEXTOS_DOS_LIMITES.erroFaixa(r.campo) : r.motivo === 'em-uso' ? TEXTOS_DOS_LIMITES.erroEmUso(r.campo, r.minimo) : TEXTOS_DOS_LIMITES.erroCota;
+      recado.replaceChildren(faixaDeProblema('erro', texto));
+    };
+    const numero = (entrada) => Number(entrada.value); // vazio vira 0 e cai na faixa
+    const salvar = () => {
+      const r = C.salvarLimites({ situacoes: numero(campos.situacoes), nomeSituacao: numero(campos.nomeSituacao) });
+      if (!r.ok) { recusar(r); return; }
+      window.__smartTableUtil?.toast?.(TEXTOS_DOS_LIMITES.salvos, 3000);
+      refazerListaMantendoRolagem('abrir-limites');
+    };
+    const voltar = () => {
+      const r = C.restaurarLimites();
+      if (!r.ok) { recusar(r); return; }
+      window.__smartTableUtil?.toast?.(TEXTOS_DOS_LIMITES.voltou, 3000);
+      refazerListaMantendoRolagem('abrir-limites');
+    };
+    Object.values(campos).forEach((c) => c.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); salvar(); } }));
+    const botoes = el('div', {}, { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px', flexWrap: 'wrap' });
+    botoes.append(
+      botaoTexto(TEXTOS_DOS_LIMITES.padrao, voltar, 'limites-padrao'),
+      botaoTexto(TEXTOS_DOS_LIMITES.fechar, () => { limitesAbertos = false; refazerListaMantendoRolagem('abrir-limites'); }, 'fechar-limites'),
+      botaoTexto(TEXTOS_DOS_LIMITES.salvar, salvar, 'salvar-limites'),
+    );
+    caixa.appendChild(botoes);
+    return caixa;
+  }
+
   const orgEmUso = () => catalogo.publicado[CO]?.unico ?? C.padrao(CO, 'unico');
   const orgRascunho = () => catalogo.rascunho?.textos?.[CO]?.unico ?? null;
   /** A organização que a tela mostra (rascunho, senão em uso), já lida: `{ situacoes, movidos }`. */
@@ -975,7 +1048,12 @@
     if (!somenteLeitura()) {
       const nova = botaoTexto(TEXTOS_DAS_SITUACOES.nova, criarSituacao, 'nova-situacao');
       nova.style.marginTop = '12px';
-      lista.appendChild(nova);
+      const limites = botaoTexto(TEXTOS_DOS_LIMITES.abrir, () => { limitesAbertos = !limitesAbertos; refazerListaMantendoRolagem(limitesAbertos ? 'limite-situacoes' : 'abrir-limites'); }, 'abrir-limites');
+      limites.setAttribute('aria-label', TEXTOS_DOS_LIMITES.abrirRotulo);
+      limites.setAttribute('aria-expanded', String(limitesAbertos));
+      limites.style.marginLeft = '8px';
+      lista.append(nova, limites);
+      if (limitesAbertos) lista.appendChild(painelDeLimites());
     }
     // Cada texto na situação dele (a de origem ou a que o usuário escolheu); uma situação que o rascunho não conhece não esconde o texto: ele cai na primeira.
     const ids = new Set(org.situacoes.map((x) => x.id));
@@ -1828,6 +1906,7 @@
     catalogo = null;
     indiceDeBusca = new Map();
     vista = 'lista';
+    limitesAbertos = false;
     pv = null; // a árvore da prévia e os resultados das 54 situações não ficam na memória do CRM depois de fechar
     pb = null;
     hs = null;

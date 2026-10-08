@@ -260,11 +260,30 @@
    * as M na ordem do registro; mover um texto de volta à situação de origem apaga a linha M. O `T()` nunca lê isto.
    */
   const CHAVE_ORGANIZACAO = '_organizacao';
-  const MAX_SITUACOES = 20;
-  const MAX_NOME_SITUACAO = 60;
+  /**
+   * LIMITES que o USUÁRIO escolhe (decisão de 08/10/2026: "será totalmente personalizado, eu escolho o limite no CRM"): quantas situações e quantos
+   * caracteres no nome de uma situação. Moram numa chave própria (não no catálogo, que tem revisão e histórico) e são relidos a cada uso, então
+   * outra aba que os mude vale na hora. Valor ausente, ilegível ou fora da faixa = o padrão. Nunca ficam abaixo do que JÁ está em uso (ver `salvarLimites`),
+   * senão o catálogo salvo viraria inválido de uma hora para outra.
+   */
+  const CHAVE_LIMITES = 'smarttable_catalogo_limites_v1';
+  const LIMITES_PADRAO = Object.freeze({ situacoes: 20, nomeSituacao: 60 });
+  const FAIXA_DOS_LIMITES = Object.freeze({ situacoes: Object.freeze([5, 200]), nomeSituacao: Object.freeze([10, 200]) });
+  const valorDeLimiteOk = (campo, v) => Number.isInteger(v) && v >= FAIXA_DOS_LIMITES[campo][0] && v <= FAIXA_DOS_LIMITES[campo][1];
+  function lerLimites() {
+    let bruto = null;
+    try {
+      bruto = JSON.parse(window.localStorage.getItem(CHAVE_LIMITES));
+    } catch (_) {
+      bruto = null;
+    }
+    const limites = { ...LIMITES_PADRAO };
+    if (bruto) Object.keys(LIMITES_PADRAO).forEach((campo) => { if (valorDeLimiteOk(campo, bruto[campo])) limites[campo] = bruto[campo]; });
+    return limites;
+  }
   const ORGANIZACAO_PADRAO = Object.freeze(Object.keys(BLOCOS).map((id) => `S|${id}|${BLOCOS[id]}`));
   const DEF_ORGANIZACAO = Object.freeze({
-    chave: CHAVE_ORGANIZACAO, bloco: 0, titulo: 'Organização das situações', quando: '', variaveis: [], semGlobais: true, rodizio: false, maxItens: MAX_SITUACOES + REGISTRO.length,
+    chave: CHAVE_ORGANIZACAO, bloco: 0, titulo: 'Organização das situações', quando: '', variaveis: [], semGlobais: true, rodizio: false, get maxItens() { return lerLimites().situacoes + REGISTRO.length; },
     pergunta: 'livre', exigir: [], evitar: [], semDesativar: true, organizacao: true,
     formas: [Object.freeze({ id: 'unico', rotulo: 'Organização', padrao: ORGANIZACAO_PADRAO })],
   });
@@ -381,6 +400,7 @@
     const nomes = new Set();
     const movidas = new Set();
     const movimentos = [];
+    const { situacoes: maxSituacoes, nomeSituacao: maxNomeSituacao } = lerLimites();
     lista.forEach((linha) => {
       const partes = linha.split('|');
       if (partes[0] === 'S' && partes.length >= 3) {
@@ -391,7 +411,7 @@
         ids.add(id);
         if (!nome.trim()) erros.push('o nome da situação não pode ficar vazio');
         if (nome !== nome.trim() || /\s{2,}/.test(nome)) erros.push('o nome da situação tem espaços sobrando');
-        if (nome.length > MAX_NOME_SITUACAO) erros.push(`o nome da situação passa de ${MAX_NOME_SITUACAO} caracteres`);
+        if (nome.length > maxNomeSituacao) erros.push(`o nome da situação passa de ${maxNomeSituacao} caracteres`);
         if (/[\r\n]/.test(nome)) erros.push('o nome da situação tem de ficar numa linha só');
         if (/(?:https?:\/\/|www\.)\S/i.test(nome) || /[^\s@]+@[^\s@]+\.[^\s@]/.test(nome)) erros.push('não coloque endereço de internet nem e-mail no nome da situação');
         const chaveNome = nome.trim().toLowerCase();
@@ -403,7 +423,7 @@
         erros.push('linha da organização em formato inválido');
       }
     });
-    if (ids.size > MAX_SITUACOES) erros.push(`mais de ${MAX_SITUACOES} situações`);
+    if (ids.size > maxSituacoes) erros.push(`mais de ${maxSituacoes} situações`);
     Object.keys(BLOCOS).forEach((id) => { if (!ids.has(id)) erros.push('as situações que já existem não podem ser apagadas'); });
     movimentos.forEach(([, chave, id]) => {
       const def = REGISTRO.find((d) => d.chave === chave);
@@ -1087,6 +1107,60 @@
     return gravarCatalogo(dados, preservar) ? { ok: true, rev: novaRev, mudancas: mudancas.length } : { ok: false, motivo: 'cota' };
   }
 
+  /** Quanto o catálogo em uso (publicado e rascunho, o maior dos dois) já ocupa de cada limite. */
+  function limitesEmUso() {
+    const catalogo = lerCatalogo();
+    const listas = [catalogo.publicado?.[CHAVE_ORGANIZACAO]?.unico, catalogo.rascunho?.textos?.[CHAVE_ORGANIZACAO]?.unico].filter(Array.isArray);
+    const emUso = { situacoes: 0, nomeSituacao: 0 };
+    listas.forEach((lista) => {
+      const { situacoes } = organizacaoDe(lista);
+      emUso.situacoes = Math.max(emUso.situacoes, situacoes.length);
+      situacoes.forEach((x) => { emUso.nomeSituacao = Math.max(emUso.nomeSituacao, x.nome.length); });
+    });
+    return emUso;
+  }
+
+  /** `null` se `limites` cabe no que está em uso; senão a recusa `em-uso` do primeiro campo que não cabe. */
+  function recusaPorUso(limites) {
+    const emUso = limitesEmUso();
+    const campo = Object.keys(LIMITES_PADRAO).find((c) => limites[c] < emUso[c]);
+    return campo ? { ok: false, motivo: 'em-uso', campo, minimo: emUso[campo] } : null;
+  }
+
+  /**
+   * Grava os limites escolhidos (só os campos passados). Recusa (nada é gravado): `faixa` (não é inteiro dentro de `FAIXA_DOS_LIMITES`), `em-uso`
+   * (menor do que o catálogo em uso ou o rascunho já têm: `minimo` diz até onde dá para baixar) e `cota` (o navegador não deixou gravar).
+   * @returns {{ok: true, limites: Object}|{ok: false, motivo: string, campo?: string, minimo?: number}}
+   */
+  function salvarLimites(novos) {
+    const limites = lerLimites();
+    for (const campo of Object.keys(LIMITES_PADRAO)) {
+      if (novos?.[campo] === undefined) continue;
+      if (!valorDeLimiteOk(campo, novos[campo])) return { ok: false, motivo: 'faixa', campo };
+      limites[campo] = novos[campo];
+    }
+    const recusa = recusaPorUso(limites);
+    if (recusa) return recusa;
+    try {
+      window.localStorage.setItem(CHAVE_LIMITES, JSON.stringify(limites));
+    } catch (_) {
+      return { ok: false, motivo: 'cota' };
+    }
+    return { ok: true, limites };
+  }
+
+  /** Volta os dois limites ao padrão (apaga a chave). Recusa `em-uso` se o catálogo já passa do padrão (voltar a 20 invalidaria o que está salvo). */
+  function restaurarLimites() {
+    const recusa = recusaPorUso(LIMITES_PADRAO);
+    if (recusa) return recusa;
+    try {
+      window.localStorage.removeItem(CHAVE_LIMITES);
+    } catch (_) {
+      return { ok: false, motivo: 'cota' };
+    }
+    return { ok: true, limites: { ...LIMITES_PADRAO } };
+  }
+
   window.__catalogoMensagens = Object.freeze({
     T,
     padrao,
@@ -1108,8 +1182,14 @@
     REGISTRO: congelarProfundo(REGISTRO),
     BLOCOS,
     CHAVE_ORGANIZACAO,
-    MAX_SITUACOES,
-    MAX_NOME_SITUACAO,
+    get MAX_SITUACOES() { return lerLimites().situacoes; },
+    get MAX_NOME_SITUACAO() { return lerLimites().nomeSituacao; },
+    limites: lerLimites,
+    salvarLimites,
+    restaurarLimites,
+    LIMITES_PADRAO,
+    FAIXA_DOS_LIMITES,
+    CHAVE_LIMITES,
     organizacaoDe,
     listaDaOrganizacao,
     situacaoDoTexto,

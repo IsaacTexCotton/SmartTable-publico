@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.89.0', data: '08/10/2026',
+      mudancas: [
+        'Alt+X: botão "Limites…" ao lado de "+ Nova situação". Você escolhe o máximo de situações (de 5 a 200) e o máximo de caracteres no nome de uma situação (de 10 a 200). Vale na hora, sem Publicar, e nenhuma mensagem muda.',
+        'Os limites nunca ficam abaixo do que já está em uso (rascunho ou publicado): a tela diz até onde dá para baixar. "Voltar ao padrão" restaura 20 situações e 60 caracteres.',
+      ],
+    },
+    {
       versao: '1.88.0', data: '08/10/2026',
       mudancas: [
         'Alt+A, Celular: o nome do cliente aparece no cabeçalho (quando todos os títulos são da mesma razão social, e então some das linhas). Os cards ficam com fundo neutro: a cor está na barra e no selo, que sai cheio em último dia, cartório e SCPC.',
