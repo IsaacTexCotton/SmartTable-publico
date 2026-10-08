@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.90.0', data: '08/10/2026',
+      mudancas: [
+        'Contatos do Google (Alt+J e botão da lista): o nome do responsável passa a ser só o PRIMEIRO NOME do contato. "ANA PAULA SOUZA" vira "Ana" ao preencher o CRM; palavra toda em maiúsculas ou minúsculas ganha só a inicial maiúscula. Números, parênteses e separadores (/ , & ;) antes do nome são ignorados.',
+        'A comparação com o CRM usa o primeiro nome (sem acento nem maiúscula): "Ana" e "Ana Paula" são o mesmo responsável, então deixam de aparecer como diferença. Contatos importados antes desta versão já valem assim, sem importar de novo.',
+      ],
+    },
+    {
       versao: '1.89.0', data: '08/10/2026',
       mudancas: [
         'Alt+X: botão "Limites…" ao lado de "+ Nova situação". Você escolhe o máximo de situações (de 5 a 200) e o máximo de caracteres no nome de uma situação (de 10 a 200). Vale na hora, sem Publicar, e nenhuma mensagem muda.',

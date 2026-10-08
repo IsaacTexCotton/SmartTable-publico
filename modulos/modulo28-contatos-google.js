@@ -155,6 +155,20 @@
   }
 
   /**
+   * O NOME do responsável é só o PRIMEIRO NOME (decisão do usuário, 08/10/2026: "só o primeiro nome"; no CRM, 66 de 68 nomes têm uma palavra).
+   * Do texto que vem depois de `- UF [- GP n]` vale a primeira palavra que tenha letra: separam palavras o espaço e `/ , & ; ( )`; pontas sem
+   * letra (número, ponto, aspas) caem; "Ana Paula" -> "Ana", "(11) Maria" -> "Maria", "9999" -> null. Palavra toda em maiúsculas ou toda em
+   * minúsculas vira "Maria"; a que já veio misturada fica como veio. O hífen interno fica ("Ana-Clara").
+   * @returns {string|null} null se não houver palavra com letra.
+   */
+  function primeiroNome(texto) {
+    const palavra = String(texto ?? '').split(/[\s/,&;()]+/).map((p) => p.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')).find(Boolean);
+    if (!palavra) return null;
+    if (palavra !== palavra.toUpperCase() && palavra !== palavra.toLowerCase()) return palavra;
+    return palavra.toLowerCase().replace(/(^|-)(\p{L})/gu, (_, sep, letra) => sep + letra.toUpperCase());
+  }
+
+  /**
    * Por que um texto de contato NÃO segue o padrão (só para contar; nunca mostra o texto):
    *   'vazio' = o contato não tem nome nem organização; 'sem-raiz' = nenhum trecho parece raiz de CNPJ
    *   (PADRAO_RAIZ); 'raiz-sem-uf' = tem a raiz, mas depois dela não vem uma UF válida.
@@ -230,7 +244,7 @@
         const c = normalizarCelular(v);
         if (c && !celulares.includes(c)) celulares.push(c);
       }));
-      let nome = achado.nome;
+      let nome = primeiroNome(achado.nome);
       if (nome && nome.length > CONFIG_CONTATOS.MAX_NOME) { nome = null; resumo.nomeLongo += 1; }
       if (!nome) resumo.semNome += 1;
       if (celulares.length === 0) resumo.semCelular += 1;
@@ -256,7 +270,11 @@
     const d = String(v ?? '').replace(/\D/g, '');
     return d.length >= 12 && d.startsWith('55') ? d.slice(2) : d;
   };
-  const mesmoNome = (a, b) => Boolean(semAcento(a)) && semAcento(a) === semAcento(b);
+  /** Mesmo responsável = mesmo PRIMEIRO nome (sem acento nem maiúscula): "Ana", "ANA" e "Ana Paula" são o mesmo. */
+  const mesmoNome = (a, b) => {
+    const primeiro = semAcento(primeiroNome(a));
+    return Boolean(primeiro) && primeiro === semAcento(primeiroNome(b));
+  };
 
   /**
    * Chave para dizer se dois celulares são o MESMO número: DDD + os 8 últimos dígitos. O CRM tem celulares
@@ -526,9 +544,10 @@
   async function buscarPorRaiz(raiz) {
     if (!raiz) return [];
     const db = await abrirBanco();
-    if (!db) return memoria.get(raiz) ?? [];
+    if (!db) return memoria.get(raiz) ?? []; // a memória só recebe contatos importados agora, já com o primeiro nome
     const registro = await pedido(db.transaction(CONFIG_CONTATOS.TABELA).objectStore(CONFIG_CONTATOS.TABELA).get(raiz));
-    return registro?.itens ?? [];
+    // Contatos importados ANTES da regra do primeiro nome têm o nome inteiro no banco.
+    return (registro?.itens ?? []).map((i) => ({ ...i, nome: primeiroNome(i.nome) }));
   }
 
   async function apagarTudo() {
@@ -1063,6 +1082,7 @@
     lerCsv,
     interpretarNome,
     motivoForaDoPadrao,
+    primeiroNome,
     normalizarCelular,
     formatarCelular,
     contatosDoCsv,
