@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.93.0', data: '08/10/2026',
+      mudancas: [
+        'Contatos do Google (Alt+J): o nome do contato passa a ser entendido também quando o padrão vem com um detalhe fora do lugar. "RAZÃO - 12345678 - SP Maria" (nome colado na UF só por espaço), "RAZÃO - 12345678-SP" e "RAZÃO - 12345678-SP-Maria" (hífen sem espaços) agora são reconhecidos, em vez de caírem em "fora do padrão". Continua valendo: a raiz tem 8 caracteres, a UF é uma sigla de verdade em MAIÚSCULAS e vem logo depois da raiz. Para valer nos contatos já guardados, importe o CSV de novo no Alt+J.',
+      ],
+    },
+    {
       versao: '1.92.0', data: '08/10/2026',
       mudancas: [
         'Limpeza pedida por você: saíram os atalhos Alt+F (selecionar a 1ª frase padrão), Alt+G (abrir em abas as outras razões do grupo), Alt+K (console de diagnóstico) e Alt+T (copiar títulos um por um, com o Shift+Alt+T). O Alt+A segue gerando o relatório das outras razões do grupo.',

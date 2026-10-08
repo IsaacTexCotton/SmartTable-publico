@@ -86,6 +86,13 @@
 
   const UFS = new Set(['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']);
 
+  // Mesma raiz de PADRAO_RAIZ, mas solta no meio do texto: começa no início ou depois de " - " e termina numa
+  // fronteira (nada de letra, dígito ou ponto colado). Os dois grupos da busca de raiz + UF (acharRaizEUf):
+  // (1) a raiz, (2) duas letras logo depois dela, com hífen (com ou sem espaços) no meio (quem decide se é UF, e em maiúsculas, é o UFS).
+  const TRECHO_RAIZ = '(\\d{2}\\.?\\d{3}\\.?\\d{3}|(?=[0-9A-Z]*\\d)[0-9A-Z]{8})(?![0-9A-Za-z.])';
+  const RAIZ_SOLTA = new RegExp(`(?:^|\\s-\\s)${TRECHO_RAIZ}`);
+  const RAIZ_E_UF = `(?:^|\\s-\\s)${TRECHO_RAIZ}\\s*-\\s*([A-Za-z]{2})(?=$|[\\s-])`;
+
   const util = () => window.__smartTableUtil;
 
   let painelEl = null;
@@ -130,28 +137,77 @@
   }
 
   /**
-   * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome, razao }.
-   * Raiz = 8 caracteres (com ou sem pontos, "12.345.678"), logo seguida de uma UF válida; a
-   * razão pode ter " - " dentro (a raiz é a primeira que vem com UF depois) e, sem razão, a raiz
-   * ainda identifica a empresa sem ambiguidade. Depois da UF:
-   * um trecho "GP ..." (grupo, opcional) e o resto é o nome (opcional). null se não casar.
+   * Monta o resultado de interpretarNome: `resto` são os trechos (separados por " - ") que vêm DEPOIS da UF.
+   * Um primeiro trecho "GP ..." é o grupo (opcional); o que sobra, junto, é o nome (opcional).
    */
-  function interpretarNome(texto) {
-    const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
+  function montarContato(razaoBruta, raiz, uf, resto) {
+    let grupo = null;
+    if (resto.length > 0 && /^GP(\s|$)/i.test(resto[0])) grupo = resto.shift();
+    const nome = resto.join(' - ').trim();
+    const razao = razaoBruta.trim().slice(0, CONFIG_CONTATOS.MAX_RAZAO);
+    return { raiz, uf, grupo, nome: nome || null, razao: razao || null };
+  }
+
+  /** O padrão ESTRITO (o do usuário): cada pedaço separado por " - " com espaços dos dois lados. */
+  function interpretarEstrito(t) {
     const partes = t.split(/\s+-\s+/);
     for (let i = 0; i < partes.length - 1; i++) {
       if (!PADRAO_RAIZ.test(partes[i])) continue;
       const raiz = partes[i].replace(/\./g, '');
       const uf = partes[i + 1].toUpperCase();
       if (!UFS.has(uf) || partes[i + 1] !== partes[i + 1].toUpperCase()) continue;
-      const resto = partes.slice(i + 2);
-      let grupo = null;
-      if (resto.length > 0 && /^GP(\s|$)/i.test(resto[0])) grupo = resto.shift();
-      const nome = resto.join(' - ').trim();
-      const razao = partes.slice(0, i).join(' - ').trim().slice(0, CONFIG_CONTATOS.MAX_RAZAO);
-      return { raiz, uf, grupo, nome: nome || null, razao: razao || null };
+      return montarContato(partes.slice(0, i).join(' - '), raiz, uf, partes.slice(i + 2));
     }
     return null;
+  }
+
+  /**
+   * Acha no texto (já com os espaços normalizados) a primeira raiz de CNPJ seguida de UF válida em MAIÚSCULAS,
+   * tolerando o hífen sem espaços ("12345678-SP") e o que vem depois da UF colado só por espaço ("SP Maria") ou
+   * por hífen sem espaços ("SP-Maria"). A raiz tem que estar solta (início ou depois de " - "), a UF tem que ser
+   * uma sigla de verdade e terminar ali: "sp", "XX", "SPX" e 7, 9 ou 14 dígitos NÃO casam.
+   * @returns {{indice: number, fim: number, raiz: string, uf: string}|null} `indice` é onde começa o trecho da
+   *   raiz (incluindo o " - " antes dela) e `fim` é onde a UF termina.
+   */
+  function acharRaizEUf(texto) {
+    const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
+    const re = new RegExp(RAIZ_E_UF, 'g');
+    let m;
+    while ((m = re.exec(t)) !== null) {
+      if (!UFS.has(m[2])) continue;
+      return { indice: m.index, fim: m.index + m[0].length, raiz: m[1].replace(/\./g, ''), uf: m[2] };
+    }
+    return null;
+  }
+
+  /**
+   * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome, razao }.
+   * Raiz = 8 caracteres (com ou sem pontos, "12.345.678"), logo seguida de uma UF válida; a
+   * razão pode ter " - " dentro (a raiz é a primeira que vem com UF depois) e, sem razão, a raiz
+   * ainda identifica a empresa sem ambiguidade. Depois da UF:
+   * um trecho "GP ..." (grupo, opcional) e o resto é o nome (opcional). null se não casar.
+   *
+   * Duas tentativas: primeiro o padrão ESTRITO (tudo o que ele reconhece sai igual ao de sempre) e só se ele
+   * falhar a leitura tolerante (acharRaizEUf): "RAZÃO - 12345678 - SP Maria", "RAZÃO - 12345678-SP-Maria".
+   */
+  function interpretarNome(texto) {
+    const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
+    const estrito = interpretarEstrito(t);
+    if (estrito) return estrito;
+    const achado = acharRaizEUf(t);
+    if (!achado) return null;
+    const depois = t.slice(achado.fim).replace(/^(?:\s*-\s*|\s+)/, '');
+    return montarContato(t.slice(0, achado.indice), achado.raiz, achado.uf, depois === '' ? [] : depois.split(/\s+-\s+/));
+  }
+
+  /**
+   * O texto no padrão estrito, "RAZÃO - RAIZ - UF[ - GP n][ - nome]", a partir do que interpretarNome devolveu
+   * (a raiz sai sem pontos). Ler o resultado de volta com interpretarNome dá os mesmos campos.
+   * @returns {string|null} null se `contato` não for um resultado de interpretarNome.
+   */
+  function textoCanonico(contato) {
+    if (!contato || !contato.raiz || !contato.uf) return null;
+    return [contato.razao, contato.raiz, contato.uf, contato.grupo, contato.nome].filter(Boolean).join(' - ');
   }
 
   /**
@@ -177,7 +233,7 @@
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
     if (!t) return 'vazio';
     const partes = t.split(/\s+-\s+/);
-    const temRaiz = partes.some((p) => PADRAO_RAIZ.test(p));
+    const temRaiz = partes.some((p) => PADRAO_RAIZ.test(p)) || RAIZ_SOLTA.test(t);
     return temRaiz ? 'raiz-sem-uf' : 'sem-raiz';
   }
 
@@ -1081,6 +1137,8 @@
   window.__contatosGoogle = {
     lerCsv,
     interpretarNome,
+    acharRaizEUf,
+    textoCanonico,
     motivoForaDoPadrao,
     primeiroNome,
     normalizarCelular,
