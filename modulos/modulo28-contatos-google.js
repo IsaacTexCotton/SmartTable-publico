@@ -151,7 +151,8 @@
   }
 
   /** O padrão ESTRITO (o do usuário): cada pedaço separado por " - " com espaços dos dois lados. */
-  function interpretarEstrito(t) {
+  function interpretarEstrito(texto) {
+    const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
     const partes = t.split(/\s+-\s+/);
     for (let i = 0; i < partes.length - 1; i++) {
       if (!PADRAO_RAIZ.test(partes[i])) continue;
@@ -274,6 +275,43 @@
   }
 
   /**
+   * Lê o "Google CSV" e acha as colunas que importam; o mesmo preparo da importação e do corretor de CSV (Módulo 33).
+   * @returns {{erro: string} | {linhas: string[][], colunas: {nome: number[], first: number, fileAs: number, org: number, telefones: number[]}}}
+   *   `nome` são as colunas de Prefix, First, Middle, Last e Suffix (-1 se o arquivo não tiver); `cab` fica em `linhas[0]`.
+   */
+  function prepararCsv(texto) {
+    const { linhas, aspasAbertas } = lerCsv(texto);
+    if (linhas.length === 0) return { erro: 'O arquivo está vazio.' };
+    if (aspasAbertas) return { erro: 'O arquivo parece cortado ou corrompido (aspas sem fechar).' };
+    const cab = linhas[0].map((c) => c.trim());
+    const idx = (nome) => cab.indexOf(nome);
+    const telefones = cab.map((c, i) => (/^Phone \d+ - Value$/.test(c) ? i : -1)).filter((i) => i >= 0);
+    const faltando = [];
+    if (idx('First Name') < 0) faltando.push('First Name');
+    if (telefones.length === 0) faltando.push('Phone 1 - Value');
+    if (faltando.length > 0) {
+      return { erro: `Não parece um CSV do Google Contatos (faltam as colunas: ${faltando.join(', ')}). Exporte como "Google CSV".` };
+    }
+    return {
+      linhas,
+      colunas: {
+        nome: ['Name Prefix', 'First Name', 'Middle Name', 'Last Name', 'Name Suffix'].map(idx),
+        first: idx('First Name'),
+        fileAs: idx('File As'),
+        org: idx('Organization Name'),
+        telefones,
+      },
+    };
+  }
+
+  /** As três fontes do nome de um contato: o nome composto (Prefix + First + Middle + Last + Suffix), File As e Organization. */
+  function textosDoContato(linha, colunas) {
+    const celula = (i) => (i >= 0 && linha[i] ? linha[i].trim() : '');
+    const composto = colunas.nome.map(celula).filter(Boolean).join(' ');
+    return { celula, textos: [composto, celula(colunas.fileAs), celula(colunas.org)] };
+  }
+
+  /**
    * Linhas do "Google CSV" -> contatos reconhecidos + contagens. Só colunas em inglês, como o
    * Google exporta (confirmado pelo cabeçalho do usuário); sem elas, erro com o motivo.
    * O nome do contato pode estar em First/Middle/Last Name juntos, em File As ou em Organization Name. Entre as fontes
@@ -286,21 +324,10 @@
    *   foraRaizSemUf: number, semNome: number, semCelular: number, nomeLongo: number}}}
    */
   function contatosDoCsv(texto) {
-    const { linhas, aspasAbertas } = lerCsv(texto);
-    if (linhas.length === 0) return { erro: 'O arquivo está vazio.' };
-    if (aspasAbertas) return { erro: 'O arquivo parece cortado ou corrompido (aspas sem fechar).' };
-    const cab = linhas[0].map((c) => c.trim());
-    const idx = (nome) => cab.indexOf(nome);
-    const colunasDeNome = ['Name Prefix', 'First Name', 'Middle Name', 'Last Name', 'Name Suffix'].map(idx);
-    const colFileAs = idx('File As');
-    const colOrg = idx('Organization Name');
-    const colunasDeTelefone = cab.map((c, i) => (/^Phone \d+ - Value$/.test(c) ? i : -1)).filter((i) => i >= 0);
-    const faltando = [];
-    if (idx('First Name') < 0) faltando.push('First Name');
-    if (colunasDeTelefone.length === 0) faltando.push('Phone 1 - Value');
-    if (faltando.length > 0) {
-      return { erro: `Não parece um CSV do Google Contatos (faltam as colunas: ${faltando.join(', ')}). Exporte como "Google CSV".` };
-    }
+    const preparado = prepararCsv(texto);
+    if (preparado.erro) return { erro: preparado.erro };
+    const { linhas, colunas } = preparado;
+    const { telefones: colunasDeTelefone } = colunas;
 
     const resumo = { lidos: 0, reconhecidos: 0, foraDoPadrao: 0, foraVazio: 0, foraSemRaiz: 0, foraRaizSemUf: 0, semNome: 0, semCelular: 0, nomeLongo: 0 };
     const vistos = new Map(); // chave sem a UF -> posições em `contatos`
@@ -308,9 +335,7 @@
     linhas.slice(1).forEach((linha) => {
       if (linha.every((c) => c.trim() === '')) return;
       resumo.lidos += 1;
-      const celula = (i) => (i >= 0 && linha[i] ? linha[i].trim() : '');
-      const composto = colunasDeNome.map(celula).filter(Boolean).join(' ');
-      const textos = [composto, celula(colFileAs), celula(colOrg)];
+      const { celula, textos } = textosDoContato(linha, colunas);
       const achados = textos.map(interpretarNome);
       const achado = achados.find((a) => a && a.uf) || achados.find(Boolean);
       if (!achado) {
@@ -1030,11 +1055,23 @@
   async function corrigirArquivoEBaixar(arquivo, saida) {
     saida.style.color = CORES.texto;
     saida.textContent = 'Lendo...';
-    let r;
+    let texto;
     try {
-      r = window.__corretorCsv.corrigirCsv(await lerArquivo(arquivo));
+      texto = await lerArquivo(arquivo);
     } catch {
+      texto = null;
+    }
+    let r;
+    if (texto === null) {
       r = { erro: 'Não consegui ler o arquivo.' };
+    } else {
+      try {
+        r = window.__corretorCsv.corrigirCsv(texto);
+      } catch (erro) {
+        // Defeito do código, não do arquivo: aparece no console (só o tipo e a mensagem do erro, nunca o conteúdo).
+        console.error('[Contatos do Google] Falha ao corrigir o CSV:', erro?.name, erro?.message);
+        r = { erro: 'Não consegui ler o arquivo.' };
+      }
     }
     if (r.erro) {
       saida.style.color = CORES.erro;
@@ -1052,6 +1089,8 @@
   }
 
   /** O bloco "Corrigir CSV e baixar" do painel (botão, dica e resultado). O seletor de arquivo nasce no clique. */
+  let seletorDoCorretor = null; // referência até o "change": um input solto não pode ser coletado com o seletor aberto
+
   function criarCorretor() {
     const bloco = criarDiv('', { margin: '10px 0 8px' });
     bloco.dataset.papel = 'corretor';
@@ -1064,8 +1103,10 @@
       escolha.accept = '.csv,text/csv';
       escolha.addEventListener('change', () => {
         const arquivo = escolha.files && escolha.files[0];
+        seletorDoCorretor = null;
         if (arquivo) corrigirArquivoEBaixar(arquivo, saida);
       });
+      seletorDoCorretor = escolha;
       escolha.click();
     });
     bloco.appendChild(botao);
@@ -1227,7 +1268,9 @@
   window.__contatosGoogle = {
     lerCsv,
     interpretarNome,
-    interpretarNomeEstrito: (texto) => interpretarEstrito(String(texto ?? '').replace(/\s+/g, ' ').trim()),
+    interpretarNomeEstrito: interpretarEstrito,
+    prepararCsv,
+    textosDoContato,
     acharRaizEUf,
     textoCanonico,
     motivoForaDoPadrao,
@@ -1259,6 +1302,7 @@
     preencherModal,
     abrirPainel,
     corrigirArquivoEBaixar,
+    seletorPendenteDoCorretor: () => seletorDoCorretor,
     fecharPainel,
     alternarPainel,
     estaAberto: () => painelEl !== null,

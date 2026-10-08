@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.95.1', data: '08/10/2026',
+      mudancas: [
+        'Corrigir CSV e baixar (Alt+J): o corretor não reescreve mais um contato quando isso perderia texto. Uma razão social com mais de 120 letras (o Alt+J guarda só as 120 primeiras) agora fica de fora e entra em "sem como corrigir", em vez de ir cortada para o arquivo que você importa no Google. O mesmo vale para "SP GP 3 Maria", em que sem hífen não dá para saber onde o grupo termina: fica para você corrigir à mão.',
+        'Corrigir CSV e baixar (Alt+J): o contato que o Alt+J já lê pelo File As ou pela Organization Name passa a contar em "já estavam no padrão" (antes entrava em "sem como corrigir"). Um defeito interno do corretor passa a aparecer no console do navegador (só o tipo e a mensagem do erro).',
+      ],
+    },
+    {
       versao: '1.95.0', data: '08/10/2026',
       mudancas: [
         'Contatos do Google (Alt+J): novo botão "Corrigir CSV e baixar". Você escolhe o CSV exportado do Google e ele baixa um CSV SÓ com os contatos que o Alt+J consegue arrumar (por exemplo "RAZÃO - 12345678 - SP Maria" ou "RAZÃO - 12345678-SP-Maria"), com o nome inteiro no padrão "RAZÃO - RAIZ - UF - nome" na coluna First Name; as outras colunas não mudam. Contato que já está no padrão, contato sem UF e contato de pessoa não entram no arquivo. O arquivo é lido e baixado no seu navegador, nada é enviado. Antes de importar o arquivo no Google, teste com 2 contatos para ver se ele duplica ou atualiza.',

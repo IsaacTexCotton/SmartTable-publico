@@ -32,7 +32,6 @@
   window.__smartTableUtil?.registrarModuloCarregado?.('Corretor de CSV');
 
   const NOME_ARQUIVO = 'contatos-google-corrigidos.csv';
-  const ROTULOS_A_ESVAZIAR = ['Name Prefix', 'Middle Name', 'Last Name', 'Name Suffix'];
 
   /** Uma célula no formato do CSV: entre aspas se tiver vírgula, aspas ou quebra de linha. */
   function celulaCsv(valor) {
@@ -40,17 +39,33 @@
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
-  /** Linhas de células -> texto CSV (CRLF, com quebra no fim); `comBom` põe o BOM do UTF-8 na frente. */
-  function escreverCsv(linhas, comBom) {
-    const corpo = linhas.map((l) => l.map(celulaCsv).join(',')).join('\r\n') + '\r\n';
-    return (comBom ? '﻿' : '') + corpo;
+  /** Linhas de células -> texto CSV (CRLF, com quebra no fim). Sem BOM: o leitor de arquivo do navegador já o descarta. */
+  function escreverCsv(linhas) {
+    return linhas.map((l) => l.map(celulaCsv).join(',')).join('\r\n') + '\r\n';
+  }
+
+  const soAlfanumerico = (t) => String(t ?? '').replace(/[^\p{L}\p{N}]/gu, '');
+
+  /**
+   * Só reescreve quando NÃO se perde nem se inventa texto: as letras e os números do contato têm que ser exatamente os
+   * mesmos antes e depois (muda só a pontuação e os espaços). Isso barra a razão social muito longa (o Alt+J guarda só
+   * as 120 primeiras letras dela, e esse corte não pode ir para o Google) e qualquer leitura que não seja só reorganizar.
+   * Também barra o grupo que engoliu o nome ("SP GP 3 Maria" vira o grupo "GP 3 Maria"): sem hífen não dá para saber onde
+   * o grupo termina, e a regra do grupo não é adivinhada; o usuário corrige esse à mão.
+   */
+  function consertoSeguro(original, canonico, achado) {
+    if (soAlfanumerico(original) !== soAlfanumerico(canonico)) return false;
+    if (achado.grupo && achado.grupo.split(/\s+/).length > 2) return false;
+    return true;
   }
 
   /**
    * "Google CSV" -> CSV só com os contatos corrigidos + contagens.
-   *   corrigidos: o leitor estrito não entendia e a leitura tolerante entende (entram no arquivo);
-   *   jaNoPadrao: algum texto do contato já é lido pelo leitor estrito (não entram, nem a raiz pontuada);
-   *   semComoCorrigir: tem raiz mas falta o que o código não inventa (UF) ou não dá para entender;
+   *   corrigidos: o leitor estrito não entendia e a leitura tolerante entende, com UF, sem perder texto (entram no arquivo);
+   *   jaNoPadrao: o Alt+J já lê o contato (algum texto no padrão estrito, ou o padrão com UF em File As/Organization);
+   *     não entram, nem a raiz pontuada;
+   *   semComoCorrigir: tem raiz mas falta o que o código não inventa (UF), a leitura perderia texto, o grupo engoliria o
+   *     nome ou não dá para entender;
    *   um contato sem raiz de CNPJ (pessoal) não entra em nenhuma conta, só em `lidos`.
    *
    * @param {string} texto conteúdo do arquivo
@@ -59,48 +74,43 @@
    */
   function corrigirCsv(texto) {
     const G = window.__contatosGoogle;
-    if (!G || !G.lerCsv || !G.contatosDoCsv || !G.interpretarNome || !G.interpretarNomeEstrito || !G.textoCanonico || !G.motivoForaDoPadrao) {
+    if (!G || !G.prepararCsv || !G.textosDoContato || !G.interpretarNome || !G.interpretarNomeEstrito || !G.textoCanonico || !G.motivoForaDoPadrao) {
       return { erro: 'Os Contatos do Google (Alt+J) não carregaram.' };
     }
-    // Mesma validação (e mesmas mensagens) da importação: arquivo vazio, cortado ou sem as colunas do "Google CSV".
-    const lido = G.contatosDoCsv(texto);
-    if (lido.erro) return { erro: lido.erro };
-
-    const { linhas } = G.lerCsv(texto);
-    const cab = linhas[0].map((c) => c.trim());
-    const idx = (nome) => cab.indexOf(nome);
-    const colsNome = ['Name Prefix', 'First Name', 'Middle Name', 'Last Name', 'Name Suffix'].map(idx);
-    const colFirst = idx('First Name');
-    const colFileAs = idx('File As');
-    const colOrg = idx('Organization Name');
-    const colsEsvaziar = ROTULOS_A_ESVAZIAR.map(idx).filter((i) => i >= 0);
+    // Mesma leitura e mesmas mensagens da importação: arquivo vazio, cortado ou sem as colunas do "Google CSV".
+    const preparado = G.prepararCsv(texto);
+    if (preparado.erro) return { erro: preparado.erro };
+    const { linhas, colunas } = preparado;
+    const total = linhas[0].length;
+    const colsEsvaziar = colunas.nome.filter((i) => i >= 0 && i !== colunas.first); // Prefix, Middle, Last, Suffix
 
     const resumo = { lidos: 0, corrigidos: 0, jaNoPadrao: 0, semComoCorrigir: 0 };
     const saida = [linhas[0]];
     linhas.slice(1).forEach((linha) => {
       if (linha.every((c) => c.trim() === '')) return;
       resumo.lidos += 1;
-      const celula = (i) => (i >= 0 && linha[i] ? linha[i].trim() : '');
-      const composto = colsNome.map(celula).filter(Boolean).join(' ');
-      const textos = [composto, celula(colFileAs), celula(colOrg)];
+      const { textos } = G.textosDoContato(linha, colunas);
 
       if (textos.some((t) => G.interpretarNomeEstrito(t))) { resumo.jaNoPadrao += 1; return; }
-      const achadoComposto = G.interpretarNome(composto);
-      if (achadoComposto && achadoComposto.uf) {
+      const achados = textos.map(G.interpretarNome);
+      if (achados[0] && achados[0].uf) {
+        const canonico = G.textoCanonico(achados[0]);
+        if (!consertoSeguro(textos[0], canonico, achados[0])) { resumo.semComoCorrigir += 1; return; }
         const nova = linha.slice();
-        while (nova.length < cab.length) nova.push('');
-        nova[colFirst] = G.textoCanonico(achadoComposto);
+        while (nova.length < total) nova.push('');
+        nova[colunas.first] = canonico;
         colsEsvaziar.forEach((i) => { nova[i] = ''; });
         saida.push(nova);
         resumo.corrigidos += 1;
         return;
       }
+      if (achados.some((a) => a && a.uf)) { resumo.jaNoPadrao += 1; return; } // o Alt+J já lê por File As ou Organization
       // Sobrou o que tem raiz de CNPJ e o código não conserta: sem UF ("RAZÃO - RAIZ"), UF inválida ou texto que não dá
       // para entender. O contato sem raiz (pessoal) não entra em conta nenhuma.
       if (textos.filter((t) => t.trim()).some((t) => G.motivoForaDoPadrao(t) === 'raiz-sem-uf')) resumo.semComoCorrigir += 1;
     });
 
-    return { csv: resumo.corrigidos > 0 ? escreverCsv(saida, String(texto ?? '').charCodeAt(0) === 0xFEFF) : null, resumo };
+    return { csv: resumo.corrigidos > 0 ? escreverCsv(saida) : null, resumo };
   }
 
   /** Baixa `texto` como arquivo `nome` (Blob + link temporário). Trocável nos testes. */
