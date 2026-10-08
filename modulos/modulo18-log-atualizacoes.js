@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.95.0', data: '08/10/2026',
+      mudancas: [
+        'Contatos do Google (Alt+J): novo botão "Corrigir CSV e baixar". Você escolhe o CSV exportado do Google e ele baixa um CSV SÓ com os contatos que o Alt+J consegue arrumar (por exemplo "RAZÃO - 12345678 - SP Maria" ou "RAZÃO - 12345678-SP-Maria"), com o nome inteiro no padrão "RAZÃO - RAIZ - UF - nome" na coluna First Name; as outras colunas não mudam. Contato que já está no padrão, contato sem UF e contato de pessoa não entram no arquivo. O arquivo é lido e baixado no seu navegador, nada é enviado. Antes de importar o arquivo no Google, teste com 2 contatos para ver se ele duplica ou atualiza.',
+        'Contatos do Google (Alt+J): o resumo da importação explica os contatos "sem o nome do responsável" (o Google não tem nome depois da UF) e a linha do padrão diz que também vale só "RAZÃO - RAIZ", sem a UF.',
+      ],
+    },
+    {
       versao: '1.94.0', data: '08/10/2026',
       mudancas: [
         'Contatos do Google (Alt+J): o contato que traz só a razão e a raiz do CNPJ, sem a UF ("RAZÃO - 12345678"), agora é reconhecido e liga ao cliente pela raiz; o cartão do aviso mostra o contato sem a linha de UF. Vale só quando a raiz é o ÚLTIMO trecho e há uma razão antes: um número de 8 dígitos sozinho, ou uma raiz seguida de algo que não é UF ("12345678 - XX - Maria"), continua fora do padrão. Para valer nos contatos já guardados, importe o CSV de novo no Alt+J.',

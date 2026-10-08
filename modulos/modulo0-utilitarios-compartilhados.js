@@ -680,6 +680,7 @@
     'Meta Semanal',
     'Contatos do Google',
     'Contatos do Google: Lista',
+    'Corretor de CSV',
     'Catálogo de Mensagens',
     'Cenários da Prévia',
     'Editor de Mensagens',

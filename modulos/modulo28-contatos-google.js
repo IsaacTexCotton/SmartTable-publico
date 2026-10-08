@@ -973,7 +973,7 @@
       `${r.resumo.lidos} contato(s) lido(s)`,
       `${r.resumo.reconhecidos} no padrão`,
       `${r.resumo.foraDoPadrao} fora do padrão, ignorados (${r.resumo.foraSemRaiz} sem raiz de CNPJ, ${r.resumo.foraRaizSemUf} com raiz mas sem UF válida, ${r.resumo.foraVazio} sem nome)`,
-      `${r.resumo.semNome} sem o nome do responsável`,
+      `${r.resumo.semNome} sem o nome do responsável (não há nome depois da UF no Google: preencha lá)`,
       `${r.resumo.semCelular} sem celular`,
     ];
     if (r.resumo.nomeLongo > 0) partes.push(`${r.resumo.nomeLongo} com nome longo demais (sem o nome)`);
@@ -1020,6 +1020,62 @@
     return caixa;
   }
 
+  /** "1.015" no padrão do usuário (separador de milhar). */
+  const comMilhar = (n) => Number(n).toLocaleString('pt-BR');
+
+  /**
+   * Lê o CSV, corrige (Módulo 33) e baixa só os contatos corrigidos. Escreve o resultado em `saida`.
+   * Separado do clique para os testes chamarem com um arquivo sem abrir o seletor do navegador.
+   */
+  async function corrigirArquivoEBaixar(arquivo, saida) {
+    saida.style.color = CORES.texto;
+    saida.textContent = 'Lendo...';
+    let r;
+    try {
+      r = window.__corretorCsv.corrigirCsv(await lerArquivo(arquivo));
+    } catch {
+      r = { erro: 'Não consegui ler o arquivo.' };
+    }
+    if (r.erro) {
+      saida.style.color = CORES.erro;
+      saida.textContent = r.erro;
+      return r;
+    }
+    if (!r.csv) {
+      saida.textContent = 'Nenhum contato precisa de correção.';
+      return r;
+    }
+    window.__corretorCsv.baixar(window.__corretorCsv.NOME_ARQUIVO, r.csv);
+    saida.style.color = CORES.destaque;
+    saida.textContent = `${comMilhar(r.resumo.corrigidos)} corrigido(s) · ${comMilhar(r.resumo.jaNoPadrao)} já estavam no padrão · ${comMilhar(r.resumo.semComoCorrigir)} sem como corrigir. Baixado: ${window.__corretorCsv.NOME_ARQUIVO}`;
+    return r;
+  }
+
+  /** O bloco "Corrigir CSV e baixar" do painel (botão, dica e resultado). O seletor de arquivo nasce no clique. */
+  function criarCorretor() {
+    const bloco = criarDiv('', { margin: '10px 0 8px' });
+    bloco.dataset.papel = 'corretor';
+    const botao = criarBotao('Corrigir CSV e baixar', 'corrigir', false);
+    const saida = criarDiv('', { fontSize: '12px', margin: '6px 0 0', lineHeight: '1.5' });
+    saida.dataset.papel = 'resultado-corretor';
+    botao.addEventListener('click', () => {
+      const escolha = document.createElement('input');
+      escolha.type = 'file';
+      escolha.accept = '.csv,text/csv';
+      escolha.addEventListener('change', () => {
+        const arquivo = escolha.files && escolha.files[0];
+        if (arquivo) corrigirArquivoEBaixar(arquivo, saida);
+      });
+      escolha.click();
+    });
+    bloco.appendChild(botao);
+    bloco.appendChild(criarDiv('Gera um CSV só com os contatos que o Alt+J consegue arrumar (o nome vai inteiro no padrão). O arquivo é lido e baixado aqui, nada é enviado.', {
+      color: CORES.apagado, fontSize: '11.5px', marginTop: '4px',
+    }));
+    bloco.appendChild(saida);
+    return bloco;
+  }
+
   function abrirPainel() {
     util()?.fecharOutrosPaineis?.('contatosGoogle');
     fecharPainel();
@@ -1049,7 +1105,7 @@
     painelEl.appendChild(criarDiv('Escolha o CSV exportado do Google Contatos ("Google CSV"). O arquivo é lido aqui e os contatos ficam só neste navegador.', {
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
-    painelEl.appendChild(criarDiv('Padrão do nome do contato: RAZÃO - RAIZ DO CNPJ - UF - GP n - nome do responsável (grupo e nome são opcionais).', {
+    painelEl.appendChild(criarDiv('Padrão do nome do contato: RAZÃO - RAIZ DO CNPJ - UF - GP n - nome do responsável (grupo e nome são opcionais; também vale só RAZÃO - RAIZ, sem a UF).', {
       color: CORES.texto, fontSize: '12px', marginBottom: '8px',
     }));
 
@@ -1097,6 +1153,7 @@
     });
     painelEl.appendChild(arquivoEl);
     painelEl.appendChild(resultado);
+    if (window.__corretorCsv) painelEl.appendChild(criarCorretor());
     painelEl.appendChild(criarDiv('Importar de novo substitui tudo o que estava guardado.', { color: CORES.apagado, fontSize: '11.5px' }));
 
     const rodape = criarDiv('', { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '12px' });
@@ -1170,6 +1227,7 @@
   window.__contatosGoogle = {
     lerCsv,
     interpretarNome,
+    interpretarNomeEstrito: (texto) => interpretarEstrito(String(texto ?? '').replace(/\s+/g, ' ').trim()),
     acharRaizEUf,
     textoCanonico,
     motivoForaDoPadrao,
@@ -1200,6 +1258,7 @@
     fecharAviso,
     preencherModal,
     abrirPainel,
+    corrigirArquivoEBaixar,
     fecharPainel,
     alternarPainel,
     estaAberto: () => painelEl !== null,

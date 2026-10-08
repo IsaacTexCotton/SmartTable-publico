@@ -42,7 +42,7 @@
   // MANTER SINCRONIZADO MANUALMENTE com @version em smart-table.user.js. O
   // wrapper pode estar numa versão nova com os @require ainda em cache antigo;
   // este toast confirma qual versão carregou. Só este módulo faz o aviso.
-  const VERSAO_SMARTTABLE = '1.94.0';
+  const VERSAO_SMARTTABLE = '1.95.0';
 
   // Cada módulo se anuncia no Módulo 0 (registrarModuloCarregado); aqui só se
   // LÊ o registro, sem lista própria de módulos (cópias locais já ficaram para
