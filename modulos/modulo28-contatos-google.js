@@ -91,6 +91,8 @@
   // (1) a raiz, (2) duas letras logo depois dela, com hífen (com ou sem espaços) no meio (quem decide se é UF, e em maiúsculas, é o UFS).
   const TRECHO_RAIZ = '(\\d{2}\\.?\\d{3}\\.?\\d{3}|(?=[0-9A-Z]*\\d)[0-9A-Z]{8})(?![0-9A-Za-z.])';
   const RAIZ_SOLTA = new RegExp(`(?:^|\\s-\\s)${TRECHO_RAIZ}`);
+  // Raiz como ÚLTIMO trecho do texto, sem UF ("RAZÃO - 12345678"): o diagnóstico do usuário (08/10/2026) mostrou contatos assim.
+  const RAIZ_NO_FIM = new RegExp(`\\s-\\s${TRECHO_RAIZ}$`);
   const RAIZ_E_UF = `(?:^|\\s-\\s)${TRECHO_RAIZ}\\s*-\\s*([A-Za-z]{2})(?=$|[\\s-])`;
 
   const util = () => window.__smartTableUtil;
@@ -181,32 +183,52 @@
   }
 
   /**
+   * A raiz SEM UF (decisão do usuário, 08/10/2026): só vale como ÚLTIMO trecho do texto ("RAZÃO - 12345678"), com uma
+   * razão que tenha letra ou número e NENHUMA outra raiz solta antes (senão "EMPRESA A - 11111111 - Maria - 22222222"
+   * ligaria o contato à raiz errada). Uma raiz que é o texto todo (um telefone de 8 dígitos) não é cliente; qualquer
+   * coisa depois da raiz ("XX", nome) sem UF de verdade continua recusada.
+   * @returns {{indice: number, raiz: string}|null} `indice` é onde começa o " - " antes da raiz.
+   */
+  function acharRaizSemUf(texto) {
+    const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
+    const m = RAIZ_NO_FIM.exec(t);
+    if (!m) return null;
+    const razao = t.slice(0, m.index);
+    if (!/[\p{L}\p{N}]/u.test(razao) || RAIZ_SOLTA.test(razao)) return null;
+    return { indice: m.index, raiz: m[1].replace(/\./g, '') };
+  }
+
+  /**
    * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome, razao }.
    * Raiz = 8 caracteres (com ou sem pontos, "12.345.678"), logo seguida de uma UF válida; a
    * razão pode ter " - " dentro (a raiz é a primeira que vem com UF depois) e, sem razão, a raiz
    * ainda identifica a empresa sem ambiguidade. Depois da UF:
    * um trecho "GP ..." (grupo, opcional) e o resto é o nome (opcional). null se não casar.
    *
-   * Duas tentativas: primeiro o padrão ESTRITO (tudo o que ele reconhece sai igual ao de sempre) e só se ele
-   * falhar a leitura tolerante (acharRaizEUf): "RAZÃO - 12345678 - SP Maria", "RAZÃO - 12345678-SP-Maria".
+   * Três tentativas: primeiro o padrão ESTRITO (tudo o que ele reconhece sai igual ao de sempre); se ele falhar, a
+   * leitura tolerante (acharRaizEUf): "RAZÃO - 12345678 - SP Maria", "RAZÃO - 12345678-SP-Maria"; por último a raiz sem
+   * UF, só como ÚLTIMO trecho ("RAZÃO - 12345678"), com `uf: null`.
    */
   function interpretarNome(texto) {
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
     const estrito = interpretarEstrito(t);
     if (estrito) return estrito;
     const achado = acharRaizEUf(t);
-    if (!achado) return null;
+    if (!achado) {
+      const semUf = acharRaizSemUf(t);
+      return semUf ? montarContato(t.slice(0, semUf.indice), semUf.raiz, null, []) : null;
+    }
     const depois = t.slice(achado.fim).replace(/^(?:\s*-\s*|\s+)/, '');
     return montarContato(t.slice(0, achado.indice), achado.raiz, achado.uf, depois === '' ? [] : depois.split(/\s+-\s+/));
   }
 
   /**
    * O texto no padrão estrito, "RAZÃO - RAIZ - UF[ - GP n][ - nome]", a partir do que interpretarNome devolveu
-   * (a raiz sai sem pontos). Ler o resultado de volta com interpretarNome dá os mesmos campos.
+   * (a raiz sai sem pontos; sem UF, o texto sai sem ela). Ler o resultado de volta com interpretarNome dá os mesmos campos.
    * @returns {string|null} null se `contato` não for um resultado de interpretarNome.
    */
   function textoCanonico(contato) {
-    if (!contato || !contato.raiz || !contato.uf) return null;
+    if (!contato || !contato.raiz) return null;
     return [contato.razao, contato.raiz, contato.uf, contato.grupo, contato.nome].filter(Boolean).join(' - ');
   }
 
@@ -227,7 +249,8 @@
   /**
    * Por que um texto de contato NÃO segue o padrão (só para contar; nunca mostra o texto):
    *   'vazio' = o contato não tem nome nem organização; 'sem-raiz' = nenhum trecho parece raiz de CNPJ
-   *   (PADRAO_RAIZ); 'raiz-sem-uf' = tem a raiz, mas depois dela não vem uma UF válida.
+   *   (PADRAO_RAIZ); 'raiz-sem-uf' = tem a raiz, mas nada que a leitura aceite: depois dela não vem uma UF válida
+   *   (a raiz sem UF como último trecho já é aceita por interpretarNome e nunca chega aqui).
    */
   function motivoForaDoPadrao(texto) {
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
@@ -253,9 +276,12 @@
   /**
    * Linhas do "Google CSV" -> contatos reconhecidos + contagens. Só colunas em inglês, como o
    * Google exporta (confirmado pelo cabeçalho do usuário); sem elas, erro com o motivo.
-   * O nome do contato pode estar em First/Middle/Last Name juntos, em File As ou em Organization Name.
+   * O nome do contato pode estar em First/Middle/Last Name juntos, em File As ou em Organization Name. Entre as fontes
+   * vale a primeira que traz a UF; só se nenhuma trouxer, a primeira que traz a raiz sem UF (a fonte mais rica nunca
+   * perde para uma que só tem "RAZÃO - RAIZ"). O mesmo contato com e sem UF vira um registro só, o que tem UF.
+   * `uf` é null só no contato reconhecido pela raiz sem UF.
    *
-   * @returns {{erro: string} | {contatos: Array<{raiz: string, uf: string, grupo: string|null, razao: string|null, nome: string|null, celulares: string[]}>,
+   * @returns {{erro: string} | {contatos: Array<{raiz: string, uf: string|null, grupo: string|null, razao: string|null, nome: string|null, celulares: string[]}>,
    *   resumo: {lidos: number, reconhecidos: number, foraDoPadrao: number, foraVazio: number, foraSemRaiz: number,
    *   foraRaizSemUf: number, semNome: number, semCelular: number, nomeLongo: number}}}
    */
@@ -277,7 +303,7 @@
     }
 
     const resumo = { lidos: 0, reconhecidos: 0, foraDoPadrao: 0, foraVazio: 0, foraSemRaiz: 0, foraRaizSemUf: 0, semNome: 0, semCelular: 0, nomeLongo: 0 };
-    const vistos = new Set();
+    const vistos = new Map(); // chave sem a UF -> posições em `contatos`
     const contatos = [];
     linhas.slice(1).forEach((linha) => {
       if (linha.every((c) => c.trim() === '')) return;
@@ -285,7 +311,8 @@
       const celula = (i) => (i >= 0 && linha[i] ? linha[i].trim() : '');
       const composto = colunasDeNome.map(celula).filter(Boolean).join(' ');
       const textos = [composto, celula(colFileAs), celula(colOrg)];
-      const achado = textos.map(interpretarNome).find(Boolean);
+      const achados = textos.map(interpretarNome);
+      const achado = achados.find((a) => a && a.uf) || achados.find(Boolean);
       if (!achado) {
         resumo.foraDoPadrao += 1;
         // O motivo é o do texto "mais promissor": vazio só se NENHUMA fonte tem texto; raiz-sem-uf se alguma tem a raiz.
@@ -305,10 +332,16 @@
       if (!nome) resumo.semNome += 1;
       if (celulares.length === 0) resumo.semCelular += 1;
       resumo.reconhecidos += 1;
-      const chave = [achado.raiz, achado.uf, achado.grupo, achado.razao, nome, celulares.join(',')].join('|');
-      if (vistos.has(chave)) return;
-      vistos.add(chave);
-      contatos.push({ raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares });
+      const chave = [achado.raiz, achado.grupo, achado.razao, nome, celulares.join(',')].join('|');
+      const iguais = vistos.get(chave) ?? [];
+      // Já guardado com a mesma UF, ou sem UF quando já há um com UF: nada de novo.
+      if (iguais.some((k) => contatos[k].uf === achado.uf) || (achado.uf === null && iguais.length > 0)) return;
+      const novo = { raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares };
+      const semUf = iguais.find((k) => contatos[k].uf === null);
+      if (semUf !== undefined) { contatos[semUf] = novo; return; } // o com UF substitui o mesmo contato sem UF
+      contatos.push(novo);
+      iguais.push(contatos.length - 1);
+      vistos.set(chave, iguais);
     });
     return { contatos, resumo };
   }

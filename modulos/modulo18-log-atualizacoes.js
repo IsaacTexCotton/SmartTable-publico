@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.94.0', data: '08/10/2026',
+      mudancas: [
+        'Contatos do Google (Alt+J): o contato que traz só a razão e a raiz do CNPJ, sem a UF ("RAZÃO - 12345678"), agora é reconhecido e liga ao cliente pela raiz; o cartão do aviso mostra o contato sem a linha de UF. Vale só quando a raiz é o ÚLTIMO trecho e há uma razão antes: um número de 8 dígitos sozinho, ou uma raiz seguida de algo que não é UF ("12345678 - XX - Maria"), continua fora do padrão. Para valer nos contatos já guardados, importe o CSV de novo no Alt+J.',
+      ],
+    },
+    {
       versao: '1.93.0', data: '08/10/2026',
       mudancas: [
         'Contatos do Google (Alt+J): o nome do contato passa a ser entendido também quando o padrão vem com um detalhe fora do lugar. "RAZÃO - 12345678 - SP Maria" (nome colado na UF só por espaço), "RAZÃO - 12345678-SP" e "RAZÃO - 12345678-SP-Maria" (hífen sem espaços) agora são reconhecidos, em vez de caírem em "fora do padrão". Continua valendo: a raiz tem 8 caracteres, a UF é uma sigla de verdade em MAIÚSCULAS e vem logo depois da raiz. Para valer nos contatos já guardados, importe o CSV de novo no Alt+J.',
