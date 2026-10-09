@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.97.0', data: '09/10/2026',
+      mudancas: [
+        'Alt+U: o teto de 19 dias de atraso deixou de cortar o cliente de cartório. Cliente do fluxo Cartório com todos os títulos vencidos em cartório entra na fila (faixa 16, por último) mesmo com mais de 19 dias. O teto continua valendo para o fluxo de negativação (SCPC) e para quem tem algum título fora do cartório; Cluster Novo continua isento. Efeito: o Alt+U passa a visitar também os clientes acima de 19 dias para saber o fluxo, então a primeira montagem do dia demora mais.',
+      ],
+    },
+    {
       versao: '1.96.0', data: '09/10/2026',
       mudancas: [
         'Cliente com TODOS os títulos vencidos em cartório deixou de ser "não cobrar": não aparece mais o banner vermelho "Não cobrar este cliente", e o Alt+A, o Alt+S e o registro funcionam normalmente para ele. Quem tem título em NÃO COBRAR / CARTEIRA, ou "Não cobrar" marcado no Alerta, continua bloqueado como antes.',

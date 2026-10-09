@@ -77,7 +77,10 @@
  * o mesmo campo que exclui quem mexeu HOJE; aqui acha quem está PARADO.
  *
  * EXCLUSÕES (nunca entram, em nenhuma faixa):
- *   - Mais de 19 dias de atraso
+ *   - Mais de 19 dias de atraso, SALVO cartório puro (v1.97.0): o teto só vale pro
+ *     fluxo de negativação (SCPC) e pra quem tem título fora do cartório; cliente do
+ *     fluxo Cartório com TODOS os vencidos em cartório fica (faixa 16). O corte é
+ *     DEPOIS da visita, pois o fluxo só existe na página do cliente.
  *   - Dia 1 de atraso
  *   - Última movimentação é HOJE
  *   - Alguma promessa (qualquer status) com data prometida DEPOIS de hoje
@@ -454,10 +457,14 @@
 
   // Exclusões decidíveis só com o que a lista mostra, sem visitar ninguém.
   //
-  // Exceção (decisão do usuário): Cluster Novo NÃO é cortado pelo teto de dias.
-  // Cliente novo com título em cartório passa dos 19 dias e precisa aparecer,
-  // pois a cobrança bloqueia o faturamento dele. Saber "é cartório?" exigiria
-  // visitar, então a isenção vale para o cluster inteiro.
+  // Teto de dias (v1.97.0, decisão do usuário, 09/10/2026): só vale para quem
+  // está no fluxo de NEGATIVAÇÃO (SCPC); cliente de CARTÓRIO passa dos 19 dias e
+  // continua na fila. Saber o fluxo exige visitar, então a lista NÃO corta mais
+  // por dias: o cliente acima do teto segue com `acimaDoTeto: true` e é cortado
+  // DEPOIS da visita (classificarAPartirDaAba), salvo cartório puro.
+  //
+  // Cluster Novo continua isento do teto em qualquer fluxo (decisão anterior):
+  // a cobrança bloqueia o faturamento dele.
   function filtrarPorRegrasDaLista(candidatos) {
     const sobreviventes = [];
     const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0, naoCobrarTemporario: 0 };
@@ -474,10 +481,6 @@
         excluidos.semDias++;
         return;
       }
-      if (c.diasAtraso > CONFIG.DIAS_ATRASO_MAX && !ehClusterNovo(c.cluster)) {
-        excluidos.dias++;
-        return;
-      }
       if (c.diasAtraso < CONFIG.DIA_ATRASO_MIN_CONSIDERADO) {
         excluidos.diaUm++;
         return;
@@ -486,7 +489,9 @@
         excluidos.movimentacaoHoje++;
         return;
       }
-      sobreviventes.push(c);
+      sobreviventes.push(
+        c.diasAtraso > CONFIG.DIAS_ATRASO_MAX && !ehClusterNovo(c.cluster) ? { ...c, acimaDoTeto: true } : c
+      );
     });
 
     return { sobreviventes, excluidos };
@@ -699,6 +704,13 @@
     const escolhido = escolherTituloRepresentativo(registrosParaEscolha);
     if (!escolhido) {
       return { cliente, erro: 'sem-titulo-representativo' };
+    }
+
+    // Teto de 19 dias, agora conferido aqui (v1.97.0): só passa quem está no
+    // fluxo de cartório com TODOS os vencidos em cartório (escolhido EM_CARTORIO).
+    // Negativação (SCPC), acordo atrasado e o resto seguem cortados pelo teto.
+    if (cliente.acimaDoTeto && (prioridadeForcada !== null || dadosTitulos.fluxo !== 'CARTORIO' || escolhido.situacaoKey !== 'EM_CARTORIO')) {
+      return { cliente, excluidoPorDias: true };
     }
 
     let promessas = [];
@@ -1288,7 +1300,7 @@
 
   /** O que a comparação olha de um resultado (o que decide a fila). */
   function resumoParaComparar(r) {
-    const destino = r.erro ? 'erro' : r.excluidoPorNaoCobrar ? 'nao-cobrar' : r.excluidoPorAcordo ? 'acordo-em-dia'
+    const destino = r.erro ? 'erro' : r.excluidoPorNaoCobrar ? 'nao-cobrar' : r.excluidoPorDias ? 'acima-do-teto' : r.excluidoPorAcordo ? 'acordo-em-dia'
       : r.excluidoPorPromessaFutura ? 'promessa-futura' : 'fila';
     return {
       destino,
@@ -1548,7 +1560,7 @@
     console.log('[Fila Prioridade] Candidatos após construirFilaAPartirDaPagina:', candidatos.length);
     console.log('[Fila Prioridade] Detalhamento dos filtros da lista:', JSON.stringify({
       sobreviventes: sobreviventes.length,
-      excluidos_mais_de_19_dias: excluidos.dias,
+      acima_de_19_dias_a_conferir_na_visita: sobreviventes.filter((c) => c.acimaDoTeto).length,
       excluidos_dia_1: excluidos.diaUm,
       excluidos_movimentacao_hoje: excluidos.movimentacaoHoje,
       excluidos_sem_dias_reconhecidos: excluidos.semDias,
@@ -1616,16 +1628,19 @@
         excluidosPorPromessa: todos.filter((r) => r.excluidoPorPromessaFutura).length,
         excluidosPorNaoCobrar: todos.filter((r) => r.excluidoPorNaoCobrar).length,
         excluidosPorAcordo: todos.filter((r) => r.excluidoPorAcordo).length,
+        excluidosPorDias: todos.filter((r) => r.excluidoPorDias).length,
         comPopupBloqueado: todos.filter((r) => r.erro === 'popup-bloqueado').length,
         comOutroErro: todos.filter((r) => r.erro && r.erro !== 'popup-bloqueado').length,
       };
-      todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar && !r.excluidoPorAcordo)
+      todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar && !r.excluidoPorAcordo && !r.excluidoPorDias)
         .forEach((r) => resultados.push(r));
 
       // Lista filtrada (decisão do usuário): a fila vale pra agora, mas NÃO vira
       // a classificação do dia (o cache seria reaproveitado sem filtro e
       // entregaria só parte da carteira), nem a referência do progresso
       // (Módulo 11), nem a atribuição do diário.
+      // O corte por dias agora acontece depois da visita: entra na contagem da lista.
+      excluidos.dias += contadores.excluidosPorDias;
       const filtrosNaLista = filtrosAtivosNaListaAtual();
       if (filtrosNaLista) {
         console.warn(`[Fila Prioridade] Lista com filtro (${filtrosNaLista.join(', ')}) -- fila montada só com esses clientes; cache do dia, progresso e diário NÃO gravados.`);
