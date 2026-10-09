@@ -173,6 +173,8 @@
   function abrirPainel() {
     // Só um painel flutuante nosso por vez (ver registrarPainel, Módulo 0).
     window.__smartTableUtil?.fecharOutrosPaineis?.('configuracoes');
+    // Chamado com o painel já aberto: reabre, não deixa um segundo painel órfão no DOM.
+    fecharPainel();
 
     const config = obterConfig();
 

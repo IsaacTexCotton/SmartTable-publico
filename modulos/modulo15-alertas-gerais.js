@@ -223,7 +223,12 @@
       excluirAlerta(alerta.id);
       desenharCards();
       atualizarBotao();
-      if (alertasDeHoje().length === 0) fecharAviso();
+      // O aviso mostra os alertas de hoje: refeito (não só fechado) para não seguir exibindo o que acabou de ser excluído.
+      // Só se ele estava na tela: quem o fechou não o vê voltar.
+      if (avisoEl) {
+        fecharAviso();
+        mostrarAvisoDeHoje();
+      }
     });
     card.appendChild(corpo);
     card.appendChild(excluir);

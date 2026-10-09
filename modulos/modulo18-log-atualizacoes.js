@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.2', data: '09/10/2026',
+      mudancas: [
+        'Alertas gerais: ao excluir um dos alertas de hoje, o aviso da lista de clientes é refeito na hora. Antes ele continuava mostrando o alerta que você tinha acabado de excluir (e a contagem velha).',
+        'Bastidores: o painel de configurações (Alt+O) não deixa mais um painel sobrando na tela se for aberto duas vezes seguidas por código.',
+      ],
+    },
+    {
       versao: '1.101.1', data: '09/10/2026',
       mudancas: [
         'Bastidores (nada muda na tela): a trava que impede dado de cliente de ir para o repositório público ficou mais rígida. Telefone real com "0000" no meio e e-mail com domínio começando em número deixavam de ser barrados.',
