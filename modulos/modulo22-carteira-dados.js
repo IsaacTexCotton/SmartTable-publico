@@ -148,7 +148,7 @@
     'negociadorAtribuido', 'tipoAtribuicao', 'valorNegociacaoRecente', 'statusNegociacaoRecente',
     'dataNegociacaoProximaParcela', 'valorPromessaRecente', 'statusPromessaRecente', 'dataPromessaPrometida',
     'dataUltimaMovimentacao', 'tipoUltimaMovimentacao', 'dataUltimoPagamento', 'possuiFat', 'controleCliente',
-    'controleClienteDescricao', 'proximaTarefaData', 'proximaTarefaDescricao', 'estado', 'regiao',
+    'controleClienteDescricao', 'proximaTarefaData', 'estado', 'regiao',
   ]);
   // Identificam o cliente: viram hash (h = CNPJ, g = grupo econômico,
   // r = representante). O resto do que identifica NÃO é gravado.
@@ -160,6 +160,8 @@
     'razaoSocial', 'nomeFantasia', 'grupoClienteDescricao', 'endereco', 'numero', 'cep', 'bairro', 'cidade',
     'telefone', 'celular', 'email', 'codigo', 'cnpjFormatado', 'enderecoCompleto', 'primeiraDuplicata',
     'titulosNoDiaFiltrado',
+    // Texto livre digitado por operadores (pode conter nome ou telefone) e que nenhuma conta usa.
+    'proximaTarefaDescricao',
   ]);
   // Campos em que a conta depende. Se SUMIREM de todos os clientes (o CRM
   // renomeou), o dia ainda é gravado, mas com o alerta 'campoSumiu' --

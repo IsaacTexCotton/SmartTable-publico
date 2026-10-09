@@ -207,9 +207,16 @@
     // Separado de abrirWhatsAppSemNovaAba só pra ser testável isoladamente
     // (função pura -- dada a URL do wa.me, devolve a URL do protocolo do
     // WhatsApp Desktop) sem precisar simular a navegação de verdade.
+    function soDigitosDoTelefone(caminho) {
+        let texto = caminho;
+        try { texto = decodeURIComponent(caminho); } catch (_) { /* % solto: usa o texto como veio */ }
+        return texto.replace(/\D/g, '');
+    }
+
     function construirUrlProtocoloWhatsApp(urlWaMe) {
         const urlAnalisada = new URL(urlWaMe, window.location.href);
-        const telefone = urlAnalisada.pathname.replace(/^\/+/, '');
+        // A8 (rodada B, AUTORIZADO pelo usuário em 09/10/2026): só dígitos no telefone (espaço, '+' ou traço quebram a URL do WhatsApp).
+        const telefone = soDigitosDoTelefone(urlAnalisada.pathname);
         const mensagem = urlAnalisada.searchParams.get('text') || '';
         return 'whatsapp://send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
     }
@@ -225,7 +232,8 @@
     // implementar: a URL abre a conversa com o texto já preenchido.
     function construirUrlWhatsAppWeb(urlWaMe) {
         const urlAnalisada = new URL(urlWaMe, window.location.href);
-        const telefone = urlAnalisada.pathname.replace(/^\/+/, '');
+        // A8 (rodada B, AUTORIZADO pelo usuário em 09/10/2026): só dígitos no telefone (espaço, '+' ou traço quebram a URL do WhatsApp).
+        const telefone = soDigitosDoTelefone(urlAnalisada.pathname);
         const mensagem = urlAnalisada.searchParams.get('text') || '';
         return 'https://web.whatsapp.com/send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
     }

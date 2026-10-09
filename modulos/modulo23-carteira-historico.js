@@ -57,6 +57,7 @@
     lerStatus,
     gravarStatus,
     pedirPersistencia,
+    estaUsandoMemoria,
     lerDia,
     gravarDia,
     listarDias,
@@ -162,6 +163,11 @@
       }));
     } catch (erro) {
       console.warn('[Carteira] Falha ao apagar fotografias antigas (sem perda de dados).', erro?.message);
+    }
+    // Sem IndexedDB a fotografia só existe na memória da aba e some no reload: avisa na hora, uma vez por dia.
+    if (estaUsandoMemoria() && lerStatus().ultimoAvisoMemoria !== hojeIso) {
+      util()?.toast?.('Carteira: este navegador não deixou usar o armazenamento local. A fotografia de hoje vale só nesta aba e se perde ao recarregar.', 9000);
+      gravarStatus({ ultimoAvisoMemoria: hojeIso });
     }
     const persistente = await pedirPersistencia();
     if (persistente !== null) gravarStatus({ persistente });

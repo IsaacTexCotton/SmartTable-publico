@@ -236,12 +236,16 @@
   /**
    * O NOME do responsável é só o PRIMEIRO NOME (decisão do usuário, 08/10/2026: "só o primeiro nome"; no CRM, 66 de 68 nomes têm uma palavra).
    * Do texto que vem depois de `- UF [- GP n]` vale a primeira palavra que tenha letra: separam palavras o espaço e `/ , & ; ( )`; pontas sem
-   * letra (número, ponto, aspas) caem; "Ana Paula" -> "Ana", "(11) Maria" -> "Maria", "9999" -> null. Palavra toda em maiúsculas ou toda em
+   * letra (número, ponto, aspas) caem; "Ana Paula" -> "Ana", "(11) Maria" -> "Maria", "Sr. João" -> "João" (tratamento não conta), "9999" -> null. Palavra toda em maiúsculas ou toda em
    * minúsculas vira "Maria"; a que já veio misturada fica como veio. O hífen interno fica ("Ana-Clara").
    * @returns {string|null} null se não houver palavra com letra.
    */
+  // Tratamentos que não são o nome (decisão do usuário, 09/10/2026: "pode ignorar"): "Sr. João" -> "João".
+  const TRATAMENTOS = new Set(['sr', 'sra', 'srta', 'dr', 'dra', 'dona', 'prof', 'profa']);
+
   function primeiroNome(texto) {
-    const palavra = String(texto ?? '').split(/[\s/,&;()]+/).map((p) => p.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')).find(Boolean);
+    const palavras = String(texto ?? '').split(/[\s/,&;()]+/).map((p) => p.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, '')).filter(Boolean);
+    const palavra = palavras.find((p) => !TRATAMENTOS.has(semAcento(p)));
     if (!palavra) return null;
     if (palavra !== palavra.toUpperCase() && palavra !== palavra.toLowerCase()) return palavra;
     return palavra.toLowerCase().replace(/(^|-)(\p{L})/gu, (_, sep, letra) => sep + letra.toUpperCase());

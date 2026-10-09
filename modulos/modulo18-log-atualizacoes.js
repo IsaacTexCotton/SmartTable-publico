@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.99.0', data: '09/10/2026',
+      mudancas: [
+        'Aviso "Não cobrar este cliente": agora acompanha a tabela. Se as linhas chegam depois da página ou mudam sem recarregar, o aviso aparece, troca de título ou sai sozinho. Título "NÃO COBRAR"/"CARTEIRA" com vencimento ilegível também dispara o aviso.',
+        'Registrar e Enviar: o telefone enviado ao WhatsApp (app e web) leva só dígitos; "+", espaço, parênteses e traço não quebram mais o endereço.',
+        'Contatos do Google: tratamentos antes do nome (Sr., Sra., Dr., Dra., Dona, Prof.) são ignorados: "Sr. João" vira "João".',
+        'Carteira: sem IndexedDB no navegador, um aviso diário diz na hora que a fotografia vale só nesta aba. O texto livre "próxima tarefa" deixa de ser gravado nas novas fotografias.',
+      ],
+    },
+    {
       versao: '1.98.0', data: '09/10/2026',
       mudancas: [
         'Alt+S: o bloqueio de "não cobrar" agora vale também no Alt+S comum. Antes só barrava quando "Números diferentes" estava ligado; um cliente com "Não cobrar" no Alerta (ou com todos os títulos "fora do relatório") recebia o envio normalmente. Agora aparece "Envio bloqueado: ..." e nada é enviado.',

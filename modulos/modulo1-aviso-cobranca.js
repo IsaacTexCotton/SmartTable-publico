@@ -635,6 +635,17 @@
 
                 if (!dataVencimento) {
                     ignorados.push({ ordem, motivo: 'vencimento ilegível: "' + vencimentoTexto + '"' });
+                    // A3 (rodada B, AUTORIZADO pelo usuário em 09/10/2026): título "NÃO COBRAR"/"CARTEIRA" com
+                    // vencimento ilegível também dispara o banner (antes sumia calado, sem data para calcular).
+                    const posicaoIlegivel = ler('posicaoDescricao').toUpperCase();
+                    if (POSICOES_EXCLUIDAS_DE_COBRANCA.some((p) => normalizarTexto(posicaoIlegivel).includes(p))) {
+                        naoCobrar.push({
+                            linha, ordem, titulo: ler('numeroTitulo'), parcela: ler('sequencia'),
+                            tituloCompleto: ler('numeroTitulo') + '/' + ler('sequencia'), razaoSocial: ler('razaoSocial'),
+                            vencimentoTexto, saldoTexto: ler('valorEmAberto'), posicao: posicaoIlegivel, portador: ler('portadorDescricao'),
+                            diasAtrasoReal: null, diasInformados: null, divergenciaDias: false, fluxo,
+                        });
+                    }
                     return;
                 }
 
@@ -1612,8 +1623,9 @@
     // em vez de uma única frase corrida em negrito.
     let _avisouFalhaNaoCobrar = false;
 
-    function avisarSeNaoCobrar() {
-        if (document.getElementById('aviso-nao-cobrar-banner')) return; // já existe, não duplica
+    function avisarSeNaoCobrar(refazer = false) {
+        const existente = document.getElementById('aviso-nao-cobrar-banner');
+        if (existente && !refazer) return; // já existe, não duplica
 
         let dados;
         try {
@@ -1633,6 +1645,8 @@
             return;
         }
 
+        // Releitura (A2): o banner antigo só sai depois de a nova leitura dar certo, nunca no meio de uma falha.
+        if (existente) existente.remove();
         if (!dados.naoCobrar || dados.naoCobrar.length === 0) return;
 
         const banner = document.createElement('div');
@@ -1801,6 +1815,24 @@
     // arquivo no carregamento da pagina. Se checarmos so uma vez no
     // DOMContentLoaded, corremos o risco de checar ANTES da tabela existir e
     // desistir para sempre. Por isso observamos o DOM ate ela aparecer.
+    // A2 (rodada B, AUTORIZADO pelo usuário em 09/10/2026): o banner era avaliado uma vez só. Se a tabela chegava vazia
+    // ou as linhas mudavam depois (cliente trocado sem recarregar), ele ficava desatualizado. Agora a tabela é vigiada e
+    // o banner é refeito quando as linhas mudam (com atraso curto para juntar várias mudanças numa só).
+    let _vigiaDaTabela = null;
+    let _refazerNaoCobrarEm = null;
+
+    function vigiarTabelaDoNaoCobrar() {
+        if (_vigiaDaTabela) return;
+        const tabela = localizarTabela();
+        const raiz = (tabela && (tabela.parentElement || tabela)) || null;
+        if (!raiz) return;
+        _vigiaDaTabela = new MutationObserver(() => {
+            clearTimeout(_refazerNaoCobrarEm);
+            _refazerNaoCobrarEm = setTimeout(() => avisarSeNaoCobrar(true), 250);
+        });
+        _vigiaDaTabela.observe(raiz, { childList: true, subtree: true, characterData: true });
+    }
+
     function aguardarTabelaEInstalar() {
         if (_observerInstalacao) return; // ja esta observando, nao duplica
 
@@ -1810,6 +1842,7 @@
                 _observerInstalacao = null;
                 criarBotao();
                 avisarSeNaoCobrar();
+                vigiarTabelaDoNaoCobrar();
             }
         });
         _observerInstalacao.observe(document.body, { childList: true, subtree: true });
@@ -1834,6 +1867,7 @@
         if (localizarTabela()) {
             criarBotao();
             avisarSeNaoCobrar();
+            vigiarTabelaDoNaoCobrar();
         } else {
             aguardarTabelaEInstalar();
         }
