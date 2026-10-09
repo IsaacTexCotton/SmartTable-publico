@@ -255,8 +255,8 @@
     // CONFIRMADO com o usuário: título EM_CARTORIO saiu da cobrança amigável.
     // O título da mensagem é sempre um que AINDA NÃO foi pra cartório, mesmo
     // com menos dias de atraso. Só cai num título em cartório se não sobrar
-    // outro (raro: cliente com todos em cartório nem chega aqui, ver
-    // avisarSeNaoCobrar no Módulo 1).
+    // outro (cliente com todos em cartório chega aqui desde a v1.96.0:
+    // é cobrado normal, faixa 16 da fila).
     // DECISÃO DO USUÁRIO: VERIFICAR_POSICAO pode ser o escolhido; se for o
     // mais atrasado, o Alt+A não gera mensagem (situação incerta), mesmo
     // havendo outro título normal. Travado em tests/mensagens.test.js.

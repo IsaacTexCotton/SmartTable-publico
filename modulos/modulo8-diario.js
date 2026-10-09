@@ -47,7 +47,7 @@
     LIMITE_AVISO_BYTES: 3_500_000,
     // Maior faixa SE o Módulo 7 não estiver carregado. Com ele, o limite vem da
     // própria régua (faixaMaxima): um número fixo acusaria faixas novas como inválidas.
-    FAIXA_MAXIMA: 15,
+    FAIXA_MAXIMA: 16,
   };
 
   /* ---------------------------------------------------------------------

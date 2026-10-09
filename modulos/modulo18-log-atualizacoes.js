@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.96.0', data: '09/10/2026',
+      mudancas: [
+        'Cliente com TODOS os títulos vencidos em cartório deixou de ser "não cobrar": não aparece mais o banner vermelho "Não cobrar este cliente", e o Alt+A, o Alt+S e o registro funcionam normalmente para ele. Quem tem título em NÃO COBRAR / CARTEIRA, ou "Não cobrar" marcado no Alerta, continua bloqueado como antes.',
+        'Alt+U: faixa nova, a 16, "Todos os títulos em cartório", por último na fila (depois de "Demais dias"), com cor própria. Só cai nela quem nenhuma faixa de cima pegou: Cluster Novo, sem contato, promessa etc. continuam na frente. A numeração das faixas de 1 a 15 não mudou.',
+      ],
+    },
+    {
       versao: '1.95.1', data: '08/10/2026',
       mudancas: [
         'Corrigir CSV e baixar (Alt+J): o corretor não reescreve mais um contato quando isso perderia texto. Uma razão social com mais de 120 letras (o Alt+J guarda só as 120 primeiras) agora fica de fora e entra em "sem como corrigir", em vez de ir cortada para o arquivo que você importa no Google. O mesmo vale para "SP GP 3 Maria", em que sem hífen não dá para saber onde o grupo termina: fica para você corrigir à mão.',

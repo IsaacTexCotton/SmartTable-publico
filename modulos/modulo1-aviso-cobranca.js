@@ -512,8 +512,8 @@
         // BUG REAL (confirmado com dado do usuário em 29/09/2026): um título
         // NAO PROTESTAR do Itaú, vencido há 10 dias, virava EM_CARTORIO pela
         // regra do portador lento abaixo, e o cliente saía da fila e do Alt+A
-        // (todos os vencidos "em cartório" viram naoCobrar). O usuário quer
-        // COBRAR quem tem "não protestar".
+        // (na época, todos os vencidos "em cartório" viravam naoCobrar; regra
+        // removida na v1.96.0). O usuário quer COBRAR quem tem "não protestar".
         if (fluxo !== 'SCPC' && normalizarTexto(posicao).includes(POSICAO_NAO_PROTESTAR)) return 'SEM_PROTESTO';
 
         const comparacao = compararDatas(hoje, prazos.dataLimitePagamento);
@@ -712,18 +712,12 @@
                 })));
         }
 
-        // SEGURANÇA (regra de negócio confirmada pelo usuário): se TODOS os
-        // títulos vencidos do cliente já estão em cartório (nenhum em outra
-        // situação), não cobramos -- o processo já saiu da cobrança
-        // amigável. Mesmo tratamento que NAO COBRAR/CARTEIRA acima: os
-        // títulos saem de "registros" e entram em "naoCobrar", disparando o
-        // banner fixo (avisarSeNaoCobrar) e tirando o cliente da mensagem
-        // automática do Alt+A. Só com 1+ título -- cliente sem nenhum
-        // título vencido não teria "registros" mesmo antes desta regra.
-        if (registros.length > 0 && registros.every(r => r.situacaoKey === 'EM_CARTORIO')) {
-            naoCobrar.push(...registros);
-            registros.length = 0;
-        }
+        // REGRA REMOVIDA (v1.96.0, AUTORIZADO pelo usuário, 09/10/2026): "todos
+        // os títulos vencidos em cartório" deixou de virar naoCobrar. Os títulos
+        // ficam em "registros" e o cliente é cobrado normalmente (Alt+A, Alt+S);
+        // na fila do Alt+U ele cai na faixa 16, a última (Módulo 7). Só NAO
+        // COBRAR / CARTEIRA por título (acima) e o "Não cobrar" do Alerta
+        // (Módulo 12) continuam tirando o cliente da cobrança.
 
         // CENSURADO (mesma revisão): número do título e vencimento ligam o
         // log a um cliente. Sai o apelido estável do título (Módulo 8) e os

@@ -51,6 +51,10 @@
  *      que dá pra evitar)
  *  14. 5º dia de atraso (EM_ATRASO, dia 5 -- amanhã vira "último dia")
  *  15. Demais dias (tudo que não caiu acima)
+ *  16. Todos os títulos vencidos em cartório (v1.96.0, decisão do usuário,
+ *      09/10/2026): o cliente deixou de ser "não cobrar" e é cobrado normal
+ *      (Alt+A, Alt+S), mas por último na fila. Só cai aqui o que nenhuma faixa
+ *      acima pegou (cluster novo, sem contato, promessa etc. continuam na frente).
  *
  * DENTRO DA MESMA FAIXA (confirmado com o usuário): do contato mais ANTIGO pro
  * mais recente -- quem está há mais tempo sem ser procurado vem primeiro; quem
@@ -77,9 +81,9 @@
  *   - Dia 1 de atraso
  *   - Última movimentação é HOJE
  *   - Alguma promessa (qualquer status) com data prometida DEPOIS de hoje
- *   - Qualquer título dispara "não cobrar" no Módulo 1 (NAO COBRAR/CARTEIRA, ou
- *     todos em cartório -- critério do banner avisarSeNaoCobrar): exclui o
- *     CLIENTE inteiro, não só o título.
+ *   - Qualquer título dispara "não cobrar" no Módulo 1 (NAO COBRAR/CARTEIRA --
+ *     critério do banner avisarSeNaoCobrar): exclui o CLIENTE inteiro, não só
+ *     o título. Todos em cartório NÃO exclui mais: faixa 16.
  *   - Confirmado com o usuário: quando 2+ clientes do MESMO grupo econômico
  *     têm título em aberto, só a representante MAIS URGENTE entra; as demais
  *     são cobradas por tabela a partir dessa visita (filtrarPorGrupoEconomico).
@@ -203,6 +207,7 @@
     13: 'Título em cartório e outro vencido',
     14: '5º dia de atraso',
     15: 'Demais dias',
+    16: 'Todos os títulos em cartório',
   };
 
   // Faixa em que, dentro dela, quem tem MAIS dias vem primeiro (mais perto
@@ -236,6 +241,7 @@
     13: '#A15C07',
     14: '#CA8504',
     15: '#667085',
+    16: '#1D4E5F',
   };
 
   /* ---------------------------------------------------------------------
@@ -520,7 +526,7 @@
     });
   }
 
-  // Primeira faixa que se aplicar vence: a ordem das checagens segue a numeração (1 a 15).
+  // Primeira faixa que se aplicar vence: a ordem das checagens segue a numeração (1 a 16).
   //
   // contextoPromessa é window.__contextoAdicional.promessa da aba (Módulo 6):
   // { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL', promessa } ou null.
@@ -591,6 +597,9 @@
     // Faixas 13 e 14: subdivisão do que seria "Demais dias".
     if (extras.temTituloEmCartorio === true && situacaoKey !== 'EM_CARTORIO') return 13;
     if (situacaoKey === 'EM_ATRASO' && diasAtrasoReal === CONFIG.DIA_PRIORIDADE_QUINTO_DIA) return 14;
+    // Faixa 16: o título escolhido só é EM_CARTORIO quando TODOS os vencidos do
+    // cliente estão em cartório (escolherTituloRepresentativo prefere qualquer outro).
+    if (situacaoKey === 'EM_CARTORIO') return 16;
     return 15;
   }
 
@@ -667,8 +676,9 @@
     }
 
     // Confirmado com o usuário: cliente com QUALQUER título em "não cobrar"
-    // (NAO COBRAR/CARTEIRA, ou todos em cartório -- ver POSICOES_EXCLUIDAS_DE_COBRANCA
-    // e avisarSeNaoCobrar, Módulo 1) fica fora da fila inteira, não só o título.
+    // (NAO COBRAR/CARTEIRA -- ver POSICOES_EXCLUIDAS_DE_COBRANCA e
+    // avisarSeNaoCobrar, Módulo 1) fica fora da fila inteira, não só o título.
+    // "Todos em cartório" NÃO entra mais aqui: vai pra faixa 16 (v1.96.0).
     // dadosTitulos.naoCobrar já vem da mesma simulação, sem custo de visita.
     if (dadosTitulos.naoCobrar && dadosTitulos.naoCobrar.length > 0) {
       return { cliente, excluidoPorNaoCobrar: true };

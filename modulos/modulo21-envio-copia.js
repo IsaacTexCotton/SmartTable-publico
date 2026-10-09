@@ -625,8 +625,8 @@
     } catch (erro) {
       console.warn('[Atalhos] Não consegui classificar os títulos pra conferir NÃO COBRAR.', erro);
     }
-    // Mesmo critério do banner do Módulo 1: sobrou só NÃO COBRAR / CARTEIRA
-    // (ou tudo em cartório, tratado igual).
+    // Mesmo critério do banner do Módulo 1: sobrou só NÃO COBRAR / CARTEIRA.
+    // Tudo em cartório NÃO bloqueia mais (v1.96.0): é cobrado normalmente.
     if (dados && (dados.registros?.length ?? 0) === 0 && (dados.naoCobrar?.length ?? 0) > 0) {
       return 'títulos em NÃO COBRAR / CARTEIRA';
     }
