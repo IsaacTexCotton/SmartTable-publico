@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.4', data: '09/10/2026',
+      mudancas: [
+        'Registrar e Enviar (Alt+S ou botão): se der erro DEPOIS de o contato já ter sido registrado no CRM (por exemplo, a página falhar ao abrir o WhatsApp), o botão agora fica travado e o aviso diz que o contato FOI registrado e para não clicar de novo. Antes o botão voltava a ficar disponível e um segundo clique registrava o mesmo contato em dobro.',
+      ],
+    },
+    {
       versao: '1.101.3', data: '09/10/2026',
       mudancas: [
         'Alt+N (promessa rápida): com o diálogo aberto, os outros atalhos Alt+letra não agem mais por trás dele. Antes, um Alt+S apertado ali clicava em "Registrar e Enviar" por baixo do diálogo. Só o Alt+N, que fecha, continua valendo.',

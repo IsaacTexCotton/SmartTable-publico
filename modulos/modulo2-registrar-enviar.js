@@ -305,6 +305,10 @@
         botao.style.cursor = 'wait';
         botao.textContent = 'Registrando...';
 
+        // Rodada final da revisão (AUTORIZADO pelo usuário em 09/10/2026): depois do POST o contato JÁ está no CRM. Um erro dali em
+        // diante (a função da página lançar, o endereço do WhatsApp sair inválido...) não pode reabilitar o botão: um segundo clique
+        // registraria o contato de novo.
+        let contatoRegistrado = false;
         try {
             const resumoPadronizado = calcularResumoPadronizado();
 
@@ -329,6 +333,7 @@
             if (!resposta.ok || !json.success) {
                 throw new Error((json.error && json.error.message) || json.message || 'Erro ao registrar contato.');
             }
+            contatoRegistrado = true;
 
             // Abre o WhatsApp com a mensagem que ja estava na caixa de
             // observacao (a frase padrao escolhida pelo operador). A caixa
@@ -366,6 +371,13 @@
 
         } catch (erro) {
             console.error('[registrar-enviar]', erro);
+            if (contatoRegistrado) {
+                toast('O contato FOI registrado no CRM, mas deu erro depois e o WhatsApp pode não ter aberto. ' +
+                    'Envie a mensagem à mão; não clique de novo, senão o contato é registrado outra vez.', 'error');
+                botao.textContent = rotuloOriginal;
+                botao.style.cursor = 'not-allowed';
+                return;
+            }
             toast(erro.message || 'Não foi possível registrar o contato.', 'error');
             botao.disabled = false;
             botao.style.opacity = '';
