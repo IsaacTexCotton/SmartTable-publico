@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.1', data: '09/10/2026',
+      mudancas: [
+        'Bastidores (nada muda na tela): a trava que impede dado de cliente de ir para o repositório público ficou mais rígida. Telefone real com "0000" no meio e e-mail com domínio começando em número deixavam de ser barrados.',
+        'Bastidores: o aviso de "nada a publicar" agora aparece quando o espelho público roda sem saber qual commit publicar, e o gerador do golden das mensagens recusa argumento inválido antes de gravar qualquer coisa.',
+      ],
+    },
+    {
       versao: '1.101.0', data: '09/10/2026',
       mudancas: [
         'Alt+I (fila de atendimento original, por dias de atraso) foi excluído: a tecla não faz mais nada e saiu da ajuda (Alt+H). A fila de hoje começa só pelo Alt+U. O "Continuar fila anterior", o painel Voltar/Próximo e o Alt+P/Alt+V seguem como estavam.',
