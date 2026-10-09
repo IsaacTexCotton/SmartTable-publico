@@ -855,6 +855,26 @@
       return;
     }
 
+    // v1.98.0 (revisão de código): o bloqueio de "não cobrar" vale pro Alt+S
+    // COMUM, não só com "Números diferentes". Antes, motivoDeBloqueio só era
+    // consultado dentro de planoDoEnvio, que sai cedo sem números extras: um
+    // cliente com "Não cobrar" no Alerta (ou tudo "fora do relatório") recebia o envio.
+    const bloqueio = motivoDeBloqueio(cnpj);
+    if (bloqueio) {
+      console.warn(`[Atalhos] Alt+S não enviou: ${bloqueio}.`);
+      window.__smartTableUtil?.toast?.(`Envio bloqueado: ${bloqueio}. Nenhuma mensagem foi enviada.`, 8000);
+      return;
+    }
+
+    // Acordo que não deu pra ler: o Alt+A pergunta se segue; o Alt+S sem passar
+    // pelo Alt+A (cópia desta página inexistente) não enviava nem avisava.
+    const avisoAcordos = window.__negociacoes?.avisoPendente?.();
+    if (avisoAcordos && !copiaDoAltADestaPagina()) {
+      console.warn('[Atalhos] Alt+S não enviou: leitura de acordos com problema e sem passar pelo Alt+A.');
+      window.__smartTableUtil?.toast?.(`Alt+S não enviou. ${avisoAcordos} Aperte Alt+A (ele pergunta se segue) ou recarregue a página.`, 9000);
+      return;
+    }
+
     // O Alt+S só envia com a cópia do Alt+A deste cliente confirmada: espera
     // se ainda copia, recusa se falhou.
     limparAvisoDeOutroCliente();

@@ -119,10 +119,25 @@
     }
   }
 
+  /**
+   * Chave do cliente no armazenamento. Procura o CNPJ como veio e, se não achar,
+   * um já gravado com a MESMA sequência de dígitos (v1.98.0, revisão de código):
+   * "12.345.678/0001-90" e "12345678000190" são o mesmo cliente. Sem isso, a
+   * lista e a página do cliente, escrevendo o CNPJ de jeitos diferentes, deixavam
+   * o "Não cobrar" sem efeito (falha silenciosa pro lado errado).
+   */
+  function chaveDoAlerta(todos, cnpj) {
+    if (Object.prototype.hasOwnProperty.call(todos, cnpj)) return cnpj;
+    const digitos = String(cnpj ?? '').replace(/\D/g, '');
+    if (!digitos) return cnpj;
+    return Object.keys(todos).find((k) => k.replace(/\D/g, '') === digitos) ?? cnpj;
+  }
+
   /** @returns {{observacao: string, naoCobrarAte: number|null, atualizadoEm: number}|null} */
   function obterAlerta(cnpj) {
     if (!cnpj) return null;
-    return lerTodos()[cnpj] || null;
+    const todos = lerTodos();
+    return todos[chaveDoAlerta(todos, cnpj)] || null;
   }
 
   /**
@@ -141,10 +156,11 @@
     const naoCobrar = !!opcoes.naoCobrar;
 
     const todos = lerTodos();
+    const chave = chaveDoAlerta(todos, cnpj);
 
     if (!naoCobrar && !observacaoLimpa) {
       // Sem checkbox e sem observação: é a forma de LIMPAR o alerta.
-      delete todos[cnpj];
+      delete todos[chave];
       return salvarTodos(todos);
     }
 
@@ -154,7 +170,7 @@
 
     const instante = agora ?? Date.now();
     const prazoMantido = Number.isFinite(opcoes.naoCobrarAte) && opcoes.naoCobrarAte > instante ? opcoes.naoCobrarAte : null;
-    todos[cnpj] = {
+    todos[chave] = {
       observacao: observacaoLimpa,
       naoCobrarAte: naoCobrar ? (prazoMantido ?? instante + dias * MS_POR_DIA) : null,
       atualizadoEm: instante,

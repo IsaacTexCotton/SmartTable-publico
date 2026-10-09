@@ -219,6 +219,17 @@
           console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
           return false;
         }
+        // v1.98.0 (revisão de código): outra razão com "Não cobrar" no Alerta
+        // (Módulo 12) não ganha relatório; antes a aba de fundo gerava a imagem do mesmo jeito.
+        try {
+          if (window.__alertaCliente?.estaSuprimidoDaPrioridade?.(empresa.cnpj)) {
+            console.warn(`[Atalhos] ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} está com "Não cobrar" no Alerta -- sem relatório dessa razão.`);
+            window.__smartTableUtil?.toast?.('Uma das outras razões do grupo está marcada "Não cobrar": o relatório dela não foi gerado.', 7000);
+            return false;
+          }
+        } catch (erro) {
+          console.warn('[Atalhos] Não consegui ler o Alerta da outra razão:', erro?.name || 'erro');
+        }
         return true;
       })
       .map((empresa) => ({ empresa, aba: window.open(empresa.url, '_blank') }));

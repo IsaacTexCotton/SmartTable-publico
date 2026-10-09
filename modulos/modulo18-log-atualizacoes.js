@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.98.0', data: '09/10/2026',
+      mudancas: [
+        'Alt+S: o bloqueio de "não cobrar" agora vale também no Alt+S comum. Antes só barrava quando "Números diferentes" estava ligado; um cliente com "Não cobrar" no Alerta (ou com todos os títulos "fora do relatório") recebia o envio normalmente. Agora aparece "Envio bloqueado: ..." e nada é enviado.',
+        'Alt+S: se a leitura de um acordo falhou e você não passou pelo Alt+A (que pergunta se quer seguir), o Alt+S não envia mais; avisa para apertar o Alt+A ou recarregar.',
+        'Alt+A: a outra razão do grupo que está com "Não cobrar" no Alerta não ganha mais relatório em aba de fundo.',
+        'Alerta do cliente: o "Não cobrar" passa a valer para o mesmo CNPJ escrito com ou sem pontos e traços (antes dependia de a lista e a página escreverem igual).',
+      ],
+    },
+    {
       versao: '1.97.0', data: '09/10/2026',
       mudancas: [
         'Alt+U: o teto de 19 dias de atraso deixou de cortar o cliente de cartório. Cliente do fluxo Cartório com todos os títulos vencidos em cartório entra na fila (faixa 16, por último) mesmo com mais de 19 dias. O teto continua valendo para o fluxo de negativação (SCPC) e para quem tem algum título fora do cartório; Cluster Novo continua isento. Efeito: o Alt+U passa a visitar também os clientes acima de 19 dias para saber o fluxo, então a primeira montagem do dia demora mais.',
