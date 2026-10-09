@@ -42,7 +42,7 @@
   // MANTER SINCRONIZADO MANUALMENTE com @version em smart-table.user.js. O
   // wrapper pode estar numa versão nova com os @require ainda em cache antigo;
   // este toast confirma qual versão carregou. Só este módulo faz o aviso.
-  const VERSAO_SMARTTABLE = '1.100.0';
+  const VERSAO_SMARTTABLE = '1.100.1';
 
   // Cada módulo se anuncia no Módulo 0 (registrarModuloCarregado); aqui só se
   // LÊ o registro, sem lista própria de módulos (cópias locais já ficaram para
@@ -468,6 +468,17 @@
     }
   }
 
+  /** A tabela de títulos existe, não tem linhas, e a página diz que há títulos abertos (ainda está sendo montada). */
+  function tabelaAindaSemLinhas() {
+    if (document.querySelectorAll('#tabela-titulos-ds table tbody tr').length > 0) return false;
+    try {
+      const abertos = window.__smartTableUtil.lerVariavelDoScript(document, '__TITULOS_ABERTOS__');
+      return Array.isArray(abertos) && abertos.length > 0;
+    } catch (erro) {
+      return false;
+    }
+  }
+
   // Compara com o retrato da visita anterior ANTES de sobrescrevê-lo com o
   // atual (sempre as duas coisas juntas, nessa ordem) e aproveita para
   // descartar entradas antigas.
@@ -486,6 +497,15 @@
       dados = window.__avisoCobranca.simular();
     } catch (erro) {
       return { houve: false, titulos: [] }; // tabela de títulos ainda não carregou nesta visita -- sem dado pra comparar
+    }
+
+    // Tabela ainda sem linhas enquanto a página declara títulos abertos (__TITULOS_ABERTOS__): está sendo montada. Comparar agora
+    // marcaria todo título como "sumido" (pago) e sobrescreveria o retrato com a lista vazia, perdendo a base da próxima visita.
+    // Não compara nem grava; devolve só o que já estava detectado hoje. (Mesma regra do Módulo 25.)
+    if (tabelaAindaSemLinhas()) {
+      const guardado = lerSnapshotsTitulos()[cnpj];
+      const deHoje = guardado && Array.isArray(guardado.sumidos) && guardado.sumidosEm === chaveData(new Date()) ? guardado.sumidos : [];
+      return { houve: deHoje.length > 0, titulos: deHoje };
     }
 
     const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);

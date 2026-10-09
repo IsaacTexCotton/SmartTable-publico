@@ -216,6 +216,7 @@
   // Faixa em que, dentro dela, quem tem MAIS dias vem primeiro (mais perto
   // do 16º dia, quando começa o aviso de suspensão) -- ver compararPelaRegua.
   const FAIXA_SCPC_ANTES_DO_AVISO = 11;
+  const FAIXA_PROMESSA_NAO_CUMPRIDA = 7;
 
   // Cor de cada faixa: borda do aviso de troca de prioridade e barra/ponto do
   // painel de progresso (Módulo 11). Critérios: contraste >= 3:1 sobre o branco
@@ -697,12 +698,16 @@
     if ((dadosTitulos.registros?.length ?? 0) === 0 && (dadosTitulos.emAcordo?.length ?? 0) > 0) {
       const ativa = aba.__negociacoes?.resumoDeCobranca?.()?.ativa;
       if (!ativa || !ativa.atrasada) return { cliente, excluidoPorAcordo: true };
-      prioridadeForcada = 6;
+      // Acordo com parcela atrasada = "Promessa não cumprida" (decisão do usuário, v1.41.0: na época era a faixa 6; a
+      // renumeração da régua deixou o 6 virar "Dia da promessa de pagamento"). Segue o NOME, não o número antigo.
+      prioridadeForcada = FAIXA_PROMESSA_NAO_CUMPRIDA;
       registrosParaEscolha = { ...dadosTitulos, registros: dadosTitulos.emAcordo };
     }
 
     const escolhido = escolherTituloRepresentativo(registrosParaEscolha);
     if (!escolhido) {
+      // Acima do teto e sem título em cobrança (ex.: tudo "fora do relatório"): é exclusão por dias, não erro.
+      if (cliente.acimaDoTeto) return { cliente, excluidoPorDias: true };
       return { cliente, erro: 'sem-titulo-representativo' };
     }
 

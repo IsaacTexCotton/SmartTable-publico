@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.100.1', data: '09/10/2026',
+      mudancas: [
+        'Alt+U: o cliente cujo acordo tem parcela atrasada voltou para a faixa "Promessa não cumprida" (a 7). Na renumeração da régua ele tinha caído sem querer em "Dia da promessa de pagamento" (a 6).',
+        'Alt+U: cliente acima de 19 dias sem nenhum título em cobrança (por exemplo, tudo "fora do relatório") sai como excluído por dias, e não mais como "erro/timeout" no resumo.',
+        'Detecção de pagamento (baixa de título): se a tabela de títulos ainda está sendo montada quando a página carrega, o retrato dos títulos do cliente não é mais apagado, e nenhum título é dado como pago por engano.',
+      ],
+    },
+    {
       versao: '1.100.0', data: '09/10/2026',
       mudancas: [
         'Alt+N (promessa rápida): título que JÁ está em cartório deixa de ser recusado, já que o cliente só-cartório agora é cobrado. A recusa continua só para o título que ainda não está em cartório mas já estará na data escolhida (aviso vermelho com a data máxima).',
