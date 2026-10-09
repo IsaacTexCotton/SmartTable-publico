@@ -26,8 +26,9 @@
  *     Registrar e Enviar, não o "Salvar Contato").
  *
  * REGRA DO CARTÓRIO (texto e visual aprovados pelo usuário): não registra promessa
- * para título que, NA DATA ESCOLHIDA, já estará em cartório: data >= dataEncaminhamento
- * (Módulo 1) ou título já em cartório. Aviso vermelho com a data máxima E botão
+ * para título que, NA DATA ESCOLHIDA, ainda não está em cartório mas já estará: data >= dataEncaminhamento
+ * (Módulo 1). Título que JÁ está em cartório PODE ter promessa (decisão do usuário, 09/10/2026, depois de o cliente só-cartório
+ * passar a ser cobrado: "Não precisa" recusar). Aviso vermelho com a data máxima E botão
  * travado. Não vale para cliente SCPC nem para posição "NAO PROTESTAR". Só cobre
  * este painel: o campo de data do CRM e os botões do Módulo 2 ficam de fora.
  *
@@ -205,7 +206,7 @@
    * @param {string[]} valores  títulos marcados ("915249/2")
    * @param {string|null} iso   data escolhida (AAAA-MM-DD); sem data só pega quem já está em cartório
    * @param {object|null} dados retorno do simular() do Módulo 1
-   * @returns {{valor: string, motivo: 'ja'|'data', encaminhamentoIso: string|null, ultimoDiaIso: string|null}[]}
+   * @returns {{valor: string, motivo: 'data', encaminhamentoIso: string|null, ultimoDiaIso: string|null}[]}
    */
   function avaliarCartorioDaPromessa(valores, iso, dados) {
     if (!dados || dados.fluxo === 'SCPC') return [];
@@ -215,19 +216,17 @@
     for (const valor of valores) {
       const r = porTitulo.get(String(valor));
       if (!r || ehNaoProtestar(r.posicao)) continue;
+      if (r.situacaoKey === 'EM_CARTORIO') continue; // já está em cartório: a promessa é liberada (decisão de 09/10/2026)
       const encaminhamentoIso = isoDeData(r.prazos?.dataEncaminhamento);
       const ultimoDiaIso = isoDeData(r.prazos?.dataLimitePagamento);
-      if (r.situacaoKey === 'EM_CARTORIO') bloqueados.push({ valor, motivo: 'ja', encaminhamentoIso, ultimoDiaIso });
-      else if (iso && encaminhamentoIso && iso >= encaminhamentoIso) bloqueados.push({ valor, motivo: 'data', encaminhamentoIso, ultimoDiaIso });
+      if (iso && encaminhamentoIso && iso >= encaminhamentoIso) bloqueados.push({ valor, motivo: 'data', encaminhamentoIso, ultimoDiaIso });
     }
     return bloqueados;
   }
 
   /** As frases do aviso vermelho (no máximo 3 títulos, depois "+N"). */
   function frasesDoBloqueio(bloqueios) {
-    const linhas = bloqueios.slice(0, 3).map((b) => (b.motivo === 'ja'
-      ? `Título ${b.valor} já está em cartório: não dá pra agendar.`
-      : `Título ${b.valor} estará em cartório em ${dataBr(b.encaminhamentoIso)}; escolha até ${b.ultimoDiaIso ? dataBr(b.ultimoDiaIso) : 'o último dia para pagamento'}.`));
+    const linhas = bloqueios.slice(0, 3).map((b) => `Título ${b.valor} estará em cartório em ${dataBr(b.encaminhamentoIso)}; escolha até ${b.ultimoDiaIso ? dataBr(b.ultimoDiaIso) : 'o último dia para pagamento'}.`);
     if (bloqueios.length > 3) linhas.push(`+ ${bloqueios.length - 3} título(s) na mesma situação.`);
     linhas.push('Desmarque o título ou escolha outra data.');
     return linhas;

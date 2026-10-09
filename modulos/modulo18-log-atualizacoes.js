@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.100.0', data: '09/10/2026',
+      mudancas: [
+        'Alt+N (promessa rápida): título que JÁ está em cartório deixa de ser recusado, já que o cliente só-cartório agora é cobrado. A recusa continua só para o título que ainda não está em cartório mas já estará na data escolhida (aviso vermelho com a data máxima).',
+      ],
+    },
+    {
       versao: '1.99.0', data: '09/10/2026',
       mudancas: [
         'Aviso "Não cobrar este cliente": agora acompanha a tabela. Se as linhas chegam depois da página ou mudam sem recarregar, o aviso aparece, troca de título ou sai sozinho. Título "NÃO COBRAR"/"CARTEIRA" com vencimento ilegível também dispara o aviso.',
