@@ -37,6 +37,9 @@
     URL_DETALHE: (id) => `/api/crm/negociacoes/${id}`,
     // Status que mudam a cobrança -- só estes são consultados.
     STATUS_CONSULTADOS: ['ATIVA', 'CONCLUIDA', 'INADIMPLENTE'],
+    // Status que o CRM tem hoje e que não mudam a cobrança (confirmados no filtro da aba Negociações). Um status FORA destas
+    // duas listas é novo: nunca é ignorado em silêncio (gera aviso, sem mudar quem é cobrado).
+    STATUS_IGNORADOS: ['PROPOSTA_ENVIADA', 'CANCELADA'],
     // Títulos destes acordos não são cobrados.
     STATUS_PROTEGEM: ['ATIVA', 'CONCLUIDA'],
     // Status de PARCELA confirmados na API: "PENDENTE" e "PAGO" (a tela mostra
@@ -56,6 +59,7 @@
     acordos: [], // lidos da API, validados
     erros: [], // ids que não deu pra ler
     statusDesconhecidos: [], // [{ id, status }] -- parcela com status fora das listas
+    negociacoesDesconhecidas: [], // [{ id, status }] -- NEGOCIAÇÃO com status fora das listas (nem consultada nem ignorada de propósito)
   };
   let resolverPronto;
   const promessaPronto = new Promise((r) => { resolverPronto = r; });
@@ -171,11 +175,18 @@
   /**
    * Busca e valida o detalhe de cada negociação que muda a cobrança. Serve
    * a esta página e a uma página baixada.
-   * @returns {Promise<{acordos: object[], erros: number[], statusDesconhecidos: {id: number, status: string}[]}>}
+   * @returns {Promise<{acordos: object[], erros: number[], statusDesconhecidos: {id: number, status: string}[], negociacoesDesconhecidas: {id: number, status: string}[]}>}
    */
   async function lerAcordos(raiz = document) {
-    const lido = { acordos: [], erros: [], statusDesconhecidos: [] };
-    const lista = lerListaDaPagina(raiz).filter((n) => CONFIG_NEGOCIACOES.STATUS_CONSULTADOS.includes(n.status));
+    const lido = { acordos: [], erros: [], statusDesconhecidos: [], negociacoesDesconhecidas: [] };
+    const todas = lerListaDaPagina(raiz);
+    todas
+      .filter((n) => !CONFIG_NEGOCIACOES.STATUS_CONSULTADOS.includes(n.status) && !CONFIG_NEGOCIACOES.STATUS_IGNORADOS.includes(n.status))
+      .forEach((n) => {
+        lido.negociacoesDesconhecidas.push({ id: n.id, status: n.status });
+        console.warn(`[Negociações] Acordo ${window.__smartTableUtil?.apelidoParaLog?.(n.id) ?? '?'}: situação "${n.status}" não confirmada -- não consultei a API.`);
+      });
+    const lista = todas.filter((n) => CONFIG_NEGOCIACOES.STATUS_CONSULTADOS.includes(n.status));
     const resultados = await Promise.allSettled(lista.map((n) => buscarDetalhe(n.id)));
     resultados.forEach((r, i) => {
       if (r.status === 'fulfilled') {
@@ -197,6 +208,7 @@
     estado.acordos.push(...lido.acordos);
     estado.erros.push(...lido.erros);
     estado.statusDesconhecidos.push(...lido.statusDesconhecidos);
+    estado.negociacoesDesconhecidas.push(...lido.negociacoesDesconhecidas);
     const aviso = avisoPendente();
     if (aviso) window.__smartTableUtil?.toast?.(aviso, 9000);
     estado.pronto = true;
@@ -216,6 +228,10 @@
     if (estado.statusDesconhecidos.length > 0) {
       const lista = estado.statusDesconhecidos.map(({ id, status }) => `#${id} (${status})`).join(', ');
       partes.push(`Parcela com situação que não conheço no acordo ${lista}`);
+    }
+    if (estado.negociacoesDesconhecidas.length > 0) {
+      const lista = estado.negociacoesDesconhecidas.map(({ id, status }) => `#${id} (${status})`).join(', ');
+      partes.push(`Acordo com situação que não conheço: ${lista}`);
     }
     return partes.length > 0 ? `${partes.join('. ')} -- confira a aba Negociações antes de cobrar.` : null;
   }
@@ -289,13 +305,14 @@
    * @param {Document} raiz
    */
   async function acordosDaPaginaBaixada(raiz) {
-    const { acordos, erros, statusDesconhecidos } = await lerAcordos(raiz);
+    const { acordos, erros, statusDesconhecidos, negociacoesDesconhecidas } = await lerAcordos(raiz);
     return {
       tituloEmAcordo: (tituloTexto) => acordoQueProtegeEm(acordos, tituloTexto) !== null,
       resumoDeCobranca: (registros = []) => resumoDeCobrancaEm(acordos, erros, registros),
       acordos,
       erros,
       statusDesconhecidos,
+      negociacoesDesconhecidas,
     };
   }
 

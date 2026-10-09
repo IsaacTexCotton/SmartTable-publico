@@ -872,6 +872,10 @@
       // diálogo, e estaDigitando() só protege quando o foco está na busca). O Alt+X, que fecha, segue abaixo.
       if (e.altKey && e.code !== CONFIG_ATALHOS.TECLA_EDITOR_MENSAGENS && window.__editorMensagens?.estaAberto?.()) return;
 
+      // O diálogo do Alt+N (Módulo 17) também é modal: nenhum outro atalho Alt+letra age atrás dele (o foco inicial é o próprio
+      // diálogo, e estaDigitando() não o pega). Alt+S registraria e enviaria a cobrança por trás dele. O Alt+N, que fecha, segue abaixo.
+      if (e.altKey && e.code !== CONFIG_ATALHOS.TECLA_PROMESSA_RAPIDA && window.__promessaRapida?.estaAberto?.()) return;
+
       // Única exceção com Shift: Shift+Alt+U REFAZ a fila por prioridade (Alt+U
       // sozinho continua a de hoje). Vem antes da guarda abaixo, que barra
       // Shift. Refazer descarta a fila em andamento e abre ~140 abas de

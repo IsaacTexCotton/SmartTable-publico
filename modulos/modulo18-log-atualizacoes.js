@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.3', data: '09/10/2026',
+      mudancas: [
+        'Alt+N (promessa rápida): com o diálogo aberto, os outros atalhos Alt+letra não agem mais por trás dele. Antes, um Alt+S apertado ali clicava em "Registrar e Enviar" por baixo do diálogo. Só o Alt+N, que fecha, continua valendo.',
+        'Acordos: se a aba Negociações trouxer um acordo com situação que o script não conhece (diferente de ativa, concluída, inadimplente, proposta enviada e cancelada), aparece o aviso "Acordo com situação que não conheço... confira a aba Negociações antes de cobrar", e o Alt+A pergunta se segue. Antes esse acordo era ignorado sem avisar. Quem é cobrado não muda.',
+      ],
+    },
+    {
       versao: '1.101.2', data: '09/10/2026',
       mudancas: [
         'Alertas gerais: ao excluir um dos alertas de hoje, o aviso da lista de clientes é refeito na hora. Antes ele continuava mostrando o alerta que você tinha acabado de excluir (e a contagem velha).',
