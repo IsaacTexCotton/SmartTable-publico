@@ -10,7 +10,7 @@
  * -> Alt+P (próximo da fila; o Módulo 3 nunca navega sozinho).
  *
  * Depende de: Módulo 0 (window.__smartTableUtil), Módulo 3
- * (window.filaDebug.iniciarFila/irParaProximo/irParaAnterior), Módulo 7
+ * (window.filaDebug.irParaProximo/irParaAnterior), Módulo 7
  * (window.filaPrioridadeDebug.iniciar, Alt+U) e Módulo 5
  * (window.__alertaGrupo, linha de grupo na mensagem). Todos precisam
  * ser carregados ANTES deste arquivo.
@@ -93,7 +93,6 @@
    * --------------------------------------------------------------------- */
   const CONFIG_ATALHOS = {
     // Teclas físicas (event.code), sempre combinadas com Alt.
-    TECLA_INICIAR_FILA: 'KeyI',
     TECLA_FILA_PRIORIDADE: 'KeyU',
     TECLA_GERAR_RELATORIO: 'KeyR',
     TECLA_ABRIR_CONTATO: 'KeyC',
@@ -137,7 +136,6 @@
 
   // Fonte única da lista de atalhos (aviso do console e painel Alt+H).
   const LISTA_ATALHOS = [
-    { tecla: 'Alt+I', descricao: 'Iniciar Fila de Atendimento' },
     { tecla: 'Alt+U', descricao: 'Fila por Prioridade: continua a de hoje; só monta do zero se não houver' },
     { tecla: 'Shift+Alt+U', descricao: 'Refazer a fila por prioridade do zero (tira quem já foi contatado hoje)' },
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
@@ -167,14 +165,6 @@
   /* ---------------------------------------------------------------------
    * 3.1 AÇÕES
    * --------------------------------------------------------------------- */
-  function acionarIniciarFila() {
-    if (window.filaDebug && typeof window.filaDebug.iniciarFila === 'function') {
-      window.filaDebug.iniciarFila();
-    } else {
-      console.warn('[Atalhos] Módulo de Fila (Módulo 3) não encontrado. Confirme se ele foi colado ANTES deste arquivo.');
-    }
-  }
-
   /** @param {{reconstruir?: boolean}} [opcoes] */
   function acionarFilaPorPrioridade(opcoes) {
     if (window.filaPrioridadeDebug && typeof window.filaPrioridadeDebug.iniciar === 'function') {
@@ -944,10 +934,6 @@
       if (estaDigitando()) return;
 
       switch (e.code) {
-        case CONFIG_ATALHOS.TECLA_INICIAR_FILA:
-          e.preventDefault();
-          acionarIniciarFila();
-          break;
         case CONFIG_ATALHOS.TECLA_FILA_PRIORIDADE:
           e.preventDefault();
           acionarFilaPorPrioridade();

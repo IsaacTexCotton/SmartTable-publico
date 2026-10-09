@@ -535,8 +535,8 @@
   // Exposto ao Módulo 4 (linha extra do Alt+A). Decisão do usuário:
   // com outra razão vencida a mensagem muda e cada razão gera seu próprio
   // relatório (um por página, sem combinar numa imagem só).
-  function expor(empresas) {
-    window.__alertaGrupo = { empresasComVencido: empresas };
+  function expor(empresas, leituraIncompleta = false) {
+    window.__alertaGrupo = { empresasComVencido: empresas, leituraIncompleta };
     // O checkbox só faz sentido depois de saber se há vencido: desenha aqui.
     try {
       desenharNumerosDiferentes();
@@ -545,8 +545,8 @@
     }
   }
 
-  function checar() {
-    expor(verificarOutrasEmpresasComVencido());
+  function checar(leituraIncompleta = false) {
+    expor(verificarOutrasEmpresasComVencido(), leituraIncompleta);
   }
 
   /*
@@ -640,11 +640,18 @@
     let finalizado = false;
     let observer = null; // declarada ANTES de qualquer chamada a finalizar()
 
-    function finalizar() {
+    function finalizar(porTempo = false) {
       if (finalizado) return;
       finalizado = true;
       if (observer) observer.disconnect();
-      checar();
+      // Rodada C (09/10/2026, autorizado): desistir por tempo SEM a tabela do grupo publicava "nenhuma outra razão com vencido" como se
+      // fosse certeza. Agora avisa (console e tela); o aviso do CRM ("N CNPJ do grupo vencido") continua valendo como conferência.
+      const semTabela = porTempo === true && !encontrarTabelaDoGrupo();
+      checar(semTabela);
+      if (semTabela) {
+        console.warn('[Alerta Grupo] A tabela "Clientes do grupo" não carregou a tempo: não sei se outra razão do grupo tem vencido.');
+        window.__smartTableUtil?.toast?.('Não consegui ler o grupo a tempo: não sei se outra razão tem vencido. Confira o aviso do CRM antes de cobrar (Alt+A).', 9000);
+      }
 
       // Só restaura se a aba ainda for a que deixamos; senão sobrescreveria
       // algo aberto nesse meio tempo (ex.: Alt+C).
@@ -678,7 +685,7 @@
 
     // Rede de segurança: se a tabela nunca aparecer, desiste em vez de
     // ficar preso na aba Grupo.
-    setTimeout(finalizar, 2500);
+    setTimeout(() => finalizar(true), 2500);
   }
 
   if (document.readyState === 'loading') {

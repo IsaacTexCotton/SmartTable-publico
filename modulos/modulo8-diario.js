@@ -783,7 +783,7 @@
         `${semValorPraDesempate} empate(s) de contato não conferido(s): a fila foi montada antes da v1.49.2, sem o valor vencido. Um Alt+U novo resolve.`
       );
     } else {
-      avisos.push('Nenhuma fila salva pra conferir -- rode o Alt+I ou Alt+U antes.');
+      avisos.push('Nenhuma fila salva pra conferir -- rode o Alt+U antes.');
     }
 
     // --- 4. Diário de hoje --------------------------------------------

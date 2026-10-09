@@ -42,7 +42,7 @@
   // MANTER SINCRONIZADO MANUALMENTE com @version em smart-table.user.js. O
   // wrapper pode estar numa versão nova com os @require ainda em cache antigo;
   // este toast confirma qual versão carregou. Só este módulo faz o aviso.
-  const VERSAO_SMARTTABLE = '1.100.1';
+  const VERSAO_SMARTTABLE = '1.101.0';
 
   // Cada módulo se anuncia no Módulo 0 (registrarModuloCarregado); aqui só se
   // LÊ o registro, sem lista própria de módulos (cópias locais já ficaram para
@@ -756,8 +756,24 @@
     };
   }
 
+  /**
+   * Diagnóstico de carga (só números): quando o contexto é calculado, a tabela de títulos já tem linhas? A página declara quantos
+   * títulos abertos? Serve para saber se o cálculo pode rodar antes de a tabela estar montada.
+   */
+  function diagnosticoDaTabelaNoCalculo() {
+    let declarados = null;
+    try {
+      const abertos = window.__smartTableUtil.lerVariavelDoScript(document, '__TITULOS_ABERTOS__');
+      declarados = Array.isArray(abertos) ? abertos.length : null;
+    } catch (erro) {
+      declarados = null;
+    }
+    return { linhas_na_tabela: document.querySelectorAll('#tabela-titulos-ds table tbody tr').length, titulos_declarados_na_pagina: declarados };
+  }
+
   function montarEExpor() {
     try {
+      console.log('[Contexto Adicional] Tabela de títulos no momento do cálculo:', JSON.stringify(diagnosticoDaTabelaNoCalculo()));
       window.__contextoAdicional = calcularContexto();
       console.log('[Contexto Adicional] Calculado:', resumoDoContextoParaLog(window.__contextoAdicional));
     } catch (erro) {

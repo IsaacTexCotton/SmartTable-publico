@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.0', data: '09/10/2026',
+      mudancas: [
+        'Alt+I (fila de atendimento original, por dias de atraso) foi excluído: a tecla não faz mais nada e saiu da ajuda (Alt+H). A fila de hoje começa só pelo Alt+U. O "Continuar fila anterior", o painel Voltar/Próximo e o Alt+P/Alt+V seguem como estavam.',
+        'Grupo econômico: se a tabela "Clientes do grupo" não carregar em 2,5 s, aparece um aviso ("Não consegui ler o grupo a tempo...") em vez de o script concluir calado que não há outra razão com vencido.',
+        'Console (só números): ao calcular o contexto do cliente, o Módulo 6 registra quantas linhas a tabela de títulos tinha e quantos títulos a página declara, para conferir se o cálculo roda antes de a tabela estar montada.',
+      ],
+    },
+    {
       versao: '1.100.1', data: '09/10/2026',
       mudancas: [
         'Alt+U: o cliente cujo acordo tem parcela atrasada voltou para a faixa "Promessa não cumprida" (a 7). Na renumeração da régua ele tinha caído sem querer em "Dia da promessa de pagamento" (a 6).',

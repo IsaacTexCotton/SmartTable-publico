@@ -384,32 +384,6 @@
     return clientes;
   }
 
-  function iniciarFila() {
-    const clientes = construirFilaAPartirDaPagina();
-
-    if (clientes.length === 0) {
-      toast('⚠️ Nenhum cliente encontrado nesta página com os seletores atuais. Rode o diagnóstico e ajuste CONFIG.');
-      console.warn('[Fila] construirFilaAPartirDaPagina() não encontrou nada. Verifique se CONFIG.SELETOR_LINHA ainda encontra as linhas e se o texto delas ainda contém "Controle: X|Y" no formato esperado por CONFIG.REGEX_CONTROLE.');
-      return;
-    }
-
-    const fila = {
-      versao: CONFIG.VERSAO_SCHEMA,
-      clientes,
-      indiceAtual: -1,
-      totalAtendidos: 0,
-      totalPulados: 0,
-      iniciadoEm: Date.now(),
-    };
-
-    salvarFila(fila);
-    toast(`▶ Fila iniciada com ${clientes.length} cliente(s). Indo para o primeiro...`);
-
-    setTimeout(() => {
-      window.location.href = clientes[0].url;
-    }, 400);
-  }
-
   function removerBotaoRetomar() {
     const el = document.getElementById('fila-btn-retomar');
     if (el) el.remove();
@@ -847,7 +821,6 @@
     validarFormatoDaFila,
     construirFilaAPartirDaPagina,
     criarBotaoRetomar,
-    iniciarFila,
     irParaProximo,
     irParaAnterior,
     registrarSucessoSemAvancar,
