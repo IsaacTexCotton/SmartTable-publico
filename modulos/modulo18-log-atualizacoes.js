@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.102.1', data: '21/10/2026',
+      mudancas: [
+        'Corrige a posição do botão Retorno: agora aparece abaixo de Alerta no perfil do cliente, em vez de dentro do modal Registrar Contato. O botão tem estilo próprio para continuar visível no CRM.',
+      ],
+    },
+    {
       versao: '1.102.0', data: '21/10/2026',
       mudancas: [
         'Novo módulo Retorno: cria e edita várias frases reutilizáveis com um resultado nativo do CRM; ao aplicar uma frase, seleciona o resultado, preenche a observação e aciona Salvar Contato pelo próprio CRM.',

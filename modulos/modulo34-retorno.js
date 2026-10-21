@@ -425,15 +425,44 @@
   }
 
   function criarBotaoRetorno() {
-    if (document.getElementById(ID_BOTAO)) return true;
-    const atencao = document.getElementById('btn-resultado-ATENCAO');
-    if (!atencao || !atencao.parentElement) return false;
-    const botao = elemento('button', 'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-900 text-xs font-medium text-left transition hover:border-yellow-400 hover:bg-yellow-50', 'Retorno');
-    botao.id = ID_BOTAO;
-    botao.type = 'button';
-    botao.title = 'Abrir frases de retorno rápido e registrar contato no CRM.';
-    botao.addEventListener('click', abrirPainel);
-    atencao.parentElement.insertBefore(botao, atencao.nextSibling);
+    // O acesso fica no perfil do cliente, abaixo do botão "Alerta" do Módulo 12.
+    // Não depende do modal "Registrar Contato" estar aberto.
+    const alerta = document.getElementById('smarttable-botao-alerta-cliente');
+    if (!alerta || !alerta.parentElement || !alerta.isConnected) return false;
+
+    let botao = document.getElementById(ID_BOTAO);
+    if (!botao) {
+      botao = elemento('button', '', 'Retorno');
+      botao.id = ID_BOTAO;
+      botao.type = 'button';
+      botao.title = 'Abrir frases de retorno rápido e registrar contato no CRM.';
+      botao.addEventListener('click', abrirPainel);
+    }
+
+    // Estilo inline intencional: o CRM purga classes Tailwind que não estejam
+    // usadas nos templates, e o botão precisa continuar visível no card.
+    Object.assign(botao.style, {
+      display: 'block',
+      clear: 'both',
+      marginTop: '6px',
+      width: 'fit-content',
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      fontSize: '11px',
+      fontWeight: '600',
+      lineHeight: '1.4',
+      color: '#344054',
+      background: '#ffffff',
+      border: '1px solid #d0d5dd',
+      borderRadius: '8px',
+      padding: '4px 10px',
+    });
+
+    // Reposiciona também se o CRM recriar o botão Alerta ou a página já tiver
+    // uma instância do botão Retorno.
+    if (botao.previousElementSibling !== alerta) {
+      alerta.insertAdjacentElement('afterend', botao);
+    }
     return true;
   }
 
