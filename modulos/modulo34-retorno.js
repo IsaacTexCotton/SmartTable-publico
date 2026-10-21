@@ -82,7 +82,7 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
-      '[data-smt-retorno-cartao="true"]{max-width:1180px!important;width:min(1180px,calc(100vw - 48px))!important;margin:24px 0 28px!important;position:relative!important;left:50%!important;transform:translateX(-50%)!important;padding:22px 26px 26px!important;background:#fff!important;border:1px solid #e6e8ec!important;border-radius:14px!important;box-sizing:border-box!important;color:#13161c!important;}',
+      '[data-smt-retorno-cartao="true"]{width:100%!important;max-width:none!important;margin:24px 0 28px!important;position:static!important;left:auto!important;transform:none!important;padding:22px 26px 26px!important;background:#fff!important;border:1px solid #e6e8ec!important;border-radius:14px!important;box-sizing:border-box!important;color:#13161c!important;}',
       '[data-smt-retorno-cabecalho="true"]{display:block!important;margin:0 0 18px!important;padding:0!important;border:0!important;}',
       '[data-smt-retorno-cabecalho="true"] h3{margin:0!important;font-family:inherit!important;font-size:11px!important;font-weight:600!important;letter-spacing:.07em!important;text-transform:uppercase!important;color:#8a919e!important;line-height:1.45!important;}',
       '#smarttable-retorno-layout{display:flex;width:100%;min-width:0;box-sizing:border-box;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:20px 40px;margin:0;}',

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.5', data: '21/10/2026',
+      mudancas: [
+        'Corrige a largura do cartão Informações de Contato: preenche 100% da área interna disponível, remove o limite de 1180 px e o deslocamento em relação à janela. A organização e o visual interno permanecem iguais.',
+      ],
+    },
+    {
       versao: '1.103.4', data: '21/10/2026',
       mudancas: [
         'Corrige a proporção do cartão Informações de Contato: usa a largura disponível da tela até 1180 px e centraliza a caixa independentemente do limite estreito do contêiner anterior, preservando o espaçamento em telas menores.',
