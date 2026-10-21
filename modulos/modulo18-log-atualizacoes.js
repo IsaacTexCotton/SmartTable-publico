@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.4', data: '21/10/2026',
+      mudancas: [
+        'Corrige a proporção do cartão Informações de Contato: usa a largura disponível da tela até 1180 px e centraliza a caixa independentemente do limite estreito do contêiner anterior, preservando o espaçamento em telas menores.',
+      ],
+    },
+    {
       versao: '1.103.3', data: '21/10/2026',
       mudancas: [
         'Aplica o design de Informações de Contato: cartão branco centralizado com borda leve, título discreto, Responsável financeiro e Alerta à esquerda, Retorno e frases fixadas à direita e dados do cliente em grade. Inclui ações de copiar, abrir WhatsApp no celular e cadastrar campos ausentes.',
