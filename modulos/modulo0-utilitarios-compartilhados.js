@@ -684,6 +684,7 @@
     'Catálogo de Mensagens',
     'Cenários da Prévia',
     'Editor de Mensagens',
+    'Retorno Rápido',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

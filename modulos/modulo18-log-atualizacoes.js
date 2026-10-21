@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.102.0', data: '21/10/2026',
+      mudancas: [
+        'Novo módulo Retorno: cria e edita várias frases reutilizáveis com um resultado nativo do CRM; ao aplicar uma frase, seleciona o resultado, preenche a observação e aciona Salvar Contato pelo próprio CRM.',
+      ],
+    },
+    {
       versao: '1.101.5', data: '21/10/2026',
       mudancas: [
         'Registrar e Enviar (Alt+S ou botão): se já existe qualquer contato registrado hoje na aba Contatos, não cria outro registro; abre o WhatsApp com a mensagem escolhida. Se o WhatsApp não abrir nesse caso, avisa para enviar manualmente e permite tentar de novo sem duplicar o contato. Contatos de dias anteriores não bloqueiam um novo registro.',
