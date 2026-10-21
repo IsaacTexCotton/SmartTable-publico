@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.0', data: '21/10/2026',
+      mudancas: [
+        'Organiza os botões do perfil no padrão visual do CRM: Responsável financeiro e Alerta à esquerda; Retorno à direita.',
+        'Permite fixar frases reutilizáveis com o ícone de alfinete para aparecerem abaixo de Retorno no perfil. São exibidas até cinco por página, com setas de navegação quando houver mais.',
+      ],
+    },
+    {
       versao: '1.102.1', data: '21/10/2026',
       mudancas: [
         'Corrige a posição do botão Retorno: agora aparece abaixo de Alerta no perfil do cliente, em vez de dentro do modal Registrar Contato. O botão tem estilo próprio para continuar visível no CRM.',

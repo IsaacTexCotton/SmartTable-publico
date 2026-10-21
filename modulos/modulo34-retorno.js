@@ -15,6 +15,12 @@
   const ID_BOTAO = 'smarttable-retorno-abrir';
   const ID_DIALOGO = 'smarttable-retorno-dialogo';
   const ID_ESTILOS = 'smarttable-retorno-estilos';
+  const ID_LAYOUT_PERFIL = 'smarttable-retorno-layout';
+  const ID_COLUNA_ESQUERDA = 'smarttable-retorno-coluna-esquerda';
+  const ID_COLUNA_DIREITA = 'smarttable-retorno-coluna-direita';
+  const ID_FIXADAS = 'smarttable-retorno-fixadas';
+  const ID_LISTA_FIXADAS = 'smarttable-retorno-fixadas-lista';
+  const POR_PAGINA = 5;
   const CHAVE_FRASES = 'smarttable_retorno_rapido_v1';
   const PREFIXO_RESULTADO = 'btn-resultado-';
 
@@ -28,6 +34,7 @@
   let botaoSalvarFrase = null;
   let idEmEdicao = null;
   let registroEmAndamento = false;
+  let paginaFixadas = 0;
   let observador = null;
 
   function avisar(mensagem) {
@@ -75,6 +82,22 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
+      '#smarttable-retorno-layout{width:100%;min-width:0;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,30%);gap:16px;align-items:start;grid-column:1/-1;flex:0 0 100%;}',
+      '#smarttable-retorno-coluna-esquerda{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;}',
+      '#smarttable-retorno-coluna-direita{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-width:0;}',
+      '#smarttable-retorno-abrir{align-self:flex-end;margin:0!important;}',
+      '#smarttable-retorno-fixadas{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-width:0;}',
+      '#smarttable-retorno-fixadas[hidden]{display:none!important;}',
+      '#smarttable-retorno-fixadas-lista{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;}',
+      '#smarttable-retorno-paginacao{display:flex;align-items:center;justify-content:flex-end;gap:6px;}',
+      '.smt-retorno-pagina{min-width:30px;padding:4px 8px!important;font-size:12px!important;}',
+      '.smt-retorno-pagina:disabled{opacity:.4;cursor:default;}',
+      '.smt-retorno-fixar{min-width:34px;display:inline-flex;align-items:center;justify-content:center;}',
+      '.smt-retorno-fixar[aria-pressed="true"]{border-color:#d6a243;background:#fff8e7;color:#805b15;}',
+      '.smt-retorno-fixar svg{width:14px;height:14px;display:block;}',
+      '.smt-retorno-atalho-fixado{width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;white-space:normal;text-align:left;line-height:1.35;}',
+      '.smt-retorno-pin-icone{width:13px;height:13px;flex:0 0 auto;}',
+      '@media(max-width:640px){#smarttable-retorno-layout{grid-template-columns:minmax(0,1fr);}#smarttable-retorno-coluna-direita{width:100%;}#smarttable-retorno-abrir{align-self:flex-start;}}',
       '.smt-retorno-form-wrap{border-top:1px solid #e4e7ec;margin-top:14px;padding-top:14px;}',
       '.smt-retorno-form-titulo{font-size:14px;font-weight:700;color:#16232f;margin:0 0 12px;}',
       '.smt-retorno-campo{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}',
@@ -177,10 +200,115 @@
     caixaFormulario.hidden = true;
   }
 
+  function iconeAlfinete() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.8');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.classList.add('smt-retorno-pin-icone');
+    const corpo = document.createElementNS(ns, 'path');
+    corpo.setAttribute('d', 'm16 3 5 5-5 1-4 5v3l-2 2v-5l-5-5 4-1 5-5z');
+    const haste = document.createElementNS(ns, 'path');
+    haste.setAttribute('d', 'M2 22 9 15');
+    svg.append(corpo, haste);
+    return svg;
+  }
+
+  function renderizarFixadasPerfil() {
+    const container = document.getElementById(ID_FIXADAS);
+    if (!container) return;
+
+    while (container.firstChild) container.removeChild(container.firstChild);
+    const frases = lerFrases().filter(function (frase) { return frase.fixada === true; });
+    if (frases.length === 0) {
+      paginaFixadas = 0;
+      container.hidden = true;
+      return;
+    }
+
+    container.hidden = false;
+    const totalPaginas = Math.ceil(frases.length / POR_PAGINA);
+    paginaFixadas = Math.max(0, Math.min(paginaFixadas, totalPaginas - 1));
+
+    if (totalPaginas > 1) {
+      const paginacao = elemento('div', '');
+      paginacao.id = 'smarttable-retorno-paginacao';
+      const anterior = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '←');
+      anterior.type = 'button';
+      anterior.id = 'smarttable-retorno-pagina-anterior';
+      anterior.title = 'Ver página anterior de frases fixadas';
+      anterior.setAttribute('aria-label', 'Página anterior');
+      anterior.disabled = paginaFixadas === 0;
+      anterior.addEventListener('click', function () {
+        if (paginaFixadas === 0) return;
+        paginaFixadas -= 1;
+        renderizarFixadasPerfil();
+      });
+
+      const pagina = elemento('span', 'text-[11px] text-gray-500', 'Página ' + (paginaFixadas + 1) + ' de ' + totalPaginas);
+      pagina.setAttribute('aria-live', 'polite');
+
+      const proxima = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '→');
+      proxima.type = 'button';
+      proxima.id = 'smarttable-retorno-pagina-proxima';
+      proxima.title = 'Ver próxima página de frases fixadas';
+      proxima.setAttribute('aria-label', 'Próxima página');
+      proxima.disabled = paginaFixadas >= totalPaginas - 1;
+      proxima.addEventListener('click', function () {
+        if (paginaFixadas >= totalPaginas - 1) return;
+        paginaFixadas += 1;
+        renderizarFixadasPerfil();
+      });
+      paginacao.append(anterior, pagina, proxima);
+      container.appendChild(paginacao);
+    }
+
+    const lista = elemento('div', '');
+    lista.id = ID_LISTA_FIXADAS;
+    frases.slice(paginaFixadas * POR_PAGINA, (paginaFixadas + 1) * POR_PAGINA).forEach(function (frase) {
+      const atalho = elemento(
+        'button',
+        'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-900 text-xs font-medium text-left transition hover:border-yellow-400 hover:bg-yellow-50 smt-retorno-atalho-fixado'
+      );
+      atalho.type = 'button';
+      atalho.title = 'Aplicar esta frase e registrar o contato no CRM: ' + frase.rotulo;
+      atalho.setAttribute('aria-label', 'Aplicar frase fixada: ' + frase.rotulo);
+      atalho.appendChild(iconeAlfinete());
+      atalho.appendChild(elemento('span', '', frase.rotulo));
+      atalho.addEventListener('click', function () { aplicarFrase(frase); });
+      lista.appendChild(atalho);
+    });
+    container.appendChild(lista);
+  }
+
+  function alternarFixacao(frase) {
+    const atuais = lerFrases();
+    const alvo = atuais.find(function (item) { return item.id === frase.id; });
+    if (!alvo) {
+      avisar('Esta frase não existe mais no armazenamento. Feche e tente novamente.');
+      return;
+    }
+    const fixada = !alvo.fixada;
+    const novos = atuais.map(function (item) {
+      return item.id === frase.id ? Object.assign({}, item, { fixada: fixada }) : item;
+    });
+    if (!gravarFrases(novos)) return;
+    const totalFixadas = novos.filter(function (item) { return item.fixada === true; }).length;
+    paginaFixadas = Math.min(paginaFixadas, Math.max(0, Math.ceil(totalFixadas / POR_PAGINA) - 1));
+    renderizarLista();
+    avisar(fixada ? 'Frase fixada no perfil do cliente.' : 'Frase desafixada do perfil do cliente.');
+  }
+
   function renderizarLista() {
     if (!listaFrases) return;
     while (listaFrases.firstChild) listaFrases.removeChild(listaFrases.firstChild);
     const frases = lerFrases();
+    renderizarFixadasPerfil();
     if (!frases.length) {
       listaFrases.appendChild(elemento('p', 'smt-retorno-vazio', 'Nenhuma frase salva ainda. Use “Criar nova frase” para montar seu primeiro atalho.'));
       return;
@@ -199,6 +327,14 @@
       const editar = elemento('button', 'smt-retorno-btn smt-retorno-editar', 'Editar');
       editar.type = 'button';
       editar.addEventListener('click', function () { mostrarFormulario(frase); });
+      const fixar = elemento('button', 'smt-retorno-btn smt-retorno-fixar');
+      fixar.type = 'button';
+      const estaFixada = frase.fixada === true;
+      fixar.title = estaFixada ? 'Desafixar do perfil do cliente' : 'Fixar no perfil do cliente';
+      fixar.setAttribute('aria-label', fixar.title);
+      fixar.setAttribute('aria-pressed', String(estaFixada));
+      fixar.appendChild(iconeAlfinete());
+      fixar.addEventListener('click', function () { alternarFixacao(frase); });
       const excluir = elemento('button', 'smt-retorno-btn smt-retorno-btn-perigo', 'Excluir');
       excluir.type = 'button';
       excluir.addEventListener('click', function () {
@@ -208,7 +344,7 @@
           avisar('Frase excluída.');
         }
       });
-      acoes.append(editar, excluir);
+      acoes.append(editar, fixar, excluir);
       item.append(aplicar, acoes);
       listaFrases.appendChild(item);
     });
@@ -237,10 +373,10 @@
       }
       novos = atuais.map(function (item) {
         if (item.id !== idEmEdicao) return item;
-        return { id: item.id, rotulo: rotulo, resultadoId: resultadoId, observacao: observacao };
+        return { id: item.id, rotulo: rotulo, resultadoId: resultadoId, observacao: observacao, fixada: item.fixada === true };
       });
     } else {
-      novos = atuais.concat([{ id: gerarId(), rotulo: rotulo, resultadoId: resultadoId, observacao: observacao }]);
+      novos = atuais.concat([{ id: gerarId(), rotulo: rotulo, resultadoId: resultadoId, observacao: observacao, fixada: false }]);
     }
     if (!gravarFrases(novos)) return;
     renderizarLista();
@@ -425,43 +561,66 @@
   }
 
   function criarBotaoRetorno() {
-    // O acesso fica no perfil do cliente, abaixo do botão "Alerta" do Módulo 12.
-    // Não depende do modal "Registrar Contato" estar aberto.
+    // O perfil é organizado em duas colunas: Responsável/Alerta à esquerda;
+    // Retorno e frases fixadas à direita. Os botões nativos mantêm seus handlers.
+    const responsavel = document.querySelector('button[onclick="abrirModalResponsavel()"]');
     const alerta = document.getElementById('smarttable-botao-alerta-cliente');
-    if (!alerta || !alerta.parentElement || !alerta.isConnected) return false;
+    if (!responsavel || !alerta || !responsavel.isConnected || !alerta.isConnected || !responsavel.parentElement) return false;
+
+    // Os estilos do layout de perfil precisam existir desde a primeira renderização,
+    // não apenas depois que o operador abrir o painel Retorno.
+    instalarEstilos();
 
     let botao = document.getElementById(ID_BOTAO);
     if (!botao) {
-      botao = elemento('button', '', 'Retorno');
+      botao = elemento('button', alerta.className || 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition', 'Retorno');
       botao.id = ID_BOTAO;
       botao.type = 'button';
       botao.title = 'Abrir frases de retorno rápido e registrar contato no CRM.';
       botao.addEventListener('click', abrirPainel);
+      // Cores e medidas seguem o botão nativo Alerta, sem herdar a cor de estado dele.
+      Object.assign(botao.style, {
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        borderStyle: 'solid',
+        borderWidth: '1px',
+        background: '#ffffff',
+        borderColor: '#d0d5dd',
+        color: '#344054',
+        margin: '0',
+      });
     }
 
-    // Estilo inline intencional: o CRM purga classes Tailwind que não estejam
-    // usadas nos templates, e o botão precisa continuar visível no card.
-    Object.assign(botao.style, {
-      display: 'block',
-      clear: 'both',
-      marginTop: '6px',
-      width: 'fit-content',
-      cursor: 'pointer',
-      fontFamily: 'inherit',
-      fontSize: '11px',
-      fontWeight: '600',
-      lineHeight: '1.4',
-      color: '#344054',
-      background: '#ffffff',
-      border: '1px solid #d0d5dd',
-      borderRadius: '8px',
-      padding: '4px 10px',
-    });
+    let layout = document.getElementById(ID_LAYOUT_PERFIL);
+    if (!layout) {
+      layout = elemento('div', '');
+      layout.id = ID_LAYOUT_PERFIL;
+      const esquerda = elemento('div', '');
+      esquerda.id = ID_COLUNA_ESQUERDA;
+      const direita = elemento('div', '');
+      direita.id = ID_COLUNA_DIREITA;
+      layout.append(esquerda, direita);
+      responsavel.parentElement.insertBefore(layout, responsavel);
+    }
 
-    // Reposiciona também se o CRM recriar o botão Alerta ou a página já tiver
-    // uma instância do botão Retorno.
-    if (botao.previousElementSibling !== alerta) {
-      alerta.insertAdjacentElement('afterend', botao);
+    let esquerda = document.getElementById(ID_COLUNA_ESQUERDA);
+    let direita = document.getElementById(ID_COLUNA_DIREITA);
+    if (!esquerda || !direita) return false;
+
+    if (responsavel.parentElement !== esquerda) esquerda.appendChild(responsavel);
+    if (alerta.parentElement !== esquerda) esquerda.appendChild(alerta);
+    if (botao.parentElement !== direita) direita.insertBefore(botao, direita.firstChild);
+
+    let fixadas = document.getElementById(ID_FIXADAS);
+    if (!fixadas) {
+      fixadas = elemento('div', '');
+      fixadas.id = ID_FIXADAS;
+      fixadas.hidden = true;
+      direita.appendChild(fixadas);
+    }
+    if (fixadas.dataset.inicializado !== 'true') {
+      fixadas.dataset.inicializado = 'true';
+      renderizarFixadasPerfil();
     }
     return true;
   }
