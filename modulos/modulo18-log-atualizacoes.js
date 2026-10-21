@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.3', data: '21/10/2026',
+      mudancas: [
+        'Aplica o design de Informações de Contato: cartão branco centralizado com borda leve, título discreto, Responsável financeiro e Alerta à esquerda, Retorno e frases fixadas à direita e dados do cliente em grade. Inclui ações de copiar, abrir WhatsApp no celular e cadastrar campos ausentes.',
+      ],
+    },
+    {
       versao: '1.103.2', data: '21/10/2026',
       mudancas: [
         'Refina o visual das frases fixadas no perfil: cartões brancos mais compactos, alfinete discreto, contador integrado ao cabeçalho e paginação menor na mesma linha. Textos longos ficam truncados sem esticar a área; a grade usa menos espaço entre colunas e itens.',
