@@ -82,7 +82,7 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
-      '#smarttable-retorno-layout{width:100%;min-width:0;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,30%);gap:16px;align-items:start;grid-column:1/-1;flex:0 0 100%;}',
+      '#smarttable-retorno-layout{display:grid;width:100%;min-width:0;box-sizing:border-box;grid-template-columns:minmax(0,1fr) minmax(200px,32%);gap:16px;align-items:start;margin:8px 0 16px;}',
       '#smarttable-retorno-coluna-esquerda{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;}',
       '#smarttable-retorno-coluna-direita{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-width:0;}',
       '#smarttable-retorno-abrir{align-self:flex-end;margin:0!important;}',
@@ -593,6 +593,7 @@
 
     let layout = document.getElementById(ID_LAYOUT_PERFIL);
     if (!layout) {
+      const cabecalhoOriginal = responsavel.parentElement;
       layout = elemento('div', '');
       layout.id = ID_LAYOUT_PERFIL;
       const esquerda = elemento('div', '');
@@ -600,7 +601,10 @@
       const direita = elemento('div', '');
       direita.id = ID_COLUNA_DIREITA;
       layout.append(esquerda, direita);
-      responsavel.parentElement.insertBefore(layout, responsavel);
+      // O CRM põe o título e os botões dentro do mesmo cabeçalho flex.
+      // Inserir a grade dentro dele a comprimia ao lado do título; a grade
+      // precisa ser irmã do cabeçalho, ocupando a largura da seção inteira.
+      cabecalhoOriginal.insertAdjacentElement('afterend', layout);
     }
 
     let esquerda = document.getElementById(ID_COLUNA_ESQUERDA);

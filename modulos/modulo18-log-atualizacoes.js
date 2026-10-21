@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.1', data: '21/10/2026',
+      mudancas: [
+        'Corrige o layout dos botões no perfil: a grade de Responsável financeiro, Alerta, Retorno e frases fixadas passa a ocupar uma linha própria abaixo do cabeçalho Informações de Contato, sem ser comprimida ao lado do título do CRM.',
+      ],
+    },
+    {
       versao: '1.103.0', data: '21/10/2026',
       mudancas: [
         'Organiza os botões do perfil no padrão visual do CRM: Responsável financeiro e Alerta à esquerda; Retorno à direita.',
