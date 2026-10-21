@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.101.5', data: '21/10/2026',
+      mudancas: [
+        'Registrar e Enviar (Alt+S ou botão): se já existe qualquer contato registrado hoje na aba Contatos, não cria outro registro; abre o WhatsApp com a mensagem escolhida. Se o WhatsApp não abrir nesse caso, avisa para enviar manualmente e permite tentar de novo sem duplicar o contato. Contatos de dias anteriores não bloqueiam um novo registro.',
+      ],
+    },
+    {
       versao: '1.101.4', data: '09/10/2026',
       mudancas: [
         'Registrar e Enviar (Alt+S ou botão): se der erro DEPOIS de o contato já ter sido registrado no CRM (por exemplo, a página falhar ao abrir o WhatsApp), o botão agora fica travado e o aviso diz que o contato FOI registrado e para não clicar de novo. Antes o botão voltava a ficar disponível e um segundo clique registrava o mesmo contato em dobro.',

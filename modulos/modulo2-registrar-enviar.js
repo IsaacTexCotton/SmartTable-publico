@@ -274,6 +274,56 @@
     }
 
     // ============================================================
+    // EVITAR REGISTRO DUPLICADO NO MESMO DIA
+    // ============================================================
+    // A data do contato vem de data-data, não do texto visível do card:
+    // o texto também pode conter a data prometida e gerar falso positivo.
+    // Reutiliza o leitor do Módulo 6 quando disponível; o DOM é fallback.
+    const SELETOR_ITEM_CONTATO = '#content-contatos .contato-item';
+
+    function datasDosContatos() {
+        const modulo6 = window.__contextoAdicionalDebug;
+        if (modulo6 && typeof modulo6.lerTodosContatos === 'function') {
+            try {
+                return modulo6.lerTodosContatos()
+                    .map((contato) => contato && contato.data)
+                    .filter((data) => data && typeof data.getTime === 'function' && !Number.isNaN(data.getTime()));
+            } catch (erro) {
+                console.warn('[registrar-enviar] Falha ao ler contatos pelo Módulo 6; lendo o DOM direto:', erro);
+            }
+        }
+
+        return Array.from(document.querySelectorAll(SELETOR_ITEM_CONTATO))
+            .map((item) => {
+                const correspondencia = (item.dataset.data || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+                if (!correspondencia) return null;
+
+                const dia = Number(correspondencia[1]);
+                const mes = Number(correspondencia[2]) - 1;
+                const ano = Number(correspondencia[3]);
+                const data = new Date(ano, mes, dia);
+
+                // Rejeita datas impossíveis que o construtor normalizaria.
+                if (data.getFullYear() !== ano || data.getMonth() !== mes || data.getDate() !== dia) return null;
+                return data;
+            })
+            .filter(Boolean);
+    }
+
+    function mesmoDiaDeHoje(data) {
+        if (!data || typeof data.getTime !== 'function' || Number.isNaN(data.getTime())) return false;
+
+        const hoje = new Date();
+        return data.getFullYear() === hoje.getFullYear() &&
+            data.getMonth() === hoje.getMonth() &&
+            data.getDate() === hoje.getDate();
+    }
+
+    function jaTemContatoHoje() {
+        return datasDosContatos().some(mesmoDiaDeHoje);
+    }
+
+    // ============================================================
     // ACAO DO BOTAO
     // ============================================================
 
@@ -305,40 +355,43 @@
         botao.style.cursor = 'wait';
         botao.textContent = 'Registrando...';
 
-        // Rodada final da revisão (AUTORIZADO pelo usuário em 09/10/2026): depois do POST o contato JÁ está no CRM. Um erro dali em
-        // diante (a função da página lançar, o endereço do WhatsApp sair inválido...) não pode reabilitar o botão: um segundo clique
-        // registraria o contato de novo.
+        // Consulta a lista antes do POST, enquanto o DOM ainda reflete o estado
+        // anterior ao clique. Se já houve contato hoje, apenas abre o WhatsApp.
         let contatoRegistrado = false;
+        let resumoPadronizado = null;
+
         try {
-            const resumoPadronizado = calcularResumoPadronizado();
+            const jaRegistradoHoje = jaTemContatoHoje();
+            if (!jaRegistradoHoje) {
+                resumoPadronizado = calcularResumoPadronizado();
 
-            const resposta = await fetch(ENDPOINT_CONTATOS, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    clienteCodigo,
-                    canal: 'WHATSAPP',
-                    resultado: 'REGISTRO',
-                    resumo: resumoPadronizado,
-                    fixado: fixado
-                })
-            });
+                const resposta = await fetch(ENDPOINT_CONTATOS, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        clienteCodigo,
+                        canal: 'WHATSAPP',
+                        resultado: 'REGISTRO',
+                        resumo: resumoPadronizado,
+                        fixado
+                    })
+                });
 
-            const tipoConteudo = resposta.headers.get('content-type') || '';
-            if (!tipoConteudo.includes('application/json')) {
-                throw new Error('Sessão expirada. Recarregue a página e faça login novamente.');
+                const tipoConteudo = resposta.headers.get('content-type') || '';
+                if (!tipoConteudo.includes('application/json')) {
+                    throw new Error('Sessão expirada. Recarregue a página e faça login novamente.');
+                }
+
+                const json = await resposta.json();
+                if (!resposta.ok || !json.success) {
+                    throw new Error((json.error && json.error.message) || json.message || 'Erro ao registrar contato.');
+                }
+                // Depois daqui, qualquer falha não pode liberar um segundo POST.
+                contatoRegistrado = true;
             }
 
-            const json = await resposta.json();
-            if (!resposta.ok || !json.success) {
-                throw new Error((json.error && json.error.message) || json.message || 'Erro ao registrar contato.');
-            }
-            contatoRegistrado = true;
-
-            // Abre o WhatsApp com a mensagem que ja estava na caixa de
-            // observacao (a frase padrao escolhida pelo operador). A caixa
-            // nao foi alterada, entao a funcao da propria pagina le o texto
-            // normalmente.
+            // A observação não é alterada: a função da página lê a mensagem já
+            // escolhida pelo operador no campo original.
             let whatsAppAbriu = false;
             if (typeof window.abrirWhatsAppCliente === 'function') {
                 whatsAppAbriu = abrirWhatsAppSemNovaAba();
@@ -346,15 +399,35 @@
                 console.warn('[registrar-enviar] abrirWhatsAppCliente() não encontrada nesta página.');
             }
 
-            // O contato JÁ está no CRM, mas a mensagem não saiu: nada de
-            // "registrado" verde, nada de fechar o contato nem recarregar (a
-            // mensagem continua na caixa, pra enviar à mão). O botão fica
-            // travado: um segundo clique registraria o contato de novo.
             if (!whatsAppAbriu) {
+                if (!contatoRegistrado) {
+                    toast('Já havia contato registrado hoje (não registrei de novo), mas o WhatsApp não abriu. Envie a mensagem à mão.', 'error');
+                    botao.disabled = false;
+                    botao.style.opacity = '';
+                    botao.style.cursor = 'pointer';
+                    botao.textContent = rotuloOriginal;
+                    return;
+                }
+
+                // O contato já está no CRM, mas o WhatsApp não abriu. Mantém
+                // o botão travado para impedir que um novo clique duplique o POST.
                 toast('O contato FOI registrado no CRM, mas o WhatsApp não abriu (telefone ou mensagem recusados pela página). ' +
                     'Envie a mensagem à mão; não clique de novo, senão o contato é registrado outra vez.', 'error');
                 botao.textContent = rotuloOriginal;
                 botao.style.cursor = 'not-allowed';
+                return;
+            }
+
+            // Se o registro de hoje já existia, não há registro novo para recarregar.
+            if (!contatoRegistrado) {
+                toast('Já havia contato registrado hoje: não registrei de novo. WhatsApp aberto.', 'success');
+                if (typeof window.closeModalContato === 'function') {
+                    window.closeModalContato();
+                }
+                botao.disabled = false;
+                botao.style.opacity = '';
+                botao.style.cursor = 'pointer';
+                botao.textContent = rotuloOriginal;
                 return;
             }
 
@@ -364,11 +437,9 @@
                 window.closeModalContato();
             }
 
-            // Mesma convencao do "Salvar Contato": recarrega para o novo
-            // registro aparecer na aba Contatos/Timeline.
+            // Atualiza a aba Contatos/Timeline para exibir o registro recém-criado.
             window.location.hash = 'contatos';
             window.location.reload();
-
         } catch (erro) {
             console.error('[registrar-enviar]', erro);
             if (contatoRegistrado) {
@@ -378,6 +449,7 @@
                 botao.style.cursor = 'not-allowed';
                 return;
             }
+
             toast(erro.message || 'Não foi possível registrar o contato.', 'error');
             botao.disabled = false;
             botao.style.opacity = '';
