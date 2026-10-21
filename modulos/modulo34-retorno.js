@@ -82,21 +82,30 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
-      '#smarttable-retorno-layout{display:grid;width:100%;min-width:0;box-sizing:border-box;grid-template-columns:minmax(0,1fr) minmax(200px,32%);gap:16px;align-items:start;margin:8px 0 16px;}',
-      '#smarttable-retorno-coluna-esquerda{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;}',
-      '#smarttable-retorno-coluna-direita{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-width:0;}',
-      '#smarttable-retorno-abrir{align-self:flex-end;margin:0!important;}',
-      '#smarttable-retorno-fixadas{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-width:0;}',
+      '#smarttable-retorno-layout{display:grid;width:100%;min-width:0;box-sizing:border-box;grid-template-columns:minmax(0,1fr) minmax(220px,34%);gap:10px;align-items:start;margin:6px 0 10px;}',
+      '#smarttable-retorno-coluna-esquerda{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;}',
+      '#smarttable-retorno-coluna-direita{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;min-width:0;}',
+      '#smarttable-retorno-abrir{align-self:flex-end;margin:0!important;min-height:22px;padding:3px 9px!important;line-height:1.2;}',
+      '#smarttable-retorno-fixadas{display:flex;flex-direction:column;align-items:stretch;gap:3px;width:100%;min-width:0;margin-top:1px;}',
       '#smarttable-retorno-fixadas[hidden]{display:none!important;}',
-      '#smarttable-retorno-fixadas-lista{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;}',
-      '#smarttable-retorno-paginacao{display:flex;align-items:center;justify-content:flex-end;gap:6px;}',
-      '.smt-retorno-pagina{min-width:30px;padding:4px 8px!important;font-size:12px!important;}',
+      '#smarttable-retorno-fixadas-lista{display:flex;flex-direction:column;align-items:stretch;gap:3px;width:100%;}',
+      '.smt-retorno-fixadas-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:15px;margin:0 0 1px;}',
+      '.smt-retorno-fixadas-titulacao{display:flex;align-items:center;gap:5px;min-width:0;}',
+      '.smt-retorno-fixadas-titulo{font-size:10px;font-weight:700;letter-spacing:.025em;text-transform:uppercase;color:#667085;}',
+      '.smt-retorno-fixadas-contador{min-width:15px;padding:1px 5px;border-radius:999px;background:#eef4f9;color:#1f5f8b;font-size:10px;font-weight:600;text-align:center;line-height:13px;}',
+      '#smarttable-retorno-paginacao{display:flex;align-items:center;justify-content:flex-end;gap:3px;flex:0 0 auto;}',
+      '.smt-retorno-pagina{min-width:21px;height:20px;padding:1px 5px!important;font-size:11px!important;line-height:1!important;border-radius:5px!important;}',
       '.smt-retorno-pagina:disabled{opacity:.4;cursor:default;}',
+      '.smt-retorno-pagina-texto{font-size:10px;color:#667085;white-space:nowrap;}',
       '.smt-retorno-fixar{min-width:34px;display:inline-flex;align-items:center;justify-content:center;}',
       '.smt-retorno-fixar[aria-pressed="true"]{border-color:#d6a243;background:#fff8e7;color:#805b15;}',
       '.smt-retorno-fixar svg{width:14px;height:14px;display:block;}',
-      '.smt-retorno-atalho-fixado{width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;white-space:normal;text-align:left;line-height:1.35;}',
-      '.smt-retorno-pin-icone{width:13px;height:13px;flex:0 0 auto;}',
+      '.smt-retorno-atalho-fixado{width:100%!important;min-width:0;box-sizing:border-box;display:flex!important;align-items:center;gap:7px;padding:2px 7px!important;min-height:22px;height:22px;white-space:nowrap!important;text-align:left!important;line-height:1!important;background:#fff!important;border:1px solid #dce3ea!important;border-radius:6px!important;color:#344054!important;font:inherit!important;font-size:11px!important;font-weight:500!important;cursor:pointer;transition:background .12s,border-color .12s,box-shadow .12s;}',
+      '.smt-retorno-atalho-fixado:hover,.smt-retorno-atalho-fixado:focus-visible{background:#f8fbfd!important;border-color:#b8c9d8!important;outline:none;box-shadow:0 0 0 2px rgba(50,101,138,.08);}',
+      '.smt-retorno-atalho-texto{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;line-height:15px;color:#344054;}',
+      '.smt-retorno-atalho-chevron{flex:0 0 auto;font-size:17px;line-height:12px;color:#98a2b3;}',
+      '.smt-retorno-pin-wrap{width:18px;height:18px;flex:0 0 18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;background:#eef4f9;color:#32658a;}',
+      '.smt-retorno-pin-icone{width:12px;height:12px;flex:0 0 auto;}',
       '@media(max-width:640px){#smarttable-retorno-layout{grid-template-columns:minmax(0,1fr);}#smarttable-retorno-coluna-direita{width:100%;}#smarttable-retorno-abrir{align-self:flex-start;}}',
       '.smt-retorno-form-wrap{border-top:1px solid #e4e7ec;margin-top:14px;padding-top:14px;}',
       '.smt-retorno-form-titulo{font-size:14px;font-weight:700;color:#16232f;margin:0 0 12px;}',
@@ -235,10 +244,19 @@
     const totalPaginas = Math.ceil(frases.length / POR_PAGINA);
     paginaFixadas = Math.max(0, Math.min(paginaFixadas, totalPaginas - 1));
 
+    // O título, a contagem e a paginação dividem a mesma linha para economizar altura.
+    const cabecalho = elemento('div', 'smt-retorno-fixadas-cabecalho');
+    const titulacao = elemento('div', 'smt-retorno-fixadas-titulacao');
+    titulacao.appendChild(elemento('span', 'smt-retorno-fixadas-titulo', 'Frases fixadas'));
+    const contador = elemento('span', 'smt-retorno-fixadas-contador', String(frases.length));
+    contador.setAttribute('aria-label', frases.length + ' frases fixadas');
+    titulacao.appendChild(contador);
+    cabecalho.appendChild(titulacao);
+
     if (totalPaginas > 1) {
       const paginacao = elemento('div', '');
       paginacao.id = 'smarttable-retorno-paginacao';
-      const anterior = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '←');
+      const anterior = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '‹');
       anterior.type = 'button';
       anterior.id = 'smarttable-retorno-pagina-anterior';
       anterior.title = 'Ver página anterior de frases fixadas';
@@ -250,10 +268,10 @@
         renderizarFixadasPerfil();
       });
 
-      const pagina = elemento('span', 'text-[11px] text-gray-500', 'Página ' + (paginaFixadas + 1) + ' de ' + totalPaginas);
+      const pagina = elemento('span', 'smt-retorno-pagina-texto', 'Página ' + (paginaFixadas + 1) + ' de ' + totalPaginas);
       pagina.setAttribute('aria-live', 'polite');
 
-      const proxima = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '→');
+      const proxima = elemento('button', 'smt-retorno-btn smt-retorno-pagina', '›');
       proxima.type = 'button';
       proxima.id = 'smarttable-retorno-pagina-proxima';
       proxima.title = 'Ver próxima página de frases fixadas';
@@ -265,21 +283,24 @@
         renderizarFixadasPerfil();
       });
       paginacao.append(anterior, pagina, proxima);
-      container.appendChild(paginacao);
+      cabecalho.appendChild(paginacao);
     }
+    container.appendChild(cabecalho);
 
     const lista = elemento('div', '');
     lista.id = ID_LISTA_FIXADAS;
     frases.slice(paginaFixadas * POR_PAGINA, (paginaFixadas + 1) * POR_PAGINA).forEach(function (frase) {
-      const atalho = elemento(
-        'button',
-        'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-900 text-xs font-medium text-left transition hover:border-yellow-400 hover:bg-yellow-50 smt-retorno-atalho-fixado'
-      );
+      const atalho = elemento('button', 'smt-retorno-atalho-fixado');
       atalho.type = 'button';
       atalho.title = 'Aplicar esta frase e registrar o contato no CRM: ' + frase.rotulo;
       atalho.setAttribute('aria-label', 'Aplicar frase fixada: ' + frase.rotulo);
-      atalho.appendChild(iconeAlfinete());
-      atalho.appendChild(elemento('span', '', frase.rotulo));
+
+      const pin = elemento('span', 'smt-retorno-pin-wrap');
+      pin.appendChild(iconeAlfinete());
+      const texto = elemento('span', 'smt-retorno-atalho-texto', frase.rotulo);
+      const chevron = elemento('span', 'smt-retorno-atalho-chevron', '›');
+      chevron.setAttribute('aria-hidden', 'true');
+      atalho.append(pin, texto, chevron);
       atalho.addEventListener('click', function () { aplicarFrase(frase); });
       lista.appendChild(atalho);
     });

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.103.2', data: '21/10/2026',
+      mudancas: [
+        'Refina o visual das frases fixadas no perfil: cartões brancos mais compactos, alfinete discreto, contador integrado ao cabeçalho e paginação menor na mesma linha. Textos longos ficam truncados sem esticar a área; a grade usa menos espaço entre colunas e itens.',
+      ],
+    },
+    {
       versao: '1.103.1', data: '21/10/2026',
       mudancas: [
         'Corrige o layout dos botões no perfil: a grade de Responsável financeiro, Alerta, Retorno e frases fixadas passa a ocupar uma linha própria abaixo do cabeçalho Informações de Contato, sem ser comprimida ao lado do título do CRM.',
