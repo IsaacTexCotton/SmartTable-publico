@@ -2,8 +2,9 @@
  * MÓDULO 34: RETORNO RÁPIDO — CRM TexCotton
  * -------------------------------------------------------------------------
  * Frases reutilizáveis por operador, guardadas no localStorage deste navegador.
- * Cada frase associa um nome, um resultado nativo e uma observação. Ao aplicar,
- * clica no resultado e em "Salvar Contato" do próprio CRM; não chama a API.
+ * Cada frase associa um nome, um resultado nativo e uma observação. No perfil,
+ * as frases fixadas preenchem o registro rápido; o envio usa o botão nativo do
+ * CRM. No painel Retorno, aplicar uma frase mantém o fluxo de registro nativo.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -84,7 +85,32 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
-      '[data-smt-retorno-cartao="true"]{width:100%!important;max-width:none!important;margin:24px 0 28px!important;position:static!important;left:auto!important;transform:none!important;padding:22px 26px 26px!important;background:#fff!important;border:1px solid #e6e8ec!important;border-radius:14px!important;box-sizing:border-box!important;color:#13161c!important;}',
+      '[data-smt-retorno-cartao="true"]{width:100%!important;max-width:none!important;margin:0 0 16px!important;position:static!important;left:auto!important;transform:none!important;padding:14px 18px 16px!important;background:#fff!important;border:1px solid #e2e5ea!important;border-radius:10px!important;box-shadow:none!important;box-sizing:border-box!important;color:#1b2330!important;}',
+      '[data-smt-retorno-resumo="true"]{display:grid!important;grid-template-columns:minmax(220px,300px) minmax(0,1fr)!important;gap:16px!important;align-items:start!important;padding-bottom:14px!important;}',
+      '[data-smt-retorno-identificacao="true"] h2{margin:0!important;font-size:17px!important;line-height:1.25!important;font-weight:650!important;color:#1b2330!important;}',
+      '[data-smt-retorno-identificacao="true"] p{margin:5px 0 0!important;font-size:12px!important;line-height:1.45!important;color:#556072!important;}',
+      '[data-smt-retorno-kpis="true"]{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;gap:6px!important;margin:0!important;}',
+      '[data-smt-retorno-kpis="true"]>div{min-width:0;padding:6px 8px!important;border:1px solid #e2e5ea!important;border-radius:7px!important;background:#fff!important;text-align:center!important;}',
+      '[data-smt-retorno-kpis="true"]>div>p:first-child{margin:0!important;font-size:11px!important;font-weight:500!important;line-height:1.25!important;color:#556072!important;}',
+      '[data-smt-retorno-kpis="true"]>div>p:last-child{margin:2px 0 0!important;font-size:14px!important;font-weight:650!important;font-variant-numeric:tabular-nums;color:#1b2330!important;}',
+      '[data-smt-retorno-kpi="alerta"]{background:#fdecea!important;border-color:#f2b8b2!important;}[data-smt-retorno-kpi="alerta"]>p{color:#8c1d14!important;}[data-smt-retorno-kpi="alerta"]>p:last-child{font-size:16px!important;color:#b42318!important;}',
+      '[data-smt-retorno-kpi="zero"]{background:#f7f8fa!important;}[data-smt-retorno-kpi="zero"]>p:last-child{color:#7b8596!important;font-weight:500!important;}',
+      '[data-smt-retorno-kpi="aviso"]{background:#fff4dc!important;border-color:#f0d48f!important;}[data-smt-retorno-kpi="aviso"]>p{color:#8a5a00!important;}[data-smt-retorno-kpi="aviso"]>p:last-child{font-size:16px!important;color:#8a5a00!important;}',
+      '[data-smt-retorno-contato="true"]{display:grid!important;grid-template-columns:minmax(0,5fr) minmax(0,7fr)!important;gap:14px!important;margin:0!important;padding:14px 0 0!important;border-top:1px solid #e2e5ea!important;}',
+      '[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"]{grid-column:1;grid-row:1;display:flex!important;align-items:center!important;justify-content:space-between!important;flex-wrap:wrap!important;gap:8px!important;margin:0 0 4px!important;padding:0!important;}',
+      '[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"] h3{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;color:#1b2330!important;}',
+      '[data-smt-retorno-contato="true"]>#smarttable-retorno-layout{grid-column:2;grid-row:1/3;display:block!important;min-width:0!important;}',
+      '[data-smt-retorno-contato="true"]>#perfil-restante{grid-column:1;grid-row:2;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:0 14px!important;margin:0!important;padding:0!important;border:0!important;}',
+      '[data-smt-retorno-coluna-esquerda]{display:none!important;}',
+      '#smarttable-retorno-coluna-direita{display:block!important;width:100%!important;min-width:0!important;}',
+      '#smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:12px;}',
+      '#smarttable-retorno-registro-rapido{padding:12px 14px;border:1px solid #e2e5ea;border-radius:8px;background:#f7f8fa;}',
+      '.smt-retorno-rapido-titulo{font-size:13px;letter-spacing:0;text-transform:none;color:#1b2330;}',
+      '.smt-retorno-rapido-label{display:block;margin:0 0 4px;font-size:12px;font-weight:600;color:#1b2330;}',
+      '.smt-retorno-rapido-ajuda{font-size:11px;font-weight:400;color:#556072;}',
+      '.smt-retorno-rapido-frase{min-height:84px;resize:vertical;}',
+      '#smarttable-retorno-fixadas{align-content:start;padding:12px 14px;border:1px solid #e2e5ea;border-radius:8px;background:#fff;}',
+      '.smt-retorno-fixadas-ajuda{margin-left:auto;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;color:#556072;}',
       '[data-smt-retorno-cabecalho="true"]{display:block!important;margin:0 0 18px!important;padding:0!important;border:0!important;}',
       '[data-smt-retorno-cabecalho="true"] h3{margin:0!important;font-family:inherit!important;font-size:11px!important;font-weight:600!important;letter-spacing:.07em!important;text-transform:uppercase!important;color:#8a919e!important;line-height:1.45!important;}',
       '#smarttable-retorno-layout{display:flex;width:100%;min-width:0;box-sizing:border-box;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:20px 40px;margin:0;}',
@@ -116,10 +142,23 @@
       '#smarttable-retorno-registro-rapido button{justify-self:start;border:1px solid #1f5f8b;background:#1f5f8b;color:#fff;border-radius:7px;padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer;}',
       '#smarttable-retorno-registro-rapido button:disabled{opacity:.5;cursor:default;}',
       '@media(max-width:760px){#smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr);}}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start;gap:12px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido{padding:12px 14px;border:1px solid #e2e5ea;border-radius:8px;background:#f7f8fa;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-titulo{font-size:13px;letter-spacing:0;text-transform:none;color:#1b2330;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-label{display:block;margin:0 0 4px;font-size:12px;font-weight:600;color:#1b2330;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-ajuda{font-size:11px;font-weight:400;color:#556072;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido textarea{min-height:84px;resize:vertical;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-acoes{display:flex;justify-content:flex-end;align-items:center;gap:8px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido select:focus-visible,#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido textarea:focus-visible,#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-atalho-fixado:focus-visible{outline:3px solid #7fb2d6;outline-offset:2px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas{align-content:start;justify-items:stretch;padding:12px 14px;border:1px solid #e2e5ea;border-radius:8px;background:#fff;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-fixadas-ajuda{margin-left:auto;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;color:#556072;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas-lista{grid-template-columns:minmax(0,1fr);}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-sem-fixadas{margin:0;padding:9px;border:1px dashed #e2e5ea;border-radius:7px;color:#556072;font-size:12px;}',
+      '@media(max-width:760px){#smarttable-retorno-coluna-direita #smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr);}}',
       '.smt-retorno-fixar{min-width:34px;display:inline-flex;align-items:center;justify-content:center;}',
       '.smt-retorno-fixar[aria-pressed="true"]{border-color:#d6a243;background:#fff8e7;color:#805b15;}',
       '.smt-retorno-fixar svg{width:14px;height:14px;display:block;}',
-      '.smt-retorno-atalho-fixado{width:100%!important;min-width:0;box-sizing:border-box;display:flex!important;align-items:center;gap:10px;padding:0 10px!important;min-height:34px;height:34px;white-space:nowrap!important;text-align:left!important;line-height:1.3!important;background:#fff!important;border:1px solid #e6e8ec!important;border-radius:8px!important;color:#3d434e!important;font-family:inherit!important;font-size:12.5px!important;font-weight:500!important;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}',
+      '.smt-retorno-atalho-fixado{width:100%!important;min-width:0;box-sizing:border-box;display:flex!important;align-items:center;gap:7px;padding:7px 9px!important;min-height:36px;height:auto;white-space:normal!important;text-align:left!important;line-height:1.3!important;background:#fff!important;border:1px solid #e2e5ea!important;border-radius:7px!important;color:#1b2330!important;font-family:inherit!important;font-size:12px!important;font-weight:500!important;cursor:pointer;transition:background .15s,border-color .15s,color .15s;}',
       '.smt-retorno-atalho-fixado:hover,.smt-retorno-atalho-fixado:focus-visible{background:#f7f8fa!important;border-color:#d3d7de!important;color:#13161c!important;outline:none;}',
       '.smt-retorno-atalho-texto{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.4;color:inherit;}',
       '.smt-retorno-atalho-chevron{flex:0 0 auto;width:14px;height:14px;display:flex;align-items:center;justify-content:center;color:#d3d7de;transition:transform .15s,color .15s;font-size:18px;line-height:1;}',
@@ -148,7 +187,8 @@
       '[data-smt-retorno-grade="true"] .smt-retorno-negociador-nome{margin:0!important;min-height:0!important;display:block!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px!important;font-weight:500!important;color:#13161c!important;line-height:1.2!important;}',
       '[data-smt-retorno-grade="true"] .smt-retorno-negociador-codigo{margin:0!important;min-height:0!important;display:block!important;font-size:11.5px!important;color:#8a919e!important;line-height:1.2!important;}',
       '@media(max-width:1000px){[data-smt-retorno-grade="true"]{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}',
-      '@media(max-width:640px){#smarttable-retorno-layout{flex-direction:column;gap:20px;}#smarttable-retorno-coluna-direita{width:100%;justify-items:stretch;}#smarttable-retorno-abrir{justify-self:start;}[data-smt-retorno-cartao="true"]{padding:18px 16px 20px!important;margin:16px 0 22px!important;}[data-smt-retorno-grade="true"]{grid-template-columns:minmax(0,1fr)!important;gap:20px!important;}}',
+      '@media(max-width:1100px){[data-smt-retorno-resumo="true"]{grid-template-columns:minmax(0,1fr)!important;}[data-smt-retorno-kpis="true"]{grid-template-columns:repeat(4,minmax(0,1fr))!important;}[data-smt-retorno-contato="true"]{grid-template-columns:minmax(0,1fr)!important;}[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"],[data-smt-retorno-contato="true"]>#smarttable-retorno-layout,[data-smt-retorno-contato="true"]>#perfil-restante{grid-column:1;grid-row:auto;}}',
+      '@media(max-width:760px){#smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr);}[data-smt-retorno-kpis="true"]{grid-template-columns:repeat(2,minmax(0,1fr))!important;}[data-smt-retorno-contato="true"]>#perfil-restante{grid-template-columns:minmax(0,1fr)!important;}[data-smt-retorno-cartao="true"]{padding:14px 12px 16px!important;}}',
       '@media(hover:none){[data-smt-retorno-grade="true"] .smt-retorno-dado-acoes{opacity:1;}}',
       '@media(prefers-reduced-motion:reduce){[data-smt-retorno-cartao="true"] *{transition:none!important;}}',
       '.smt-retorno-form-wrap{border-top:1px solid #e4e7ec;margin-top:14px;padding-top:14px;}',
@@ -487,14 +527,8 @@
 
     while (container.firstChild) container.removeChild(container.firstChild);
     const frases = lerFrases().filter(function (frase) { return frase.fixada === true; });
-    if (frases.length === 0) {
-      paginaFixadas = 0;
-      container.hidden = true;
-      return;
-    }
-
     container.hidden = false;
-    const totalPaginas = Math.ceil(frases.length / POR_PAGINA);
+    const totalPaginas = Math.max(1, Math.ceil(frases.length / POR_PAGINA));
     paginaFixadas = Math.max(0, Math.min(paginaFixadas, totalPaginas - 1));
 
     // O título, a contagem e a paginação dividem a mesma linha para economizar altura.
@@ -507,6 +541,7 @@
     const contador = elemento('span', 'smt-retorno-fixadas-contador', String(frases.length));
     contador.setAttribute('aria-label', frases.length + ' frases fixadas');
     titulacao.appendChild(contador);
+    titulacao.appendChild(elemento('span', 'smt-retorno-fixadas-ajuda', 'Clique para inserir (não registra)'));
     cabecalho.appendChild(titulacao);
 
     if (totalPaginas > 1) {
@@ -545,11 +580,14 @@
 
     const lista = elemento('div', '');
     lista.id = ID_LISTA_FIXADAS;
+    if (frases.length === 0) {
+      lista.appendChild(elemento('p', 'smt-retorno-sem-fixadas', 'Nenhuma frase fixada ainda. Fixe frases no painel Retorno.'));
+    }
     frases.slice(paginaFixadas * POR_PAGINA, (paginaFixadas + 1) * POR_PAGINA).forEach(function (frase) {
       const atalho = elemento('button', 'smt-retorno-atalho-fixado');
       atalho.type = 'button';
-      atalho.title = 'Aplicar esta frase e registrar o contato no CRM: ' + frase.rotulo;
-      atalho.setAttribute('aria-label', 'Aplicar frase fixada: ' + frase.rotulo);
+      atalho.title = 'Inserir esta frase no formulário de registro: ' + frase.rotulo;
+      atalho.setAttribute('aria-label', 'Inserir frase fixada no formulário: ' + frase.rotulo);
 
       const pin = elemento('span', 'smt-retorno-pin-wrap');
       pin.appendChild(iconeAlfinete());
@@ -557,7 +595,16 @@
       const chevron = elemento('span', 'smt-retorno-atalho-chevron', '›');
       chevron.setAttribute('aria-hidden', 'true');
       atalho.append(pin, texto, chevron);
-      atalho.addEventListener('click', function () { aplicarFrase(frase); });
+      atalho.addEventListener('click', function () {
+        const seletor = document.getElementById('smarttable-retorno-rapido-resultado');
+        const campoObservacao = document.getElementById('smarttable-retorno-rapido-observacao');
+        if (!seletor || !campoObservacao) return;
+        seletor.value = frase.resultadoId;
+        campoObservacao.value = frase.observacao;
+        seletor.dispatchEvent(new window.Event('change', { bubbles: true }));
+        campoObservacao.dispatchEvent(new window.Event('input', { bubbles: true }));
+        campoObservacao.focus();
+      });
       lista.appendChild(atalho);
     });
     container.appendChild(lista);
@@ -848,6 +895,8 @@
     formularioRapido = elemento('form', '');
     formularioRapido.id = ID_REGISTRO_RAPIDO;
     formularioRapido.appendChild(elemento('p', 'smt-retorno-rapido-titulo', 'Registro rápido'));
+    const rotuloResultado = elemento('label', 'smt-retorno-rapido-label', 'Resultado do contato');
+    rotuloResultado.htmlFor = 'smarttable-retorno-rapido-resultado';
     const seletor = elemento('select', 'smt-retorno-rapido-campo');
     seletor.id = 'smarttable-retorno-rapido-resultado';
     seletor.setAttribute('aria-label', 'Resultado do contato no CRM');
@@ -859,14 +908,21 @@
       opcao.value = resultado.id;
       seletor.appendChild(opcao);
     });
+    const rotuloObservacao = elemento('label', 'smt-retorno-rapido-label');
+    rotuloObservacao.htmlFor = 'smarttable-retorno-rapido-observacao';
+    rotuloObservacao.appendChild(document.createTextNode('Observação '));
+    rotuloObservacao.appendChild(elemento('span', 'smt-retorno-rapido-ajuda', '· será salva no histórico'));
     const campo = elemento('textarea', 'smt-retorno-rapido-campo');
     campo.id = 'smarttable-retorno-rapido-observacao';
+    campo.classList.add('smt-retorno-rapido-frase');
     campo.setAttribute('aria-label', 'Frase que será registrada na observação');
-    campo.placeholder = 'Frase que será registrada na observação';
+    campo.placeholder = 'Ex.: cliente confirmou pagamento pelo boleto do portal.';
     const enviar = elemento('button', '', 'Registrar contato');
     enviar.id = 'smarttable-retorno-rapido-salvar';
     enviar.type = 'submit';
-    formularioRapido.append(seletor, campo, enviar);
+    const acoes = elemento('div', 'smt-retorno-rapido-acoes');
+    acoes.appendChild(enviar);
+    formularioRapido.append(rotuloResultado, seletor, rotuloObservacao, campo, acoes);
     formularioRapido.addEventListener('submit', function (evento) {
       evento.preventDefault();
       const resultadoId = seletor.value;
@@ -885,8 +941,8 @@
   }
 
   function criarBotaoRetorno() {
-    // O perfil organiza Responsável/Alerta à esquerda; Retorno, registro rápido
-    // e frases fixadas ficam à direita. Os botões nativos mantêm seus handlers.
+    // A identificação e os indicadores ficam no topo do cartão; contato e
+    // registro rápido formam a área inferior. Os handlers nativos são mantidos.
     const responsavel = document.querySelector('button[onclick="abrirModalResponsavel()"]');
     const alerta = document.getElementById('smarttable-botao-alerta-cliente');
     if (!responsavel || !alerta || !responsavel.isConnected || !alerta.isConnected || !responsavel.parentElement) return false;
@@ -935,15 +991,42 @@
 
     cabecalhoOriginal.dataset.smtRetornoCabecalho = 'true';
     const cartaoInfo = cabecalhoOriginal.parentElement;
-    if (cartaoInfo) cartaoInfo.dataset.smtRetornoCartao = 'true';
+    if (cartaoInfo) {
+      cartaoInfo.dataset.smtRetornoContato = 'true';
+      const cartaoCliente = cartaoInfo.parentElement;
+      const resumoCliente = cartaoInfo.previousElementSibling;
+      if (cartaoCliente && resumoCliente) {
+        cartaoCliente.dataset.smtRetornoCartao = 'true';
+        resumoCliente.dataset.smtRetornoResumo = 'true';
+        const identificacao = resumoCliente.querySelector(':scope > div:first-child');
+        const indicadores = resumoCliente.querySelector(':scope > div:nth-child(2)');
+        if (identificacao) identificacao.dataset.smtRetornoIdentificacao = 'true';
+        if (indicadores) {
+          indicadores.dataset.smtRetornoKpis = 'true';
+          Array.from(indicadores.children).forEach(function (indicador) {
+            const rotulo = indicador.querySelector('p:first-child')?.textContent.toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '') || '';
+            const valor = indicador.querySelector('p:last-child')?.textContent || '';
+            if (rotulo.includes('vencido nao negociado') && /[1-9]/.test(valor.replace(/[^\d]/g, ''))) {
+              indicador.dataset.smtRetornoKpi = 'alerta';
+            } else if (rotulo.includes('atraso atual')) {
+              indicador.dataset.smtRetornoKpi = 'aviso';
+            } else if (rotulo.includes('vencido negociado') && !/[1-9]/.test(valor.replace(/[^\d]/g, ''))) {
+              indicador.dataset.smtRetornoKpi = 'zero';
+            }
+          });
+        }
+      } else {
+        cartaoInfo.dataset.smtRetornoCartao = 'true';
+      }
+    }
 
     let esquerda = document.getElementById(ID_COLUNA_ESQUERDA);
     let direita = document.getElementById(ID_COLUNA_DIREITA);
     if (!esquerda || !direita) return false;
 
-    if (responsavel.parentElement !== esquerda) esquerda.appendChild(responsavel);
-    if (alerta.parentElement !== esquerda) esquerda.appendChild(alerta);
-    if (botao.parentElement !== direita) direita.insertBefore(botao, direita.firstChild);
+    if (responsavel.parentElement !== cabecalhoOriginal) cabecalhoOriginal.appendChild(responsavel);
+    if (alerta.parentElement !== cabecalhoOriginal) cabecalhoOriginal.appendChild(alerta);
+    if (!direita.contains(botao)) direita.insertBefore(botao, direita.firstChild);
 
     let linhaAtalhos = document.getElementById(ID_ATALHOS_LINHA);
     if (!linhaAtalhos) {
@@ -953,6 +1036,8 @@
     }
     const registroRapido = criarRegistroRapido();
     if (registroRapido.parentElement !== linhaAtalhos) linhaAtalhos.appendChild(registroRapido);
+    const acoesRapidas = registroRapido.querySelector('.smt-retorno-rapido-acoes');
+    if (acoesRapidas && botao.parentElement !== acoesRapidas) acoesRapidas.appendChild(botao);
 
     let fixadas = document.getElementById(ID_FIXADAS);
     if (!fixadas) {

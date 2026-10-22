@@ -24,6 +24,18 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.105.1', data: '22/10/2026',
+      mudancas: [
+        'Corrige uma repetição de mutações no cartão do cliente: o observador agora reconhece o botão Retorno mesmo dentro do formulário e deixa de movê-lo continuamente.',
+      ],
+    },
+    {
+      versao: '1.105.0', data: '22/10/2026',
+      mudancas: [
+        'Reorganiza o cartão do cliente conforme a referência: identificação e indicadores financeiros acima; contato e registro rápido lado a lado abaixo. As frases fixadas agora preenchem o formulário sem registrar; o envio ocorre somente ao clicar em Registrar contato. O menu, a fila e as abas permanecem como estavam.',
+      ],
+    },
+    {
       versao: '1.104.0', data: '22/10/2026',
       mudancas: [
         'Inclui registro rápido no perfil do cliente: escolha o resultado do contato no CRM, digite a frase da observação e registre pelo botão nativo. O formulário fica à esquerda das frases fixadas, centralizado verticalmente na área.',
