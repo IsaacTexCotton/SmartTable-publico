@@ -24,9 +24,9 @@
 
   const LOG_ATUALIZACOES = [
     {
-      versao: '1.106.4', data: '22/10/2026',
+      versao: '1.106.6', data: '22/10/2026',
       mudancas: [
-        'Insere o nome padronizado no início da grade real do perfil, inclusive quando o CRM não usa o ID #perfil-restante.',
+        'Remove da razão social o CNPJ completo e sufixos societários finais como LTDA, ME, EPP e S/A; mantém a raiz nos oito primeiros dígitos, sem pontuação.',
       ],
     },
     {

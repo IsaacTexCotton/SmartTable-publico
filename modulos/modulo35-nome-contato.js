@@ -17,6 +17,29 @@
     return String(valor || '').replace(/\s+/g, ' ').trim();
   }
 
+  function raizCnpj(valor) {
+    return String(valor || '').replace(/\D/g, '').slice(0, 8);
+  }
+
+  function limparCnpjDaRazao(razao) {
+    let nome = texto(razao)
+      .replace(/\bCNPJ\s*[:#-]?\s*\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/gi, ' ')
+      .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, ' ')
+      .replace(/\(\s*\)/g, ' ')
+      .replace(/\s*[-–—]\s*[-–—]\s*/g, ' - ')
+      .replace(/^\s*[-–—]\s*|\s*[-–—]\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const sufixoSocietario = /([^\s])[\s,;:/-]+(?:EMPRESA\s+INDIVIDUAL\s+DE\s+RESPONSABILIDADE\s+LIMITADA|SOCIEDADE\s+LIMITADA\s+UNIPESSOAL|EMPRESA\s+DE\s+PEQUENO\s+PORTE|MICROEMPRESA|LIMITADA|EIRELI|LTDA|LTA|EPP|MEI|SLU|S\s*\/\s*A|S\.?\s*A|S\s*\/\s*S|S\.?\s*S|SCP|SCS|SCA|SNC|EI)\.?\s*$/i;
+    let nomeSemSufixo = nome.match(sufixoSocietario);
+    while (nomeSemSufixo) {
+      nome = nome.replace(sufixoSocietario, '$1').trim();
+      nomeSemSufixo = nome.match(sufixoSocietario);
+    }
+    return nome;
+  }
+
   function elemento(tag, classe, conteudo) {
     const item = document.createElement(tag);
     if (classe) item.className = classe;
@@ -43,13 +66,13 @@
     const titulos = Array.isArray(window.__TITULOS_ABERTOS__) ? window.__TITULOS_ABERTOS__ : [];
     const razoes = new Map();
     titulos.forEach(function (titulo) {
-      const razao = texto(titulo && titulo.razaoSocial);
+      const razao = limparCnpjDaRazao(titulo && titulo.razaoSocial);
       if (!razao) return;
       const chave = razao.toLocaleUpperCase('pt-BR');
       const atual = razoes.get(chave) || { nome: razao, quantidade: 0, cliente: false };
       atual.quantidade += 1;
-      const cnpjTitulo = String(titulo.cnpj || '').replace(/\D/g, '');
-      if (raiz && cnpjTitulo.slice(0, 8) === raiz) atual.cliente = true;
+      const cnpjTitulo = raizCnpj(titulo.cnpj);
+      if (raiz && cnpjTitulo === raiz) atual.cliente = true;
       razoes.set(chave, atual);
     });
     return Array.from(razoes.values()).sort(function (a, b) {
@@ -60,7 +83,7 @@
   function obterDados() {
     const url = new URL(window.location.href);
     const cnpj = url.searchParams.get('cnpj') || window.__CLIENTE_CNPJ__ || '';
-    const raiz = String(cnpj).replace(/\D/g, '').slice(0, 8);
+    const raiz = raizCnpj(cnpj);
     const grade = obterGradePerfil();
     const cidadeEstado = Array.from(grade?.children || []).find(function (campo) {
       return texto(campo.querySelector(':scope > p')?.textContent).toLocaleLowerCase('pt-BR') === 'cidade/estado';
