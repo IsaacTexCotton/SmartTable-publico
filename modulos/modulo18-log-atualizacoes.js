@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.106.1', data: '22/10/2026',
+      mudancas: [
+        'Mantém visível o botão de cópia do nome padronizado e exibe o campo no perfil mesmo quando o identificador do responsável financeiro não está presente.',
+      ],
+    },
+    {
       versao: '1.106.0', data: '22/10/2026',
       mudancas: [
         'Inclui no perfil do cliente um nome padronizado para cadastro no WhatsApp e no Google Contacts, com botão para copiar.',

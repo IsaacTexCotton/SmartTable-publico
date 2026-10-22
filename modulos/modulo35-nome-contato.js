@@ -68,7 +68,7 @@
 
   function instalarCampo() {
     const grade = document.getElementById('perfil-restante');
-    if (!grade || !grade.querySelector('#resp-nome-valor')) return;
+    if (!grade) return;
     let campo = document.getElementById(ID_CAMPO);
     if (!campo) {
       campo = elemento('div', 'smt-retorno-dado smt-retorno-nome-padronizado');
@@ -78,10 +78,21 @@
       const valor = elemento('p', 'smt-retorno-valor');
       valor.id = ID_CAMPO + '-valor';
       const acoes = elemento('span', 'smt-retorno-dado-acoes smt-retorno-cadastrar-wrap');
+      Object.assign(acoes.style, { display: 'flex', alignItems: 'center', opacity: '1' });
       const botao = elemento('button', 'smt-retorno-icone-acao smt-retorno-acao-copiar');
       botao.type = 'button';
       botao.title = 'Copiar nome padronizado';
       botao.setAttribute('aria-label', botao.title);
+      Object.assign(botao.style, {
+        display: 'inline-grid',
+        placeItems: 'center',
+        width: '28px',
+        height: '28px',
+        color: '#667085',
+        background: 'transparent',
+        border: '0',
+        cursor: 'pointer',
+      });
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('viewBox', '0 0 24 24');
       svg.setAttribute('fill', 'none');
