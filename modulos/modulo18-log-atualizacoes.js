@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.106.3', data: '22/10/2026',
+      mudancas: [
+        'Move o campo Nome padronizado para o início da grade de informações do perfil, deixando-o visível sem rolar a página.',
+      ],
+    },
+    {
       versao: '1.106.1', data: '22/10/2026',
       mudancas: [
         'Mantém visível o botão de cópia do nome padronizado e exibe o campo no perfil mesmo quando o identificador do responsável financeiro não está presente.',

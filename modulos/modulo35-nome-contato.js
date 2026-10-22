@@ -123,7 +123,7 @@
       acoes.appendChild(botao);
       linha.append(valor, acoes);
       campo.append(rotulo, linha);
-      grade.appendChild(campo);
+      grade.insertBefore(campo, grade.firstChild);
     }
     const nome = obterDados();
     const exibicao = nome || 'Dados insuficientes';
