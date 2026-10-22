@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.105.2
+// @version      1.106.0
 // @description  Automação de cobrança no CRM TexCotton: classificação, fila, alertas, contexto adicional, promessa rápida (Alt+N), retorno rápido por frases reutilizáveis e registro de contatos.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
@@ -42,6 +42,7 @@
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo4-atalhos-teclado.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo6-contexto-adicional.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo34-retorno.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo35-nome-contato.js
 // ==/UserScript==
 
 // Este arquivo é só o "invólucro" do Tampermonkey (metadados + @require dos

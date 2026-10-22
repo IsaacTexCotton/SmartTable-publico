@@ -685,6 +685,7 @@
     'Cenários da Prévia',
     'Editor de Mensagens',
     'Retorno Rápido',
+    'Nome Padronizado do Contato',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

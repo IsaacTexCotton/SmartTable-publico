@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.106.0', data: '22/10/2026',
+      mudancas: [
+        'Inclui no perfil do cliente um nome padronizado para cadastro no WhatsApp e no Google Contacts, com botão para copiar.',
+      ],
+    },
+    {
       versao: '1.105.2', data: '22/10/2026',
       mudancas: [
         'No registro rápido do perfil, o resultado do contato começa selecionado em Registro, acompanhando a opção nativa do CRM.',
