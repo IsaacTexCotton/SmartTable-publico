@@ -10,6 +10,7 @@
   window.__smartTableUtil?.registrarModuloCarregado?.('Nome Padronizado do Contato');
 
   const ID_CAMPO = 'smarttable-nome-padronizado';
+  const ID_LAYOUT_RETORNO = 'smarttable-retorno-layout';
   let observador = null;
 
   function texto(valor) {
@@ -21,6 +22,21 @@
     if (classe) item.className = classe;
     if (conteudo !== undefined) item.textContent = conteudo;
     return item;
+  }
+
+  function obterGradePerfil() {
+    const layout = document.getElementById(ID_LAYOUT_RETORNO);
+    const gradeDoLayout = layout?.nextElementSibling;
+    if (gradeDoLayout && gradeDoLayout.querySelector('#resp-nome-valor')) return gradeDoLayout;
+
+    const gradeMarcada = document.querySelector('[data-smt-retorno-grade="true"]');
+    if (gradeMarcada) return gradeMarcada;
+
+    const gradeOriginal = document.getElementById('perfil-restante');
+    if (gradeOriginal) return gradeOriginal;
+
+    const responsavel = document.getElementById('resp-nome-valor');
+    return responsavel?.parentElement?.parentElement || null;
   }
 
   function obterRazao(raiz) {
@@ -45,7 +61,8 @@
     const url = new URL(window.location.href);
     const cnpj = url.searchParams.get('cnpj') || window.__CLIENTE_CNPJ__ || '';
     const raiz = String(cnpj).replace(/\D/g, '').slice(0, 8);
-    const cidadeEstado = Array.from(document.querySelectorAll('#perfil-restante > div')).find(function (campo) {
+    const grade = obterGradePerfil();
+    const cidadeEstado = Array.from(grade?.children || []).find(function (campo) {
       return texto(campo.querySelector(':scope > p')?.textContent).toLocaleLowerCase('pt-BR') === 'cidade/estado';
     });
     const localidade = texto(cidadeEstado?.querySelectorAll(':scope > p')[1]?.textContent);
@@ -67,7 +84,7 @@
   }
 
   function instalarCampo() {
-    const grade = document.getElementById('perfil-restante');
+    const grade = obterGradePerfil();
     if (!grade) return;
     let campo = document.getElementById(ID_CAMPO);
     if (!campo) {

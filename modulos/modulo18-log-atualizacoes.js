@@ -24,9 +24,9 @@
 
   const LOG_ATUALIZACOES = [
     {
-      versao: '1.106.3', data: '22/10/2026',
+      versao: '1.106.4', data: '22/10/2026',
       mudancas: [
-        'Move o campo Nome padronizado para o início da grade de informações do perfil, deixando-o visível sem rolar a página.',
+        'Insere o nome padronizado no início da grade real do perfil, inclusive quando o CRM não usa o ID #perfil-restante.',
       ],
     },
     {
