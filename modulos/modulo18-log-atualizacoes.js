@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.104.0', data: '22/10/2026',
+      mudancas: [
+        'Inclui registro rápido no perfil do cliente: escolha o resultado do contato no CRM, digite a frase da observação e registre pelo botão nativo. O formulário fica à esquerda das frases fixadas, centralizado verticalmente na área.',
+      ],
+    },
+    {
       versao: '1.103.5', data: '21/10/2026',
       mudancas: [
         'Corrige a largura do cartão Informações de Contato: preenche 100% da área interna disponível, remove o limite de 1180 px e o deslocamento em relação à janela. A organização e o visual interno permanecem iguais.',

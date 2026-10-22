@@ -19,6 +19,8 @@
   const ID_COLUNA_ESQUERDA = 'smarttable-retorno-coluna-esquerda';
   const ID_COLUNA_DIREITA = 'smarttable-retorno-coluna-direita';
   const ID_FIXADAS = 'smarttable-retorno-fixadas';
+  const ID_REGISTRO_RAPIDO = 'smarttable-retorno-registro-rapido';
+  const ID_ATALHOS_LINHA = 'smarttable-retorno-atalhos-linha';
   const ID_LISTA_FIXADAS = 'smarttable-retorno-fixadas-lista';
   const POR_PAGINA = 5;
   const CHAVE_FRASES = 'smarttable_retorno_rapido_v1';
@@ -106,6 +108,14 @@
       '.smt-retorno-pagina:disabled{opacity:.35;cursor:default;}',
       '.smt-retorno-pagina-texto{font-size:10px;color:#8a919e;white-space:nowrap;}',
       '#smarttable-retorno-fixadas-lista{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:6px;width:100%;min-width:0;}',
+      '#smarttable-retorno-atalhos-linha{width:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:18px;min-width:0;}',
+      '#smarttable-retorno-registro-rapido{display:grid;gap:7px;min-width:0;padding:11px;border:1px solid #e6e8ec;border-radius:9px;background:#f9fafb;}',
+      '.smt-retorno-rapido-titulo{margin:0;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#667085;}',
+      '.smt-retorno-rapido-campo{width:100%;min-width:0;box-sizing:border-box;border:1px solid #d0d5dd;border-radius:6px;background:#fff;color:#344054;padding:7px 8px;font-family:inherit;font-size:12px;}',
+      '#smarttable-retorno-registro-rapido textarea{min-height:62px;resize:vertical;}',
+      '#smarttable-retorno-registro-rapido button{justify-self:start;border:1px solid #1f5f8b;background:#1f5f8b;color:#fff;border-radius:7px;padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer;}',
+      '#smarttable-retorno-registro-rapido button:disabled{opacity:.5;cursor:default;}',
+      '@media(max-width:760px){#smarttable-retorno-atalhos-linha{grid-template-columns:minmax(0,1fr);}}',
       '.smt-retorno-fixar{min-width:34px;display:inline-flex;align-items:center;justify-content:center;}',
       '.smt-retorno-fixar[aria-pressed="true"]{border-color:#d6a243;background:#fff8e7;color:#805b15;}',
       '.smt-retorno-fixar svg{width:14px;height:14px;display:block;}',
@@ -788,12 +798,12 @@
     else renderizarLista();
   }
 
-  function aplicarFrase(frase) {
+  function registrarContato(resultadoId, textoObservacao) {
     if (registroEmAndamento) {
       avisar('Já há um registro em andamento. Aguarde a resposta do CRM.');
       return;
     }
-    const botaoResultado = document.getElementById(PREFIXO_RESULTADO + frase.resultadoId);
+    const botaoResultado = document.getElementById(PREFIXO_RESULTADO + resultadoId);
     const observacao = document.getElementById('contato-resumo');
     const botaoSalvar = document.getElementById('btn-salvar-contato');
     const formContato = document.getElementById('form-contato');
@@ -805,7 +815,7 @@
     registroEmAndamento = true;
     try {
       botaoResultado.click();
-      observacao.value = frase.observacao;
+      observacao.value = textoObservacao;
       observacao.dispatchEvent(new window.Event('input', { bubbles: true }));
       observacao.dispatchEvent(new window.Event('change', { bubbles: true }));
     } catch (erro) {
@@ -827,9 +837,56 @@
     }, 0);
   }
 
+  function aplicarFrase(frase) {
+    registrarContato(frase.resultadoId, frase.observacao);
+  }
+
+  function criarRegistroRapido() {
+    let formularioRapido = document.getElementById(ID_REGISTRO_RAPIDO);
+    if (formularioRapido) return formularioRapido;
+
+    formularioRapido = elemento('form', '');
+    formularioRapido.id = ID_REGISTRO_RAPIDO;
+    formularioRapido.appendChild(elemento('p', 'smt-retorno-rapido-titulo', 'Registro rápido'));
+    const seletor = elemento('select', 'smt-retorno-rapido-campo');
+    seletor.id = 'smarttable-retorno-rapido-resultado';
+    seletor.setAttribute('aria-label', 'Resultado do contato no CRM');
+    const placeholder = elemento('option', '', 'Resultado do contato no CRM');
+    placeholder.value = '';
+    seletor.appendChild(placeholder);
+    extrairResultados().forEach(function (resultado) {
+      const opcao = elemento('option', '', resultado.rotulo);
+      opcao.value = resultado.id;
+      seletor.appendChild(opcao);
+    });
+    const campo = elemento('textarea', 'smt-retorno-rapido-campo');
+    campo.id = 'smarttable-retorno-rapido-observacao';
+    campo.setAttribute('aria-label', 'Frase que será registrada na observação');
+    campo.placeholder = 'Frase que será registrada na observação';
+    const enviar = elemento('button', '', 'Registrar contato');
+    enviar.id = 'smarttable-retorno-rapido-salvar';
+    enviar.type = 'submit';
+    formularioRapido.append(seletor, campo, enviar);
+    formularioRapido.addEventListener('submit', function (evento) {
+      evento.preventDefault();
+      const resultadoId = seletor.value;
+      const observacao = campo.value.trim();
+      if (!resultadoId || !observacao) {
+        avisar('Informe o resultado do contato e a frase da observação.');
+        return;
+      }
+      if (!extrairResultados().some(function (resultado) { return resultado.id === resultadoId; })) {
+        avisar('O resultado escolhido não está mais disponível no CRM. Selecione outro.');
+        return;
+      }
+      registrarContato(resultadoId, observacao);
+    });
+    return formularioRapido;
+  }
+
   function criarBotaoRetorno() {
-    // O perfil é organizado em duas colunas: Responsável/Alerta à esquerda;
-    // Retorno e frases fixadas à direita. Os botões nativos mantêm seus handlers.
+    // O perfil organiza Responsável/Alerta à esquerda; Retorno, registro rápido
+    // e frases fixadas ficam à direita. Os botões nativos mantêm seus handlers.
     const responsavel = document.querySelector('button[onclick="abrirModalResponsavel()"]');
     const alerta = document.getElementById('smarttable-botao-alerta-cliente');
     if (!responsavel || !alerta || !responsavel.isConnected || !alerta.isConnected || !responsavel.parentElement) return false;
@@ -888,12 +945,23 @@
     if (alerta.parentElement !== esquerda) esquerda.appendChild(alerta);
     if (botao.parentElement !== direita) direita.insertBefore(botao, direita.firstChild);
 
+    let linhaAtalhos = document.getElementById(ID_ATALHOS_LINHA);
+    if (!linhaAtalhos) {
+      linhaAtalhos = elemento('div', '');
+      linhaAtalhos.id = ID_ATALHOS_LINHA;
+      direita.appendChild(linhaAtalhos);
+    }
+    const registroRapido = criarRegistroRapido();
+    if (registroRapido.parentElement !== linhaAtalhos) linhaAtalhos.appendChild(registroRapido);
+
     let fixadas = document.getElementById(ID_FIXADAS);
     if (!fixadas) {
       fixadas = elemento('div', '');
       fixadas.id = ID_FIXADAS;
       fixadas.hidden = true;
-      direita.appendChild(fixadas);
+      linhaAtalhos.appendChild(fixadas);
+    } else if (fixadas.parentElement !== linhaAtalhos) {
+      linhaAtalhos.appendChild(fixadas);
     }
     if (fixadas.dataset.inicializado !== 'true') {
       fixadas.dataset.inicializado = 'true';
