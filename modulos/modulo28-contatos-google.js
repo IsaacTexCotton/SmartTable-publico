@@ -1256,7 +1256,6 @@
   function iniciar() {
     if (iniciou) return;
     iniciou = true;
-    avaliarPagina();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);

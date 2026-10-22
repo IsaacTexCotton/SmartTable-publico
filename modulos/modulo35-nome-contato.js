@@ -94,7 +94,11 @@
     const grupo = grupoMatch && Number(grupoMatch[1]) > 0 ? 'GP ' + grupoMatch[1] : '';
     const responsavel = texto(window.__RESPONSAVEL__?.nome || document.getElementById('resp-nome-valor')?.textContent)
       .replace(/^(não cadastrado|nao cadastrado|não informado|nao informado)$/i, '');
-    return [obterRazao(raiz), raiz, ufMatch ? ufMatch[1].toLocaleUpperCase('pt-BR') : '', grupo, responsavel]
+    return montarNome({ razao: obterRazao(raiz), raiz, uf: ufMatch ? ufMatch[1].toLocaleUpperCase('pt-BR') : '', grupo, responsavel });
+  }
+
+  function montarNome(dados = {}) {
+    return [limparCnpjDaRazao(dados.razao), raizCnpj(dados.raiz || dados.cnpj), texto(dados.uf).toLocaleUpperCase('pt-BR'), texto(dados.grupo), texto(dados.responsavel)]
       .filter(Boolean).join(' - ');
   }
 
@@ -191,4 +195,5 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', instalar);
   else instalar();
+  window.__nomeContatoPadronizado = { montarNome };
 })();

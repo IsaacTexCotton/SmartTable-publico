@@ -115,18 +115,17 @@
   }
 
   /**
-   * Junta a lista de clientes aos contatos guardados e baixa o responsável de quem tem contato.
+   * Confere todos os clientes da lista contra os contatos guardados e lê o responsável financeiro.
    * @param {{aoProgresso?: (feitos: number, total: number) => void, sinal?: AbortSignal}} [opcoes]
    * @returns {Promise<{semContatos: boolean, totalNaLista: number, candidatos: Array<{cliente: object, itens: object[], crm: object|null, erro: string|null}>}>}
    */
   async function levantar({ aoProgresso, sinal } = {}) {
     const lista = Array.isArray(window.CLIENTES) ? window.CLIENTES : [];
     const meta = G().lerMeta();
-    if (!meta) return { semContatos: true, totalNaLista: lista.length, candidatos: [] };
     const candidatos = [];
     for (const cliente of lista) {
       const itens = await G().buscarPorRaiz(G().raizDoCnpj(cliente.cnpj));
-      if (itens.length > 0) candidatos.push({ cliente, itens, crm: null, erro: null });
+      candidatos.push({ cliente, itens, crm: null, erro: null });
     }
     aoProgresso?.(0, candidatos.length);
     let proximo = 0;
@@ -141,7 +140,7 @@
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONFIG_LISTA.SIMULTANEAS, candidatos.length) }, trabalhador));
-    return { semContatos: false, totalNaLista: lista.length, candidatos };
+    return { semContatos: !meta, totalNaLista: lista.length, candidatos };
   }
 
   /**
@@ -151,19 +150,43 @@
   function calcularLinhas(levantamento, modo = G().lerModo()) {
     const linhas = [];
     const semLeitura = [];
+    const semContato = [];
+    const csvNovos = [];
     let iguais = 0;
     levantamento.candidatos.forEach((cand) => {
+      if (cand.itens.length === 0) semContato.push(cand);
       if (!cand.crm) { semLeitura.push(cand); return; }
+      if (cand.itens.length === 0) {
+        const nome = String(cand.crm.nome ?? '').trim();
+        const celular = G().normalizarCelular(cand.crm.celular);
+        if (nome || celular) {
+          const raiz = G().raizDoCnpj(cand.cliente.cnpj);
+          const grupo = Number(cand.cliente.controleCliente) > 0 ? `GP ${cand.cliente.controleCliente}` : '';
+          const uf = String(cand.cliente.uf ?? cand.cliente.estado ?? '').trim().toLocaleUpperCase('pt-BR');
+          const padronizado = window.__nomeContatoPadronizado?.montarNome?.({
+            razao: cand.cliente.razaoSocial ?? cand.cliente.nomeFantasia, raiz, uf,
+            grupo: uf ? grupo : '', responsavel: uf ? nome : '',
+          }) || [String(cand.cliente.razaoSocial ?? '').trim(), raiz, uf, uf ? grupo : '', uf ? nome : ''].filter(Boolean).join(' - ');
+          const celularBruto = String(cand.crm.celular ?? '').trim();
+          csvNovos.push({ nome: padronizado, celular: celular ? G().formatarCelular(celular) : celularBruto });
+        }
+        return;
+      }
       const antes = linhas.length;
       cand.itens.forEach((item, indice) => {
+        const confere = G().razaoConfere(item.razao, cand.cliente.razaoSocial, cand.cliente.nomeFantasia);
         const novidades = G().novidadesDoContato(item, cand.crm, modo);
-        if (!novidades.nome && !novidades.celular) return;
+        const faltandoNoGoogle = {
+          nome: modo.nome && Boolean(String(cand.crm.nome ?? '').trim()) && !item.nome,
+          celular: modo.celular && Boolean(String(cand.crm.celular ?? '').trim()) && item.celulares.length === 0,
+        };
+        if (!novidades.nome && !novidades.celular && !faltandoNoGoogle.nome && !faltandoNoGoogle.celular) return;
         linhas.push({
           // `chave`: esta linha, e só ela (cliente + posição do contato). O editor se guia por ela, e não pelo objeto do contato:
           // sem IndexedDB (plano B na memória) duas filiais da mesma raiz recebem o MESMO objeto de contato.
           chave: `${cand.cliente.cnpj}#${indice}`,
-          cliente: cand.cliente, item, crm: cand.crm, novidades,
-          confere: G().razaoConfere(item.razao, cand.cliente.razaoSocial, cand.cliente.nomeFantasia),
+          cliente: cand.cliente, item, crm: cand.crm, novidades, faltandoNoGoogle,
+          confere,
         });
       });
       if (linhas.length === antes) iguais += 1;
@@ -172,10 +195,11 @@
     const peso = (l) => (l.confere === false ? 2 : l.confere === null ? 1 : 0);
     linhas.sort((a, b) => peso(a) - peso(b) || String(a.cliente.razaoSocial).localeCompare(String(b.cliente.razaoSocial), 'pt-BR'));
     return {
-      linhas, semLeitura, iguais,
+      linhas, semLeitura, semContato, csvNovos, iguais,
       resumo: {
         totalNaLista: levantamento.totalNaLista,
-        comContato: levantamento.candidatos.length,
+        comContato: levantamento.candidatos.filter((c) => c.itens.length > 0).length,
+        semContato: semContato.length,
         comDiferenca: new Set(linhas.map((l) => l.cliente)).size,
         iguais,
         semLeitura: semLeitura.length,
@@ -541,8 +565,14 @@
     linha.dataset.papel = 'linha';
     const cliente = criarDiv('', {});
     cliente.appendChild(criarDiv(l.cliente.razaoSocial || '(sem razão social)', { color: CORES.tinta, fontWeight: '700', fontSize: '12.5px' }));
-    const etiquetas = [l.novidades.nome ? 'nome' : null, l.novidades.celular ? 'celular' : null].filter(Boolean).join(' e ');
-    cliente.appendChild(criarDiv('Difere: ' + etiquetas, { color: CORES.aviso, fontSize: '11.5px' }));
+    const etiquetas = [
+      l.novidades.nome ? 'nome' : null,
+      l.novidades.celular ? 'celular' : null,
+      l.faltandoNoGoogle?.nome ? 'Google sem nome' : null,
+      l.faltandoNoGoogle?.celular ? 'Google sem celular' : null,
+      l.confere === false ? 'razão diferente' : null,
+    ].filter(Boolean).join(' · ');
+    cliente.appendChild(criarDiv('Difere: ' + (etiquetas || 'conferir contato'), { color: CORES.aviso, fontSize: '11.5px' }));
     linha.appendChild(cliente);
     linha.appendChild(criarDiv('No CRM: ' + textoDoCrm(l.crm), { color: CORES.texto, fontSize: '12px' }));
     linha.appendChild(criarDiv(`No Google: ${l.item.nome || '(sem nome)'}${cel ? ' · ' + cel : ''}`, { color: CORES.texto, fontSize: '12px' }));
@@ -664,7 +694,7 @@
     destino.textContent = '';
     const r = calculo.resumo;
     destino.appendChild(criarDiv(
-      `${r.totalNaLista} cliente(s) na lista · ${r.comContato} com contato no Google · ${r.comDiferenca} com diferença · ${r.iguais} já iguais · ${r.semLeitura} sem leitura`,
+      `${r.totalNaLista} cliente(s) conferidos · ${r.comContato} com contato no Google · ${r.semContato} sem contato · ${r.comDiferenca} com diferença · ${r.iguais} já iguais · ${r.semLeitura} sem leitura`,
       { color: CORES.texto, fontSize: '12.5px', margin: '4px 0 8px', fontWeight: '600' },
     )).dataset.papel = 'resumo';
     if (calculo.linhas.length === 0) {
@@ -677,6 +707,26 @@
     // O cliente do editor saiu da lista (ex.: desligou o interruptor): não deixa o editor "fantasma" no estado.
     if (estado.editando && !estado.editorVisivel) encerrarEditor(estado);
     destino.appendChild(lista);
+
+    if (calculo.csvNovos.length > 0) {
+      const exportar = criarBotao(`Baixar CSV · ${calculo.csvNovos.length} novo(s) contato(s)`, 'baixar-csv-novos', true);
+      exportar.addEventListener('click', () => baixarCsvNovos(calculo.csvNovos));
+      destino.appendChild(exportar);
+    }
+
+    if (calculo.semContato.length > 0) {
+      const caixa = criarDiv('', { marginTop: '10px' });
+      caixa.dataset.papel = 'sem-contato';
+      caixa.appendChild(criarDiv(`Sem contato do Google (${calculo.semContato.length}):`, { color: CORES.aviso, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }));
+      calculo.semContato.forEach((c) => {
+        const linha = criarDiv('', { display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px', borderBottom: `1px solid ${CORES.linha}` });
+        const dados = c.crm ? `${c.crm.nome || 'sem nome do responsável'} · ${c.crm.celular || 'sem celular do responsável'}` : 'informações insuficientes';
+        linha.appendChild(criarDiv(`${c.cliente.razaoSocial || '(sem razão social)'}: ${dados}`, { color: CORES.texto, fontSize: '12px' }));
+        linha.appendChild(criarLinkAbrir(c.cliente));
+        caixa.appendChild(linha);
+      });
+      destino.appendChild(caixa);
+    }
 
     if (estado.feitos.length > 0) {
       const caixa = criarDiv('', { marginTop: '12px' });
@@ -714,6 +764,27 @@
     }
   }
 
+  function baixarCsvNovos(contatos) {
+    const Gc = G();
+    if (!Gc) return;
+    const citar = (valor) => {
+      const s = String(valor ?? '');
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const linhas = [['First Name', 'Phone 1 - Value'], ...contatos.map((c) => [c.nome, c.celular])];
+    const texto = linhas.map((l) => l.map(citar).join(',')).join('\r\n') + '\r\n';
+    const blob = new window.Blob([texto], { type: 'text/csv;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'contatos-google-novos.csv';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+  }
+
   function fecharPainel() {
     // Cancela os pedidos em andamento. O que ainda chegar só mexe nos elementos do painel antigo, já fora da tela.
     controlador?.abort();
@@ -741,8 +812,8 @@
       fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: '13px', zIndex: CONFIG_LISTA.Z_INDEX_POPUP,
       width: '920px', maxWidth: '92vw', maxHeight: '75vh', overflowY: 'auto', boxSizing: 'border-box',
     });
-    painelEl.appendChild(criarDiv('Contatos do Google: diferenças do responsável', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
-    painelEl.appendChild(criarDiv('Clientes desta lista cujo contato do Google difere do "Responsável financeiro" do CRM. Os botões gravam no CRM, um cliente por vez: o celular é o número que o CRM usa para abrir o WhatsApp. "Abrir cliente" abre a página dele para conferir no modal.', {
+    painelEl.appendChild(criarDiv('Checkup dos Contatos do Google', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
+    painelEl.appendChild(criarDiv('Confere todos os clientes desta lista com o Google Contacts e compara nome e celular com o responsável financeiro do CRM. Mostra diferenças, contatos ausentes e falhas de leitura. O CSV contém apenas novos contatos com dados do responsável disponíveis no CRM.', {
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
@@ -771,17 +842,12 @@
       levantamento = await levantar({
         sinal: controlador.signal,
         aoProgresso: (feitos, total) => {
-          andamento.textContent = `Lendo o responsável no CRM: ${feitos} de ${total} cliente(s) com contato...`;
+          andamento.textContent = `Conferindo clientes: ${feitos} de ${total}...`;
         },
       });
     } catch {
       andamento.style.color = CORES.erro;
       andamento.textContent = 'Não consegui ler os contatos guardados neste navegador (abra o Alt+J e importe de novo).';
-      return;
-    }
-    if (levantamento.semContatos) {
-      andamento.style.color = CORES.aviso;
-      andamento.textContent = 'Nenhum contato guardado: importe o CSV do Google Contatos no Alt+J.';
       return;
     }
     if (levantamento.totalNaLista === 0) {
@@ -790,6 +856,10 @@
       return;
     }
     andamento.textContent = '';
+    if (levantamento.semContatos) {
+      andamento.style.color = CORES.aviso;
+      andamento.textContent = 'Nenhum CSV do Google foi importado; o checkup ainda verificou quem está sem contato e montou o CSV dos novos contatos possíveis.';
+    }
     estado.levantamento = levantamento;
     recalcular();
   }

@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.107.0', data: '22/10/2026',
+      mudancas: [
+        'O checkup dos Contatos do Google agora confere todos os clientes da lista, aponta quem não tem contato e permite baixar um CSV de novos contatos com os dados disponíveis do responsável no CRM. Diferenças e falhas de leitura aparecem separadas.',
+        'O aviso automático "Contato do Google Contatos para este cliente" foi removido da página do cliente. A importação e o checkup na lista continuam disponíveis.',
+      ],
+    },
+    {
       versao: '1.106.6', data: '22/10/2026',
       mudancas: [
         'Remove da razão social o CNPJ completo e sufixos societários finais como LTDA, ME, EPP e S/A; mantém a raiz nos oito primeiros dígitos, sem pontuação.',
