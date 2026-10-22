@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.105.2', data: '22/10/2026',
+      mudancas: [
+        'No registro rápido do perfil, o resultado do contato começa selecionado em Registro, acompanhando a opção nativa do CRM.',
+      ],
+    },
+    {
       versao: '1.105.1', data: '22/10/2026',
       mudancas: [
         'Corrige uma repetição de mutações no cartão do cliente: o observador agora reconhece o botão Retorno mesmo dentro do formulário e deixa de movê-lo continuamente.',

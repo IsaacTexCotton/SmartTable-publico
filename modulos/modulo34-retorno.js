@@ -903,11 +903,15 @@
     const placeholder = elemento('option', '', 'Resultado do contato no CRM');
     placeholder.value = '';
     seletor.appendChild(placeholder);
-    extrairResultados().forEach(function (resultado) {
+    const resultados = extrairResultados();
+    resultados.forEach(function (resultado) {
       const opcao = elemento('option', '', resultado.rotulo);
       opcao.value = resultado.id;
       seletor.appendChild(opcao);
     });
+    if (resultados.some(function (resultado) { return resultado.id === 'REGISTRO'; })) {
+      seletor.value = 'REGISTRO';
+    }
     const rotuloObservacao = elemento('label', 'smt-retorno-rapido-label');
     rotuloObservacao.htmlFor = 'smarttable-retorno-rapido-observacao';
     rotuloObservacao.appendChild(document.createTextNode('Observação '));
