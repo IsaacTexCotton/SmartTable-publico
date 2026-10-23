@@ -785,6 +785,450 @@
     setTimeout(() => window.URL.revokeObjectURL(url), 1000);
   }
 
+
+  /* ---------------------------------------------------------------------
+   * SINCRONIZAÇÃO DIRETA COM GOOGLE CONTACTS (People API)
+   * --------------------------------------------------------------------- */
+  function nomeVisivelGoogle(pessoa) {
+    const nomes = Array.isArray(pessoa?.names) ? pessoa.names : [];
+    const nome = nomes.find((n) => n?.metadata?.primary) || nomes[0] || {};
+    return String(nome.givenName || nome.unstructuredName || nome.displayName || nome.familyName || '').trim();
+  }
+
+  function parsePessoaGoogle(pessoa) {
+    const textos = [];
+    (pessoa?.names || []).forEach((n) => {
+      [n?.givenName, n?.unstructuredName, n?.displayName].forEach((v) => {
+        if (v && !textos.includes(String(v))) textos.push(String(v));
+      });
+    });
+    (pessoa?.organizations || []).forEach((o) => {
+      if (o?.name && !textos.includes(String(o.name))) textos.push(String(o.name));
+    });
+    const interpretados = textos.map((t) => ({ texto: t, contato: G().interpretarNome(t) })).filter((x) => x.contato?.raiz);
+    return interpretados.find((x) => x.contato.uf) || interpretados[0] || null;
+  }
+
+  function razaoDoCliente(c) {
+    return String(c?.razaoSocial || c?.nomeFantasia || '').trim();
+  }
+
+  function ufDoCliente(c, fallback) {
+    return String(c?.uf || c?.estado || fallback || '').trim().toLocaleUpperCase('pt-BR');
+  }
+
+  function grupoDoCliente(c, fallback) {
+    const n = Number(c?.controleCliente);
+    return n > 0 ? 'GP ' + n : String(fallback || '').trim();
+  }
+
+  function escolherClienteDaRaiz(parsed, candidatos) {
+    if (candidatos.length === 0) return { cliente: null, seguro: false, motivo: 'Nenhum cliente desta lista tem a mesma raiz do CNPJ.' };
+    const exatos = candidatos.filter((c) => G().razaoConfere(parsed.razao, c.razaoSocial, c.nomeFantasia) === true);
+    const pontuar = (c) => {
+      let pontos = 0;
+      const uf = ufDoCliente(c);
+      if (parsed.uf && uf) pontos += parsed.uf === uf ? 3 : -2;
+      const grupo = grupoDoCliente(c);
+      if (parsed.grupo && grupo) {
+        const numeroContato = parsed.grupo.match(/\d+/)?.[0] || '';
+        const numeroCliente = grupo.match(/\d+/)?.[0] || '';
+        pontos += numeroContato && numeroContato === numeroCliente ? 4 : -1;
+      }
+      return pontos;
+    };
+    if (exatos.length === 1) return { cliente: exatos[0], seguro: true, motivo: '' };
+    if (exatos.length > 1) {
+      const ordenados = exatos.map((cliente) => ({ cliente, pontos: pontuar(cliente) })).sort((a, b) => b.pontos - a.pontos);
+      if (ordenados[0].pontos > 0 && ordenados[0].pontos > ordenados[1].pontos) {
+        return { cliente: ordenados[0].cliente, seguro: true, motivo: '' };
+      }
+      return { cliente: null, seguro: false, motivo: 'Mais de um cliente tem razão social compatível com esta raiz; vínculo ambíguo.' };
+    }
+    if (candidatos.length === 1) {
+      return { cliente: candidatos[0], seguro: false, motivo: 'A raiz coincide, mas a razão social não foi confirmada. Revise o vínculo antes de alterar.' };
+    }
+    return { cliente: null, seguro: false, motivo: 'A raiz aparece em vários clientes e a razão social não identificou um único vínculo.' };
+  }
+
+  function montarNomeGoogleDesejado(cliente, parsed, crm) {
+    const raiz = G().raizDoCnpj(cliente.cnpj);
+    const uf = ufDoCliente(cliente, parsed.uf);
+    const grupo = grupoDoCliente(cliente, parsed.grupo);
+    const razao = razaoDoCliente(cliente) || parsed.razao || '';
+    const responsavel = String(crm?.nome || '').replace(/\s+/g, ' ').trim();
+    if (!razao || !raiz || !responsavel) return '';
+    return window.__nomeContatoPadronizado?.montarNome?.({ razao, raiz, uf, grupo, responsavel })
+      || [razao, raiz, uf, grupo, responsavel].filter(Boolean).join(' - ');
+  }
+
+  function celularesGoogle(pessoa) {
+    return (pessoa?.phoneNumbers || []).map((p) => ({
+      value: String(p?.value || '').trim(),
+      tipo: String(p?.type || p?.formattedType || 'telefone'),
+      celular: G().normalizarCelular(p?.value),
+    }));
+  }
+
+  function calcularDiferencasGoogle(linha) {
+    const crmCelular = G().normalizarCelular(linha.crm?.celular);
+    linha.nomeAtual = nomeVisivelGoogle(linha.pessoa);
+    linha.telefones = celularesGoogle(linha.pessoa);
+    linha.celularCrm = crmCelular;
+    linha.nomeDesejado = montarNomeGoogleDesejado(linha.cliente, linha.parsed, linha.crm);
+    linha.celularDesejado = crmCelular ? G().formatarCelular(crmCelular) : '';
+    linha.difereNome = Boolean(linha.nomeDesejado && linha.nomeAtual !== linha.nomeDesejado);
+    linha.difereCelular = Boolean(crmCelular && !linha.telefones.some((p) => p.celular === crmCelular));
+    linha.aplicarNome = false;
+    linha.aplicarCelular = false;
+    linha.indiceTelefone = -1; // Padrão: adicionar, preservando todos os números que já existem.
+    if (!linha.nomeDesejado) linha.avisoDados = 'O CRM não tem nome do responsável suficiente para padronizar este contato.';
+    else if (!crmCelular) linha.avisoDados = 'O celular do CRM não é um celular brasileiro válido; não será atualizado.';
+    return linha;
+  }
+
+  async function prepararLinhasGoogle(pessoas, estado, aoProgresso) {
+    const clientes = Array.isArray(window.CLIENTES) ? window.CLIENTES : [];
+    const porRaiz = new Map();
+    clientes.forEach((cliente) => {
+      const raiz = G().raizDoCnpj(cliente.cnpj);
+      if (!raiz) return;
+      if (!porRaiz.has(raiz)) porRaiz.set(raiz, []);
+      porRaiz.get(raiz).push(cliente);
+    });
+    const linhas = [];
+    let semPadrao = 0;
+    let semVinculo = 0;
+    for (const pessoa of pessoas) {
+      const achado = parsePessoaGoogle(pessoa);
+      if (!achado) { semPadrao += 1; continue; }
+      const candidatos = porRaiz.get(achado.contato.raiz) || [];
+      const vinculo = escolherClienteDaRaiz(achado.contato, candidatos);
+      if (!vinculo.cliente) {
+        semVinculo += 1;
+        linhas.push({
+          pessoa, parsed: achado.contato, textoGoogle: achado.texto, cliente: null, crm: null,
+          seguro: false, precisaConfirmar: true, confirmada: false, status: vinculo.motivo,
+          telefones: celularesGoogle(pessoa), nomeAtual: nomeVisivelGoogle(pessoa),
+          difereNome: false, difereCelular: false, editavel: false,
+        });
+        continue;
+      }
+      linhas.push({
+        pessoa, parsed: achado.contato, textoGoogle: achado.texto, cliente: vinculo.cliente, crm: null,
+        seguro: vinculo.seguro, precisaConfirmar: !vinculo.seguro, confirmada: false,
+        status: vinculo.motivo, telefones: [], nomeAtual: '', difereNome: false,
+        difereCelular: false, editavel: false,
+      });
+    }
+
+    const clientesParaLer = [...new Map(linhas.filter((l) => l.cliente).map((l) => [String(l.cliente.cnpj), l.cliente])).values()];
+    let proximo = 0;
+    let feitos = 0;
+    const responsaveis = new Map();
+    const trabalhador = async () => {
+      while (proximo < clientesParaLer.length && !estado.signal?.aborted) {
+        const cliente = clientesParaLer[proximo++];
+        const lido = await lerPaginaDoCliente(cliente, estado.signal);
+        responsaveis.set(String(cliente.cnpj), lido);
+        feitos += 1;
+        aoProgresso?.(feitos, clientesParaLer.length);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONFIG_LISTA.SIMULTANEAS, clientesParaLer.length) }, trabalhador));
+
+    const porCliente = new Map();
+    linhas.filter((l) => l.cliente).forEach((l) => {
+      const chave = String(l.cliente.cnpj);
+      porCliente.set(chave, (porCliente.get(chave) || 0) + 1);
+    });
+    linhas.filter((l) => l.cliente).forEach((l) => {
+      const lido = responsaveis.get(String(l.cliente.cnpj));
+      if (!lido?.crm) {
+        l.status = lido?.erro ? (MENSAGEM_ERRO[lido.erro] || 'Não foi possível ler os dados do CRM.') : 'Não foi possível ler os dados do CRM.';
+        l.erroLeitura = true;
+        return;
+      }
+      l.crm = lido.crm;
+      if ((porCliente.get(String(l.cliente.cnpj)) || 0) > 1) {
+        l.seguro = false;
+        l.precisaConfirmar = true;
+        l.confirmada = false;
+        l.status = 'Há mais de um contato Google com a mesma empresa. Confirme que este é o registro correto antes de alterá-lo.';
+      }
+      calcularDiferencasGoogle(l);
+      l.editavel = Boolean(l.pessoa?.resourceName && (l.difereNome || l.difereCelular));
+      if (!l.editavel && !l.precisaConfirmar) l.status = 'Nome e celular já conferem com o CRM.';
+      if (l.precisaConfirmar && !l.status) l.status = 'Revise a associação antes de permitir qualquer alteração.';
+    });
+
+    const comDiferenca = linhas.filter((l) => l.cliente && l.crm && (l.difereNome || l.difereCelular)).length;
+    const jaIguais = linhas.filter((l) => l.cliente && l.crm && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length;
+    return { linhas, semPadrao, semVinculo, comDiferenca, jaIguais, clientesLidos: clientesParaLer.length };
+  }
+
+  function criarCheckboxSync(rotulo, marcado, desabilitado, aoMudar) {
+    const label = document.createElement('label');
+    Object.assign(label.style, { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: CORES.texto, marginTop: '4px' });
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(marcado);
+    input.disabled = Boolean(desabilitado);
+    input.addEventListener('change', () => aoMudar(input.checked));
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(rotulo));
+    return label;
+  }
+
+  function desenharLinhasGoogle(destino, estado, resumo) {
+    destino.textContent = '';
+    const linhas = estado.googleLinhas || [];
+    const visiveis = linhas.filter((l) => !l.cliente || l.erroLeitura || l.precisaConfirmar || l.difereNome || l.difereCelular || l.status && l.status.startsWith('Atualiza'));
+    const textoResumo = resumo || ('Contatos Google: ' + linhas.length + ' com raiz reconhecida; ' +
+      linhas.filter((l) => l.cliente).length + ' associados a cliente; ' +
+      linhas.filter((l) => l.cliente && l.crm && (l.difereNome || l.difereCelular)).length + ' com diferenças; ' +
+      linhas.filter((l) => l.cliente && l.crm && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length + ' já conferem.');
+    destino.appendChild(criarDiv(textoResumo, { color: CORES.texto, fontSize: '12px', fontWeight: '600', margin: '4px 0 8px' }));
+    if (estado.googleResumo) {
+      destino.appendChild(criarDiv(estado.googleResumo, { color: CORES.apagado, fontSize: '11px', marginBottom: '8px' }));
+    }
+    if (visiveis.length === 0) {
+      destino.appendChild(criarDiv('Nenhuma divergência segura para exibir. Se houver contatos sem padrão ou vínculo ambíguo, confira os contadores acima.', { color: CORES.destaque, fontSize: '12px', padding: '8px 0' }));
+      return;
+    }
+    visiveis.forEach((l) => {
+      const item = criarDiv('', {
+        border: '1px solid ' + CORES.borda, borderRadius: '7px', padding: '9px', marginBottom: '8px',
+        display: 'grid', gridTemplateColumns: 'minmax(170px,1fr) minmax(200px,1.2fr) minmax(220px,1.2fr)',
+        gap: '8px', alignItems: 'start',
+      });
+      const empresa = criarDiv('', {});
+      empresa.appendChild(criarDiv(l.cliente?.razaoSocial || l.parsed.razao || '(empresa não identificada)', { color: CORES.tinta, fontWeight: '700', fontSize: '12px' }));
+      empresa.appendChild(criarDiv('Google: ' + (l.nomeAtual || '(sem nome)') , { color: CORES.texto, fontSize: '11.5px', marginTop: '4px', overflowWrap: 'anywhere' }));
+      const celulares = (l.telefones || []).map((p) => p.value + (p.tipo ? ' (' + p.tipo + ')' : '')).filter(Boolean).join(' · ');
+      empresa.appendChild(criarDiv('Telefones Google: ' + (celulares || '(nenhum)'), { color: CORES.texto, fontSize: '11px', marginTop: '3px', overflowWrap: 'anywhere' }));
+      const destinoAtual = criarDiv('', {});
+      destinoAtual.appendChild(criarDiv('CRM: ' + (l.crm ? String(l.crm.nome || '(sem nome)') + ' · ' + String(l.crm.celular || '(sem celular)') : 'não disponível'), { color: CORES.texto, fontSize: '11.5px', overflowWrap: 'anywhere' }));
+      destinoAtual.appendChild(criarDiv('Nome desejado: ' + (l.nomeDesejado || '(dados insuficientes)'), { color: l.difereNome ? CORES.aviso : CORES.texto, fontSize: '11.5px', marginTop: '4px', overflowWrap: 'anywhere' }));
+      destinoAtual.appendChild(criarDiv('Celular desejado: ' + (l.celularDesejado || '(sem celular válido no CRM)'), { color: l.difereCelular ? CORES.aviso : CORES.texto, fontSize: '11.5px', marginTop: '4px' }));
+      const controles = criarDiv('', { display: 'flex', flexDirection: 'column', gap: '3px' });
+      if (l.precisaConfirmar) {
+        controles.appendChild(criarDiv('Revisão necessária: ' + (l.status || 'confirme a correspondência.'), { color: CORES.aviso, fontSize: '11px', marginBottom: '3px' }));
+        if (l.cliente && l.crm && !l.erroLeitura) {
+          controles.appendChild(criarCheckboxSync('Confirmo que este contato pertence a este cliente', l.confirmada, false, (v) => { l.confirmada = v; desenharLinhasGoogle(destino, estado); }));
+        }
+      } else if (l.status) {
+        controles.appendChild(criarDiv(l.status, { color: l.erroLeitura ? CORES.erro : CORES.destaque, fontSize: '11px', marginBottom: '3px' }));
+      }
+      const podeAplicar = Boolean(l.cliente && l.crm && l.editavel && !l.erroLeitura && (!l.precisaConfirmar || l.confirmada));
+      if (l.difereNome) controles.appendChild(criarCheckboxSync('Atualizar nome', l.aplicarNome, !podeAplicar, (v) => { l.aplicarNome = v; desenharLinhasGoogle(destino, estado); }));
+      if (l.difereCelular) {
+        controles.appendChild(criarCheckboxSync('Atualizar celular', l.aplicarCelular, !podeAplicar, (v) => { l.aplicarCelular = v; desenharLinhasGoogle(destino, estado); }));
+        const seletor = document.createElement('select');
+        Object.assign(seletor.style, { width: '100%', marginTop: '4px', fontSize: '11px', padding: '4px', border: '1px solid ' + CORES.borda, borderRadius: '4px' });
+        const adicionar = document.createElement('option');
+        adicionar.value = '-1';
+        adicionar.textContent = 'Adicionar celular e preservar os atuais';
+        seletor.appendChild(adicionar);
+        l.telefones.forEach((p, i) => {
+          if (!p.celular) return;
+          const op = document.createElement('option');
+          op.value = String(i);
+          op.textContent = 'Substituir ' + p.value;
+          seletor.appendChild(op);
+        });
+        seletor.value = String(l.indiceTelefone ?? -1);
+        seletor.disabled = !podeAplicar;
+        seletor.addEventListener('change', () => { l.indiceTelefone = Number(seletor.value); desenharLinhasGoogle(destino, estado); });
+        controles.appendChild(seletor);
+      }
+      if (l.cliente) controles.appendChild(criarLinkAbrir(l.cliente));
+      item.append(empresa, destinoAtual, controles);
+      destino.appendChild(item);
+    });
+    const selecionadas = linhas.filter((l) => l.cliente && l.editavel && !l.erroLeitura && (!l.precisaConfirmar || l.confirmada) && (l.aplicarNome || l.aplicarCelular));
+    const aplicar = criarBotao('Aplicar correções selecionadas no Google (' + selecionadas.length + ')', 'aplicar-google-selecionados', true);
+    aplicar.disabled = selecionadas.length === 0 || estado.googleGravando;
+    aplicar.style.opacity = aplicar.disabled ? '0.5' : '1';
+    aplicar.addEventListener('click', () => aplicarCorrecoesGoogle(estado, destino));
+    destino.appendChild(aplicar);
+    if (estado.googleGravando) destino.appendChild(criarDiv('Atualizando contatos no Google em sequência…', { color: CORES.texto, fontSize: '12px', marginTop: '6px' }));
+  }
+
+  async function aplicarCorrecoesGoogle(estado, destino) {
+    const api = window.__googleContactsApi;
+    if (!api || estado.googleGravando) return;
+    const selecionadas = (estado.googleLinhas || []).filter((l) => l.cliente && l.editavel && !l.erroLeitura && (!l.precisaConfirmar || l.confirmada) && (l.aplicarNome || l.aplicarCelular));
+    if (selecionadas.length === 0) return;
+    if (!window.confirm('Serão enviados ' + selecionadas.length + ' atualização(ões) para o Google Contacts. Nomes e telefones não selecionados serão preservados. Deseja continuar?')) return;
+    estado.googleGravando = true;
+    if (estado.redesenharGoogle) estado.redesenharGoogle();
+    let sucesso = 0;
+    let falha = 0;
+    for (const l of selecionadas) {
+      const alteracoes = {};
+      if (l.aplicarNome) alteracoes.nome = l.nomeDesejado;
+      if (l.aplicarCelular) {
+        alteracoes.celular = l.celularDesejado;
+        alteracoes.indiceTelefone = Number.isInteger(l.indiceTelefone) && l.indiceTelefone >= 0 ? l.indiceTelefone : null;
+      }
+      l.status = 'Atualizando no Google…';
+      try {
+        if (estado.redesenharGoogle) estado.redesenharGoogle();
+        const r = await api.atualizarContato(l.pessoa, alteracoes);
+        if (r.ok) {
+          l.pessoa = r.pessoa;
+          l.status = 'Atualização aceita pelo Google.';
+          calcularDiferencasGoogle(l);
+          l.confirmada = false;
+          if (!l.difereNome && !l.difereCelular) l.status = 'Atualizado e conferido pela resposta da API.';
+          sucesso += 1;
+        } else {
+          l.status = r.mensagem || 'O Google não confirmou a atualização.';
+          l.pessoa = r.pessoa || l.pessoa;
+          l.erroLeitura = Boolean(r.conflito);
+          l.aplicarNome = false;
+          l.aplicarCelular = false;
+          falha += 1;
+        }
+      } catch (erro) {
+        l.status = erro?.message || 'Falha ao atualizar o contato no Google.';
+        l.aplicarNome = false;
+        l.aplicarCelular = false;
+        falha += 1;
+      }
+    }
+    estado.googleGravando = false;
+    estado.googleResumo = 'Resultado desta rodada: ' + sucesso + ' contato(s) atualizado(s); ' + falha + ' falha(s)/conflito(s). Releia os contatos para criar uma nova prévia.';
+    if (estado.redesenharGoogle) estado.redesenharGoogle();
+  }
+
+  function criarSincronizacaoGoogle(painel, estado) {
+    const api = window.__googleContactsApi;
+    if (!api) return false;
+    const secao = criarDiv('', { border: '1px solid ' + CORES.borda, borderRadius: '8px', padding: '10px', margin: '8px 0' });
+    secao.dataset.papel = 'sincronizacao-direta-google';
+    secao.appendChild(criarDiv('Sincronização direta com Google Contacts', { color: CORES.tinta, fontWeight: '700', fontSize: '13px' }));
+    secao.appendChild(criarDiv('Compara os nomes e celulares atuais do Google com o responsável financeiro do CRM. Marque os campos que deseja corrigir; nada é gravado até você confirmar. O CSV para novos contatos continua disponível no fluxo abaixo.', { color: CORES.apagado, fontSize: '11.5px', margin: '3px 0 8px' }));
+    const linhaId = criarDiv('', { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' });
+    const campoId = document.createElement('input');
+    campoId.type = 'text';
+    campoId.value = api.getClientId();
+    campoId.placeholder = 'OAuth Client ID (*.apps.googleusercontent.com)';
+    campoId.setAttribute('aria-label', 'OAuth Client ID do Google');
+    Object.assign(campoId.style, { flex: '1 1 320px', minWidth: '220px', padding: '6px 8px', border: '1px solid ' + CORES.borda, borderRadius: '5px', fontSize: '11.5px' });
+    const salvarId = criarBotao('Salvar Client ID', 'salvar-google-client-id', false);
+    linhaId.append(campoId, salvarId);
+    secao.appendChild(linhaId);
+    secao.appendChild(criarDiv('Configure no Google Cloud a People API e um OAuth Client ID do tipo Web para a origem https://texhub.texcotton.com.br. O escopo solicitado é contacts. O Client ID não é um segredo; o token de acesso permanece somente na memória desta página.', { color: CORES.apagado, fontSize: '10.5px', margin: '5px 0 8px' }));
+    const acoes = criarDiv('', { display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' });
+    const conectar = criarBotao('Conectar Google', 'conectar-google', true);
+    const desconectar = criarBotao('Desconectar', 'desconectar-google', false);
+    const lerGoogle = criarBotao('Ler contatos e preparar correções', 'ler-google-contatos', false);
+    acoes.append(conectar, desconectar, lerGoogle);
+    secao.appendChild(acoes);
+    const statusEl = criarDiv('', { color: CORES.texto, fontSize: '11.5px', margin: '6px 0' });
+    statusEl.dataset.papel = 'status-google-api';
+    secao.appendChild(statusEl);
+    const resultado = criarDiv('');
+    resultado.dataset.papel = 'resultado-google-api';
+    secao.appendChild(resultado);
+    function atualizarStatus(texto) {
+      const st = api.status();
+      if (texto) statusEl.textContent = texto;
+      else if (!arguments.length || !arguments[1]) {
+        if (estado.googleErroBiblioteca) statusEl.textContent = estado.googleErroBiblioteca;
+        else if (st.conectado) statusEl.textContent = 'Google conectado nesta sessão. Tokens não são persistidos.';
+        else if (!estado.googleBibliotecaPronta) statusEl.textContent = st.configurado
+          ? 'Client ID configurado. Clique em Conectar Google para carregar a biblioteca; depois clique novamente para autorizar.'
+          : 'Configure o OAuth Client ID; a biblioteca será carregada ao iniciar a conexão.';
+        else if (st.configurado) statusEl.textContent = 'Client ID configurado. Conecte a conta Google para ler e atualizar contatos.';
+        else statusEl.textContent = 'Configure o OAuth Client ID antes de conectar.';
+      }
+      conectar.disabled = !st.configurado || estado.googleGravando || estado.googleLendo;
+      desconectar.disabled = !st.conectado || estado.googleGravando || estado.googleLendo;
+      lerGoogle.disabled = !st.conectado || estado.googleGravando || estado.googleLendo;
+      salvarId.disabled = estado.googleGravando || estado.googleLendo;
+    }
+    estado.googleLinhas = [];
+    estado.googleResumo = '';
+    estado.googleGravando = false;
+    estado.googleLendo = false;
+    estado.googleBibliotecaPronta = Boolean(window.google?.accounts?.oauth2);
+    estado.googleErroBiblioteca = '';
+    estado.redesenharGoogle = () => {
+      desenharLinhasGoogle(resultado, estado);
+      atualizarStatus();
+    };
+    salvarId.addEventListener('click', () => {
+      const r = api.configurarClientId(campoId.value);
+      atualizarStatus(r.ok ? 'Client ID salvo neste navegador.' : r.erro);
+      if (!r.ok) util()?.toast?.(r.erro, 5000);
+    });
+    conectar.addEventListener('click', async () => {
+      if (!api.status().configurado) { atualizarStatus('Configure primeiro o OAuth Client ID.'); return; }
+      if (!estado.googleBibliotecaPronta) {
+        estado.googleLendo = true;
+        atualizarStatus('Carregando a biblioteca de autorização do Google…');
+        try {
+          await api.prepararBiblioteca();
+          estado.googleBibliotecaPronta = true;
+          estado.googleErroBiblioteca = '';
+          atualizarStatus('Biblioteca pronta. Clique em Conectar Google novamente para autorizar.');
+        } catch (erro) {
+          estado.googleErroBiblioteca = erro?.message || 'Não foi possível carregar a biblioteca de autorização do Google.';
+          atualizarStatus(estado.googleErroBiblioteca);
+        } finally {
+          estado.googleLendo = false;
+          atualizarStatus('', true);
+        }
+        return;
+      }
+      conectar.disabled = true;
+      atualizarStatus('Aguardando autorização do Google…');
+      try {
+        await api.conectar();
+        atualizarStatus('Google conectado nesta sessão. Tokens não são persistidos.');
+      } catch (erro) {
+        atualizarStatus(erro?.message || 'Falha ao conectar a conta Google.');
+      } finally { atualizarStatus('', true); }
+    });
+    desconectar.addEventListener('click', async () => {
+      await api.desconectar();
+      estado.googleLinhas = [];
+      estado.googleResumo = '';
+      resultado.textContent = '';
+      atualizarStatus('Conta Google desconectada nesta sessão.');
+    });
+    lerGoogle.addEventListener('click', async () => {
+      if (!api.status().conectado) { atualizarStatus('Conecte a conta Google antes de consultar os contatos.'); return; }
+      if (estado.googleLendo) return;
+      estado.googleLendo = true;
+      atualizarStatus('Lendo contatos do Google…');
+      resultado.textContent = '';
+      try {
+        const pessoas = await api.listarContatos();
+        if (!painelDoEstadoAberto(estado)) return;
+        atualizarStatus('Foram lidos ' + pessoas.length + ' contatos editáveis. Relacionando aos clientes do CRM…');
+        const montado = await prepararLinhasGoogle(pessoas, estado, (feitos, total) => atualizarStatus('Lendo responsáveis no CRM: ' + feitos + ' de ' + total + '…'));
+        if (!painelDoEstadoAberto(estado)) return;
+        estado.googleLinhas = montado.linhas;
+        estado.googleResumo = montado.semPadrao + ' contato(s) sem CNPJ padronizado; ' + montado.semVinculo + ' sem vínculo inequívoco. Esses casos não são alterados sem revisão.';
+        desenharLinhasGoogle(resultado, estado,
+          pessoas.length + ' contato(s) Google lidos · ' + montado.comDiferenca + ' com divergência · ' + montado.jaIguais + ' já conferem · ' + montado.clientesLidos + ' cliente(s) consultados no CRM.');
+        atualizarStatus('Prévia pronta. Selecione os campos e confirme a aplicação no Google.');
+      } catch (erro) {
+        atualizarStatus(erro?.message || 'Não foi possível consultar o Google Contacts.');
+      } finally {
+        estado.googleLendo = false;
+        atualizarStatus('', true);
+      }
+    });
+    painel.appendChild(secao);
+    atualizarStatus();
+    return true;
+  }
+
   function fecharPainel() {
     // Cancela os pedidos em andamento. O que ainda chegar só mexe nos elementos do painel antigo, já fora da tela.
     controlador?.abort();
@@ -813,12 +1257,16 @@
       width: '920px', maxWidth: '92vw', maxHeight: '75vh', overflowY: 'auto', boxSizing: 'border-box',
     });
     painelEl.appendChild(criarDiv('Checkup dos Contatos do Google', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
-    painelEl.appendChild(criarDiv('Confere todos os clientes desta lista com o Google Contacts e compara nome e celular com o responsável financeiro do CRM. Mostra diferenças, contatos ausentes e falhas de leitura. O CSV contém apenas novos contatos com dados do responsável disponíveis no CRM.', {
+    painelEl.appendChild(criarDiv('A sincronização direta pode corrigir nomes e celulares no Google após conexão, prévia e confirmação. O fluxo de CSV abaixo continua disponível para preparar novos contatos e para conferir dados do Google no CRM.', {
       color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
     }));
 
-    const estado = { painel: painelEl, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, editando: null, textosDigitados: new Map(), editorVisivel: false, redesenhar: () => {} };
+    const estado = { painel: painelEl, signal: controlador.signal, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, editando: null, textosDigitados: new Map(), editorVisivel: false, redesenhar: () => {} };
     estadoDoPainel = estado;
+    const temSincronizacaoDireta = criarSincronizacaoGoogle(painelEl, estado);
+    if (temSincronizacaoDireta) {
+      painelEl.appendChild(criarDiv('Comparação pelo CSV importado — Google → CRM', { color: CORES.tinta, fontWeight: '700', fontSize: '12.5px', marginTop: '12px' }));
+    }
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado';
     const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };

@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.108.0', data: '22/10/2026',
+      mudancas: [
+        'Acrescenta sincronização direta com Google Contacts por OAuth: consulta os contatos atuais e prepara uma prévia de correções de nome e celular a partir do responsável financeiro do CRM.',
+        'Só grava os campos selecionados após confirmação explícita; preserva outros telefones e bloqueia contatos ambíguos ou alterados desde a leitura. Exige configurar um OAuth Client ID e habilitar a People API.',
+      ],
+    },
+    {
       versao: '1.107.0', data: '22/10/2026',
       mudancas: [
         'O checkup dos Contatos do Google agora confere todos os clientes da lista, aponta quem não tem contato e permite baixar um CSV de novos contatos com os dados disponíveis do responsável no CRM. Diferenças e falhas de leitura aparecem separadas.',
