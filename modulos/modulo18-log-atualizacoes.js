@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.109.1', data: '23/10/2026',
+      mudancas: [
+        'O cartão Informações de Contato usa largura proporcional ao contêiner, até 1180 px, com margens laterais de 24 px; remove o deslocamento por transform e inclui fallback de largura para navegadores sem suporte a min().',
+        'Os testes do cartão agora verificam as propriedades CSS separadamente, sem depender da ordem no texto da regra. A documentação inclui um roteiro de validação manual porque jsdom não mede layout real.',
+      ],
+    },
+    {
       versao: '1.109.0', data: '23/10/2026',
       mudancas: [
         'O checkup reconhece nomes fora do padrão, evita oferecer CSV de padronização quando já há contato padronizado e avisa quando o CSV guardado é antigo. Celular inválido sem nome não gera contato ausente; com nome, é exibido para referência, mas não entra no CSV.',
