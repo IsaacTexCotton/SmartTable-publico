@@ -59,33 +59,51 @@
   }
 
   function carregarBiblioteca() {
-    if (window.google?.accounts?.oauth2) return Promise.resolve(window.google.accounts.oauth2);
+    const oauthAtual = window.unsafeWindow?.google?.accounts?.oauth2 || window.google?.accounts?.oauth2;
+    if (oauthAtual) return Promise.resolve(oauthAtual);
     if (biblioteca) return biblioteca;
     biblioteca = new Promise((resolve, reject) => {
       let script = document.getElementById(ID_SCRIPT);
+      const novoScript = !script;
       if (!script) {
         script = document.createElement('script');
         script.id = ID_SCRIPT;
         script.src = URL_GIS;
         script.async = true;
         script.defer = true;
-        document.head.appendChild(script);
       }
-      const timer = window.setTimeout(() => reject(new Error('O Google Identity Services não carregou. Verifique a conexão e a política de segurança do CRM.')), 15000);
-      script.addEventListener('load', () => {
-        window.clearTimeout(timer);
-        const oauth = window.google?.accounts?.oauth2;
-        if (oauth) resolve(oauth);
-        else reject(new Error('A biblioteca de autorização do Google carregou sem a API OAuth esperada.'));
-      }, { once: true });
-      script.addEventListener('error', () => {
-        window.clearTimeout(timer);
-        reject(new Error('Não foi possível carregar a biblioteca de autorização do Google. Verifique se accounts.google.com está permitido.')); 
-      }, { once: true });
-      if (window.google?.accounts?.oauth2) {
-        window.clearTimeout(timer);
-        resolve(window.google.accounts.oauth2);
-      }
+      let concluido = false;
+      let timer = null;
+      const limpar = () => {
+        if (timer !== null) window.clearTimeout(timer);
+        script.removeEventListener('load', aoCarregar);
+        script.removeEventListener('error', aoErro);
+      };
+      const terminar = (erro, oauth) => {
+        if (concluido) return;
+        concluido = true;
+        limpar();
+        if (erro) {
+          if (script.parentNode) script.parentNode.removeChild(script);
+          reject(erro);
+        } else {
+          resolve(oauth);
+        }
+      };
+      const aoCarregar = () => {
+        const oauth = window.unsafeWindow?.google?.accounts?.oauth2 || window.google?.accounts?.oauth2;
+        if (oauth) terminar(null, oauth);
+        else terminar(new Error('A biblioteca de autorização do Google carregou sem a API OAuth esperada.'));
+      };
+      const aoErro = () => terminar(new Error('Não foi possível carregar a biblioteca de autorização do Google. Verifique se accounts.google.com está permitido.'));
+      script.addEventListener('load', aoCarregar);
+      script.addEventListener('error', aoErro);
+      timer = window.setTimeout(() => {
+        terminar(new Error('O Google Identity Services não carregou em 15 segundos. Verifique a conexão e a política de segurança do CRM.'));
+      }, 15000);
+      if (novoScript) document.head.appendChild(script);
+      const oauthDepoisDeInserir = window.unsafeWindow?.google?.accounts?.oauth2 || window.google?.accounts?.oauth2;
+      if (oauthDepoisDeInserir) terminar(null, oauthDepoisDeInserir);
     }).catch((erro) => {
       biblioteca = null;
       throw erro;
@@ -100,39 +118,54 @@
         reject(new Error('Já existe uma solicitação de autorização em andamento.'));
         return;
       }
-      pedidoToken = { resolve, reject };
+      const pedido = { timer: null };
+      const finalizar = (erro, resultado) => {
+        if (pedidoToken !== pedido) return;
+        pedidoToken = null;
+        if (pedido.timer !== null) window.clearTimeout(pedido.timer);
+        pedido.timer = null;
+        if (erro) reject(erro);
+        else resolve(resultado);
+      };
+      pedidoToken = pedido;
+      pedido.timer = window.setTimeout(() => {
+        if (pedidoToken !== pedido) return;
+        pedidoToken = null;
+        pedido.timer = null;
+        clienteToken = null;
+        token = null;
+        tokenExpiraEm = 0;
+        reject(new Error('O Google não respondeu à solicitação de autorização em 120 segundos. Inicie uma nova conexão.'));
+      }, 120000);
       try {
         clienteToken = oauth.initTokenClient({
           client_id: clientId,
           scope: ESCOPO,
           callback: (resposta) => {
-            const pendente = pedidoToken;
-            pedidoToken = null;
+            if (pedidoToken !== pedido) return;
             if (resposta?.error || !resposta?.access_token) {
               token = null;
               tokenExpiraEm = 0;
-              pendente?.reject(new Error('O Google não autorizou o acesso aos contatos' + (resposta?.error ? ' (' + resposta.error + ')' : '') + '.'));
+              finalizar(new Error('O Google não autorizou o acesso aos contatos' + (resposta?.error ? ' (' + resposta.error + ')' : '') + '.'));
               return;
             }
             token = resposta.access_token;
             tokenExpiraEm = Date.now() + Math.max(60, Number(resposta.expires_in) || 3600) * 1000;
-            pendente?.resolve(status());
+            finalizar(null, status());
           },
           error_callback: (erro) => {
-            const pendente = pedidoToken;
-            pedidoToken = null;
+            if (pedidoToken !== pedido) return;
             token = null;
             tokenExpiraEm = 0;
             const detalhe = erro?.type === 'popup_failed_to_open'
               ? 'O navegador bloqueou a janela de autorização. Permita pop-ups para o CRM e tente novamente.'
               : 'A autorização do Google foi interrompida' + (erro?.type ? ' (' + erro.type + ')' : '') + '.';
-            pendente?.reject(new Error(detalhe));
+            finalizar(new Error(detalhe));
           },
         });
         clienteToken.requestAccessToken({ prompt: token ? '' : 'consent' });
       } catch (erro) {
-        pedidoToken = null;
-        reject(new Error(erro?.message || 'Não foi possível iniciar a autorização do Google.'));
+        finalizar(new Error(erro?.message || 'Não foi possível iniciar a autorização do Google.'));
       }
     }));
   }
@@ -162,14 +195,33 @@
     return token;
   }
 
-  async function requisicaoJson(url, opcoes) {
-    const cabecalhos = Object.assign({ Accept: 'application/json', Authorization: 'Bearer ' + tokenValido() }, opcoes?.headers || {});
-    if (opcoes?.body && !cabecalhos['Content-Type']) cabecalhos['Content-Type'] = 'application/json';
+  async function requisicaoJson(url, opcoes = {}) {
+    const timeoutMs = Math.max(1000, Number(opcoes.timeoutMs) || 30000);
+    const maxTentativas = Math.max(1, Math.min(4, Number(opcoes.maxTentativas) || 4));
+    const opcoesFetch = Object.assign({}, opcoes);
+    delete opcoesFetch.timeoutMs;
+    delete opcoesFetch.maxTentativas;
     let resposta;
-    try {
-      resposta = await window.fetch(url, Object.assign({}, opcoes || {}, { headers: cabecalhos }));
-    } catch {
-      throw new Error('Falha de rede ao acessar o Google Contacts.');
+    for (let tentativa = 0; tentativa < maxTentativas; tentativa += 1) {
+      const cabecalhos = Object.assign({ Accept: 'application/json', Authorization: 'Bearer ' + tokenValido() }, opcoesFetch.headers || {});
+      if (opcoesFetch.body && !cabecalhos['Content-Type']) cabecalhos['Content-Type'] = 'application/json';
+      const ctl = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+      let timer = null;
+      try {
+        const pedidoFetch = Object.assign({}, opcoesFetch, { headers: cabecalhos });
+        if (ctl) {
+          pedidoFetch.signal = ctl.signal;
+          timer = window.setTimeout(() => ctl.abort(), timeoutMs);
+        }
+        resposta = await window.fetch(url, pedidoFetch);
+      } catch (erro) {
+        if (ctl?.signal?.aborted) throw new Error('A solicitação ao Google Contacts excedeu o limite de ' + Math.round(timeoutMs / 1000) + ' segundos.');
+        throw new Error('Falha de rede ao acessar o Google Contacts.');
+      } finally {
+        if (timer !== null) window.clearTimeout(timer);
+      }
+      if (resposta.status !== 429 || tentativa + 1 >= maxTentativas) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 500 * (2 ** tentativa)));
     }
     let json = null;
     try { json = await resposta.json(); } catch { /* corpo vazio/não JSON */ }
@@ -177,17 +229,19 @@
       if (resposta.status === 401) {
         token = null;
         tokenExpiraEm = 0;
-        throw new Error('O Google recusou a autorização. Conecte a conta novamente.');
+        throw new Error('O Google recusou a autorização (401). Conecte a conta novamente; o lote foi interrompido.');
       }
-      if (resposta.status === 403) throw new Error('O Google recusou o acesso. Confira se a People API está habilitada e se o consentimento inclui contatos.');
-      if (resposta.status === 429) throw new Error('O Google limitou temporariamente as consultas. Aguarde antes de tentar novamente.');
-      const razao = json?.error?.status || json?.error?.errors?.[0]?.reason || '';
-      if (resposta.status === 400 && /failedPrecondition|etag|condition/i.test(razao + ' ' + (json?.error?.message || ''))) {
+      if (resposta.status === 403) throw new Error('O Google recusou o acesso (403). Confira se a People API está habilitada e se o consentimento inclui contatos.');
+      if (resposta.status === 429) throw new Error('O Google continuou limitando a operação após as tentativas com espera exponencial.');
+      const erroApi = json?.error || {};
+      const razao = String(erroApi.status || erroApi.errors?.[0]?.reason || '');
+      const mensagemApi = String(erroApi.message || '');
+      if (resposta.status === 400 && (/^(FAILED_PRECONDITION|failedPrecondition)$/.test(razao) || /etag mismatch|etag does not match|precondition[^.]{0,40}(fail|match)|contact[^.]{0,40}changed/i.test(mensagemApi))) {
         const conflito = new Error('O contato mudou no Google desde a última leitura. Atualize a prévia e confirme novamente.');
         conflito.conflito = true;
         throw conflito;
       }
-      throw new Error('Google Contacts retornou HTTP ' + resposta.status + (json?.error?.message ? ': ' + json.error.message : '.'));
+      throw new Error('Google Contacts retornou HTTP ' + resposta.status + (mensagemApi ? ': ' + mensagemApi : '.'));
     }
     return json || {};
   }
@@ -299,8 +353,39 @@
     return proximo;
   }
 
-  // Pré-carrega a biblioteca antes do primeiro clique; assim o pedido OAuth parte de uma interação do usuário.
-  window.__googleContactsApi = {
+  // Restaura somente nomes e telefones do backup local, validando o etag atual antes do PATCH.
+  function restaurarContato(pessoaEsperada, estadoOriginal) {
+    const trabalho = async () => {
+      if (!ehContatoEditavel(pessoaEsperada)) throw new Error('O contato selecionado não pode ser editado.');
+      const atual = await obterContato(pessoaEsperada.resourceName);
+      const origemEsperada = origemContato(pessoaEsperada);
+      const origemAtual = origemContato(atual);
+      if (!origemEsperada || !origemAtual || origemEsperada.etag !== origemAtual.etag) {
+        return { ok: false, conflito: true, pessoa: atual, mensagem: 'Desfazer bloqueado: o contato mudou no Google desde a gravação.' };
+      }
+      const corpo = {
+        resourceName: atual.resourceName,
+        etag: atual.etag,
+        metadata: { sources: atual.metadata.sources.filter((origem) => origem?.type === 'CONTACT').map((origem) => ({ type: origem.type, id: origem.id, etag: origem.etag })) },
+        names: Array.isArray(estadoOriginal?.names) ? estadoOriginal.names.map((nome) => Object.assign({}, nome)) : [],
+        phoneNumbers: Array.isArray(estadoOriginal?.phoneNumbers) ? estadoOriginal.phoneNumbers.map(telefoneLimpo) : [],
+      };
+      const url = URL_API + '/' + atual.resourceName + ':updateContact?updatePersonFields=names%2CphoneNumbers&personFields=' + encodeURIComponent(CAMPOS);
+      try {
+        const pessoaRestaurada = await requisicaoJson(url, { method: 'PATCH', body: JSON.stringify(corpo) });
+        return { ok: true, pessoa: pessoaRestaurada };
+      } catch (erro) {
+        if (erro?.conflito) return { ok: false, conflito: true, pessoa: atual, mensagem: erro.message };
+        throw erro;
+      }
+    };
+    const proximo = filaMutacoes.then(trabalho, trabalho);
+    filaMutacoes = proximo.then(() => undefined, () => undefined);
+    return proximo;
+  }
+
+  // A biblioteca é carregada ao iniciar a conexão; o token é solicitado apenas após clique explícito.
+  window.__googleContactsApi = Object.freeze({
     configurarClientId,
     prepararBiblioteca: () => carregarBiblioteca(),
     getClientId: () => clientId,
@@ -310,10 +395,11 @@
     listarContatos,
     obterContato,
     atualizarContato,
+    restaurarContato,
     ehContatoEditavel,
     origemContato,
     aplicarAlteracoes,
     CHAVE_CLIENT_ID,
     ESCOPO,
-  };
+  });
 })();

@@ -679,6 +679,7 @@
     'Lembretes de Bloqueio',
     'Meta Semanal',
     'Contatos do Google',
+    'API Google Contacts',
     'Contatos do Google: Lista',
     'Corretor de CSV',
     'Catálogo de Mensagens',

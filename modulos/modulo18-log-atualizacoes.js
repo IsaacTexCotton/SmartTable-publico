@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.109.0', data: '23/10/2026',
+      mudancas: [
+        'O checkup reconhece nomes fora do padrão, evita oferecer CSV de padronização quando já há contato padronizado e avisa quando o CSV guardado é antigo. Celular inválido sem nome não gera contato ausente; com nome, é exibido para referência, mas não entra no CSV.',
+        'A sincronização direta mostra uma amostra antes/depois, gera backup JSON antes de gravar e permite desfazer enquanto o ETag não mudar. Retentativas e timeouts protegem as chamadas Google; conflitos e falhas de autorização interrompem gravações com segurança.',
+      ],
+    },
+    {
       versao: '1.108.0', data: '22/10/2026',
       mudancas: [
         'Acrescenta sincronização direta com Google Contacts por OAuth: consulta os contatos atuais e prepara uma prévia de correções de nome e celular a partir do responsável financeiro do CRM.',

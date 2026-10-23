@@ -228,6 +228,25 @@
    * (a raiz sai sem pontos; sem UF, o texto sai sem ela). Ler o resultado de volta com interpretarNome dá os mesmos campos.
    * @returns {string|null} null se `contato` não for um resultado de interpretarNome.
    */
+  // Mesma regra de sufixos societários utilizada pelo Módulo 35 ao montar o nome para cadastro.
+  function normalizarRazaoParaNome(razaoBruta) {
+    let razao = String(razaoBruta ?? '').replace(/\s+/g, ' ').trim();
+    const sufixo = /([^\s])[\s,;:/-]+(?:EMPRESA\s+INDIVIDUAL\s+DE\s+RESPONSABILIDADE\s+LIMITADA|SOCIEDADE\s+LIMITADA\s+UNIPESSOAL|EMPRESA\s+DE\s+PEQUENO\s+PORTE|MICROEMPRESA|LIMITADA|EIRELI|LTDA|LTA|LTD|LDA|EPP|MEI|SLU|S\s*\/\s*A|S\.?\s*A|S\s*\/\s*S|S\.?\s*S|SCP|SCS|SCA|SNC|EI)\.?\s*$/i;
+    let achado = razao.match(sufixo);
+    while (achado) {
+      razao = razao.replace(sufixo, '$1').trim();
+      achado = razao.match(sufixo);
+    }
+    return razao;
+  }
+
+  function normalizarNomeParaComparacao(texto) {
+    const nome = String(texto ?? '').replace(/\s+/g, ' ').trim();
+    const raiz = nome.search(/\s+-\s+(?:\d{8}|\d{2}\.\d{3}\.\d{3})/);
+    if (raiz < 0) return nome;
+    return normalizarRazaoParaNome(nome.slice(0, raiz)) + nome.slice(raiz);
+  }
+
   function textoCanonico(contato) {
     if (!contato || !contato.raiz) return null;
     return [contato.razao, contato.raiz, contato.uf, contato.grupo, contato.nome].filter(Boolean).join(' - ');
@@ -342,6 +361,11 @@
       const { celula, textos } = textosDoContato(linha, colunas);
       const achados = textos.map(interpretarNome);
       const achado = achados.find((a) => a && a.uf) || achados.find(Boolean);
+      // Diagnóstico da forma do nome principal original, sem confiar apenas em File As/Organization.
+      const nomePrincipal = String(textos[0] ?? '').replace(/\s+/g, ' ').trim();
+      const interpretadoPrincipal = interpretarNome(nomePrincipal);
+      const formatoPadrao = Boolean(interpretadoPrincipal
+        && normalizarNomeParaComparacao(textoCanonico(interpretadoPrincipal)) === normalizarNomeParaComparacao(nomePrincipal));
       if (!achado) {
         resumo.foraDoPadrao += 1;
         // O motivo é o do texto "mais promissor": vazio só se NENHUMA fonte tem texto; raiz-sem-uf se alguma tem a raiz.
@@ -363,11 +387,26 @@
       resumo.reconhecidos += 1;
       const chave = [achado.raiz, achado.grupo, achado.razao, nome, celulares.join(',')].join('|');
       const iguais = vistos.get(chave) ?? [];
-      // Já guardado com a mesma UF, ou sem UF quando já há um com UF: nada de novo.
-      if (iguais.some((k) => contatos[k].uf === achado.uf) || (achado.uf === null && iguais.length > 0)) return;
-      const novo = { raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares };
+      const novo = { raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares, formatoPadrao, temVersaoPadronizada: formatoPadrao === true };
+      const mesmaUf = iguais.find((k) => contatos[k].uf === achado.uf);
+      if (mesmaUf !== undefined) {
+        // formatoPadrao preserva o alerta (AND); a outra flag registra que uma duplicata canônica já existe.
+        contatos[mesmaUf].temVersaoPadronizada = contatos[mesmaUf].temVersaoPadronizada === true || formatoPadrao === true;
+        contatos[mesmaUf].formatoPadrao = contatos[mesmaUf].formatoPadrao !== false && formatoPadrao;
+        return;
+      }
+      // Uma versão com UF substitui a mesma entrada sem UF, mantendo o diagnóstico das duas.
       const semUf = iguais.find((k) => contatos[k].uf === null);
-      if (semUf !== undefined) { contatos[semUf] = novo; return; } // o com UF substitui o mesmo contato sem UF
+      if (achado.uf === null && iguais.length > 0) return;
+      if (semUf !== undefined) {
+        const anterior = contatos[semUf];
+        contatos[semUf] = {
+          ...novo,
+          formatoPadrao: anterior.formatoPadrao !== false && formatoPadrao,
+          temVersaoPadronizada: anterior.temVersaoPadronizada === true || formatoPadrao === true,
+        };
+        return;
+      }
       contatos.push(novo);
       iguais.push(contatos.length - 1);
       vistos.set(chave, iguais);
@@ -637,7 +676,7 @@
     const mapa = new Map();
     contatos.forEach((c) => {
       if (!mapa.has(c.raiz)) mapa.set(c.raiz, []);
-      mapa.get(c.raiz).push({ uf: c.uf, grupo: c.grupo, razao: c.razao ?? null, nome: c.nome, celulares: c.celulares });
+      mapa.get(c.raiz).push({ uf: c.uf, grupo: c.grupo, razao: c.razao ?? null, nome: c.nome, celulares: c.celulares, formatoPadrao: c.formatoPadrao, temVersaoPadronizada: c.temVersaoPadronizada === true });
     });
     return mapa;
   };
@@ -712,7 +751,7 @@
     }
     try {
       const { raizes, naMemoria } = await guardarContatos(lido.contatos);
-      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes, comRazao: true };
+      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes, comRazao: true, formatoNomeVerificado: 1 };
       if (naMemoria) metaNaMemoria = { versao: 1, ...meta };
       else gravarMeta(meta);
       return { resumo: lido.resumo, raizes, naMemoria };
@@ -1276,6 +1315,7 @@
     textosDoContato,
     acharRaizEUf,
     textoCanonico,
+    normalizarNomeParaComparacao,
     motivoForaDoPadrao,
     primeiroNome,
     normalizarCelular,

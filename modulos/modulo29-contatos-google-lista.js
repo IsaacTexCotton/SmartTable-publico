@@ -73,6 +73,31 @@
   const G = () => window.__contatosGoogle;
   // O campo "Nome do responsável" do CRM aceita no máximo isto (maxlength confirmado no diagnóstico): o mesmo limite do Módulo 28.
   const maxNome = () => G()?.CONFIG_CONTATOS?.MAX_NOME ?? 150;
+  const CSV_MOTIVO_AUSENTE = 'ausente';
+  const CSV_MOTIVO_PADRONIZACAO = 'padronizacao';
+
+  /** Mantém a mesma regra de nome usada pelo CSV e pela sincronização direta CRM → Google. */
+  function nomePadronizadoDoCliente(cliente, crm, ufContato = '') {
+    const raiz = G().raizDoCnpj(cliente.cnpj);
+    const grupo = Number(cliente.controleCliente) > 0 ? 'GP ' + cliente.controleCliente : '';
+    const uf = String(cliente.uf || cliente.estado || ufContato || '').trim().toLocaleUpperCase('pt-BR');
+    const razao = cliente.razaoSocial || cliente.nomeFantasia || '';
+    const responsavel = String(crm?.nome ?? '').replace(/\s+/g, ' ').trim();
+    const dados = { razao, raiz, uf, grupo: uf ? grupo : '', responsavel: uf ? responsavel : '' };
+    return window.__nomeContatoPadronizado?.montarNome?.(dados)
+      || [String(razao).trim(), raiz, uf, uf ? grupo : '', uf ? responsavel : ''].filter(Boolean).join(' - ');
+  }
+
+  function celularPadronizadoDoCrm(crm) {
+    const celular = G().normalizarCelular(crm?.celular);
+    return celular ? G().formatarCelular(celular) : '';
+  }
+
+  function celularParaExibicaoDoCrm(crm) {
+    const bruto = String(crm?.celular ?? '').trim();
+    const celular = G().normalizarCelular(bruto);
+    return celular ? G().formatarCelular(celular) : bruto;
+  }
 
   let painelEl = null;
   // O estado do painel aberto (o Esc, registrado uma vez no document, precisa saber se há editor aberto).
@@ -140,7 +165,12 @@
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONFIG_LISTA.SIMULTANEAS, candidatos.length) }, trabalhador));
-    return { semContatos: !meta, totalNaLista: lista.length, candidatos };
+    return {
+      semContatos: !meta,
+      precisaReimportar: Boolean(meta && meta.formatoNomeVerificado !== 1),
+      totalNaLista: lista.length,
+      candidatos,
+    };
   }
 
   /**
@@ -152,29 +182,37 @@
     const semLeitura = [];
     const semContato = [];
     const csvNovos = [];
+    const chavesCsv = new Set();
+    const googleConectado = Boolean(window.__googleContactsApi?.status?.().conectado);
+    const adicionarCsv = (nome, celular, motivo, celularExibicao = celular) => {
+      const chave = `${nome}\u0000${celular}`;
+      if (chavesCsv.has(chave)) return;
+      chavesCsv.add(chave);
+      csvNovos.push({ nome, celular, motivo, celularExibicao });
+    };
     let iguais = 0;
     levantamento.candidatos.forEach((cand) => {
       if (cand.itens.length === 0) semContato.push(cand);
       if (!cand.crm) { semLeitura.push(cand); return; }
       if (cand.itens.length === 0) {
         const nome = String(cand.crm.nome ?? '').trim();
-        const celular = G().normalizarCelular(cand.crm.celular);
-        if (nome || celular) {
-          const raiz = G().raizDoCnpj(cand.cliente.cnpj);
-          const grupo = Number(cand.cliente.controleCliente) > 0 ? `GP ${cand.cliente.controleCliente}` : '';
-          const uf = String(cand.cliente.uf ?? cand.cliente.estado ?? '').trim().toLocaleUpperCase('pt-BR');
-          const padronizado = window.__nomeContatoPadronizado?.montarNome?.({
-            razao: cand.cliente.razaoSocial ?? cand.cliente.nomeFantasia, raiz, uf,
-            grupo: uf ? grupo : '', responsavel: uf ? nome : '',
-          }) || [String(cand.cliente.razaoSocial ?? '').trim(), raiz, uf, uf ? grupo : '', uf ? nome : ''].filter(Boolean).join(' - ');
-          const celularBruto = String(cand.crm.celular ?? '').trim();
-          csvNovos.push({ nome: padronizado, celular: celular ? G().formatarCelular(celular) : celularBruto });
+        const celularValido = G().normalizarCelular(cand.crm.celular);
+        if (nome || celularValido) {
+          adicionarCsv(
+            nomePadronizadoDoCliente(cand.cliente, cand.crm),
+            celularPadronizadoDoCrm(cand.crm),
+            CSV_MOTIVO_AUSENTE,
+            celularParaExibicaoDoCrm(cand.crm),
+          );
         }
         return;
       }
       const antes = linhas.length;
+      let precisaContatoPadronizado = false;
       cand.itens.forEach((item, indice) => {
         const confere = G().razaoConfere(item.razao, cand.cliente.razaoSocial, cand.cliente.nomeFantasia);
+        // Apenas registros explicitamente diagnosticados como fora do padrão entram nesse fluxo.
+        if (item.formatoPadrao === false && confere !== false) precisaContatoPadronizado = true;
         const novidades = G().novidadesDoContato(item, cand.crm, modo);
         const faltandoNoGoogle = {
           nome: modo.nome && Boolean(String(cand.crm.nome ?? '').trim()) && !item.nome,
@@ -182,16 +220,30 @@
         };
         if (!novidades.nome && !novidades.celular && !faltandoNoGoogle.nome && !faltandoNoGoogle.celular) return;
         linhas.push({
-          // `chave`: esta linha, e só ela (cliente + posição do contato). O editor se guia por ela, e não pelo objeto do contato:
-          // sem IndexedDB (plano B na memória) duas filiais da mesma raiz recebem o MESMO objeto de contato.
           chave: `${cand.cliente.cnpj}#${indice}`,
           cliente: cand.cliente, item, crm: cand.crm, novidades, faltandoNoGoogle,
           confere,
         });
       });
+      if (precisaContatoPadronizado) {
+        const temDadoParaContato = String(cand.crm.nome ?? '').trim() || G().normalizarCelular(cand.crm.celular);
+        const ufEsperada = String(cand.cliente.uf || cand.cliente.estado || cand.itens.find((i) => i.uf)?.uf || '').trim().toLocaleUpperCase('pt-BR');
+        const nomeEsperadoSemUf = nomePadronizadoDoCliente(cand.cliente, cand.crm);
+        const jaExistePadronizado = cand.itens.some((item) => (item.formatoPadrao === true || item.temVersaoPadronizada === true) && (
+          (Boolean(ufEsperada) && String(item.uf || '').toLocaleUpperCase('pt-BR') === ufEsperada)
+          || (!ufEsperada && !item.uf && G().normalizarNomeParaComparacao(G().textoCanonico(item)) === G().normalizarNomeParaComparacao(nomeEsperadoSemUf))
+        ));
+        if (temDadoParaContato && !jaExistePadronizado && !googleConectado) {
+          adicionarCsv(
+            nomePadronizadoDoCliente(cand.cliente, cand.crm, cand.itens.find((item) => item.uf)?.uf),
+            celularPadronizadoDoCrm(cand.crm),
+            CSV_MOTIVO_PADRONIZACAO,
+            celularParaExibicaoDoCrm(cand.crm),
+          );
+        }
+      }
       if (linhas.length === antes) iguais += 1;
     });
-    // "Razão diferente" por último: é o que mais precisa de olho.
     const peso = (l) => (l.confere === false ? 2 : l.confere === null ? 1 : 0);
     linhas.sort((a, b) => peso(a) - peso(b) || String(a.cliente.razaoSocial).localeCompare(String(b.cliente.razaoSocial), 'pt-BR'));
     return {
@@ -712,6 +764,24 @@
       const exportar = criarBotao(`Baixar CSV · ${calculo.csvNovos.length} novo(s) contato(s)`, 'baixar-csv-novos', true);
       exportar.addEventListener('click', () => baixarCsvNovos(calculo.csvNovos));
       destino.appendChild(exportar);
+      const ausentes = calculo.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE).length;
+      const corrigidos = calculo.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_PADRONIZACAO).length;
+      const partes = [];
+      if (ausentes) partes.push(`${ausentes} sem contato no Google`);
+      if (corrigidos) partes.push(`${corrigidos} com nome fora do padrão`);
+      destino.appendChild(criarDiv(
+        `O CSV cria contatos novos: ${partes.join(' · ')}. Os contatos originais do Google não são alterados.`,
+        { color: CORES.apagado, fontSize: '11px', marginTop: '4px' },
+      ));
+      const celularesInvalidos = calculo.csvNovos.filter((contato) => !contato.celular && contato.celularExibicao);
+      if (celularesInvalidos.length) {
+        const amostraInvalidos = celularesInvalidos.slice(0, 3).map((contato) => contato.nome + ': ' + contato.celularExibicao).join(' · ');
+        const maisInvalidos = celularesInvalidos.length > 3 ? ' · +' + (celularesInvalidos.length - 3) + ' contato(s)' : '';
+        destino.appendChild(criarDiv(
+          'Celulares inválidos mantidos apenas para referência visual; não serão exportados: ' + amostraInvalidos + maisInvalidos,
+          { color: CORES.aviso, fontSize: '11px', marginTop: '4px' },
+        ));
+      }
     }
 
     if (calculo.semContato.length > 0) {
@@ -786,6 +856,90 @@
   }
 
 
+
+  function baixarBackupGoogle(linhas) {
+    try {
+      const backup = {
+        geradoEm: new Date().toISOString(),
+        contatos: linhas.map((linha) => ({
+          resourceName: String(linha.pessoa?.resourceName || ''),
+          names: Array.isArray(linha.pessoa?.names) ? linha.pessoa.names.map((nome) => Object.assign({}, nome)) : [],
+          phoneNumbers: Array.isArray(linha.pessoa?.phoneNumbers) ? linha.pessoa.phoneNumbers.map((telefone) => ({
+            value: String(telefone?.value || ''),
+            ...(telefone?.type ? { type: String(telefone.type) } : {}),
+            ...(telefone?.label && !telefone?.type ? { label: String(telefone.label) } : {}),
+          })) : [],
+        })),
+      };
+      const json = JSON.stringify(backup, null, 2);
+      const nomeArquivo = 'smarttable-google-contacts-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+      let url;
+      let blobUrl = false;
+      if (typeof window.URL?.createObjectURL === 'function') {
+        url = window.URL.createObjectURL(new window.Blob([json], { type: 'application/json;charset=utf-8' }));
+        blobUrl = true;
+      } else {
+        url = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+      }
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = nomeArquivo;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      if (blobUrl) window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function desfazerCorrecoesGoogle(estado) {
+    const api = window.__googleContactsApi;
+    if (!api?.restaurarContato || estado.googleGravando) return;
+    const fila = Array.isArray(estado.ultimaRodadaUndo) ? [...estado.ultimaRodadaUndo] : [];
+    if (fila.length === 0) return;
+    if (!window.confirm('Desfazer as alterações da última rodada em ' + fila.length + ' contato(s)? O Google bloqueará qualquer restauração cujo ETag tenha mudado desde a gravação.')) return;
+    estado.googleGravando = true;
+    let restaurados = 0;
+    let conflitos = 0;
+    let falhas = 0;
+    const pendentes = [];
+    for (const entrada of fila.reverse()) {
+      const linha = entrada.linha;
+      linha.estadoOperacao = 'atualizando';
+      linha.status = 'Desfazendo alteração…';
+      if (estado.redesenharGoogle) estado.redesenharGoogle();
+      try {
+        const r = await api.restaurarContato(entrada.pessoaAtualizada, entrada.original);
+        if (r.ok) {
+          linha.pessoa = r.pessoa;
+          calcularDiferencasGoogle(linha);
+          linha.confirmada = false;
+          linha.estadoOperacao = 'desfeito';
+          linha.status = 'Alteração desfeita; nome e telefones anteriores foram restaurados.';
+          restaurados += 1;
+        } else {
+          linha.pessoa = r.pessoa || linha.pessoa;
+          linha.estadoOperacao = 'falha';
+          linha.status = r.mensagem || 'Não foi possível desfazer a alteração.';
+          if (r.conflito) conflitos += 1;
+          else { falhas += 1; pendentes.unshift(entrada); }
+        }
+      } catch (erro) {
+        linha.estadoOperacao = 'falha';
+        linha.status = erro?.message || 'Falha de rede ao desfazer a alteração.';
+        falhas += 1;
+        pendentes.unshift(entrada);
+      }
+    }
+    estado.ultimaRodadaUndo = pendentes;
+    estado.googleGravando = false;
+    estado.googleResumo = 'Desfazer: ' + restaurados + ' contato(s) restaurado(s); ' + conflitos + ' conflito(s) de ETag (bloqueados); ' + falhas + ' falha(s) recuperáveis.';
+    if (estado.redesenharGoogle) estado.redesenharGoogle();
+  }
+
   /* ---------------------------------------------------------------------
    * SINCRONIZAÇÃO DIRETA COM GOOGLE CONTACTS (People API)
    * --------------------------------------------------------------------- */
@@ -807,10 +961,6 @@
     });
     const interpretados = textos.map((t) => ({ texto: t, contato: G().interpretarNome(t) })).filter((x) => x.contato?.raiz);
     return interpretados.find((x) => x.contato.uf) || interpretados[0] || null;
-  }
-
-  function razaoDoCliente(c) {
-    return String(c?.razaoSocial || c?.nomeFantasia || '').trim();
   }
 
   function ufDoCliente(c, fallback) {
@@ -852,14 +1002,8 @@
   }
 
   function montarNomeGoogleDesejado(cliente, parsed, crm) {
-    const raiz = G().raizDoCnpj(cliente.cnpj);
-    const uf = ufDoCliente(cliente, parsed.uf);
-    const grupo = grupoDoCliente(cliente, parsed.grupo);
-    const razao = razaoDoCliente(cliente) || parsed.razao || '';
-    const responsavel = String(crm?.nome || '').replace(/\s+/g, ' ').trim();
-    if (!razao || !raiz || !responsavel) return '';
-    return window.__nomeContatoPadronizado?.montarNome?.({ razao, raiz, uf, grupo, responsavel })
-      || [razao, raiz, uf, grupo, responsavel].filter(Boolean).join(' - ');
+    if (!String(crm?.nome || '').replace(/\s+/g, ' ').trim()) return '';
+    return nomePadronizadoDoCliente(cliente, crm, parsed?.uf);
   }
 
   function celularesGoogle(pessoa) {
@@ -882,7 +1026,9 @@
     linha.aplicarNome = false;
     linha.aplicarCelular = false;
     linha.indiceTelefone = -1; // Padrão: adicionar, preservando todos os números que já existem.
-    if (!linha.nomeDesejado) linha.avisoDados = 'O CRM não tem nome do responsável suficiente para padronizar este contato.';
+    linha.dadosInsuficientes = !linha.nomeDesejado && !crmCelular;
+    if (linha.dadosInsuficientes) linha.avisoDados = 'Dados insuficientes no CRM: faltam nome do responsável e celular brasileiro válido.';
+    else if (!linha.nomeDesejado) linha.avisoDados = 'O CRM não tem nome do responsável suficiente para padronizar este contato.';
     else if (!crmCelular) linha.avisoDados = 'O celular do CRM não é um celular brasileiro válido; não será atualizado.';
     return linha;
   }
@@ -958,13 +1104,23 @@
       }
       calcularDiferencasGoogle(l);
       l.editavel = Boolean(l.pessoa?.resourceName && (l.difereNome || l.difereCelular));
-      if (!l.editavel && !l.precisaConfirmar) l.status = 'Nome e celular já conferem com o CRM.';
+      const nomeCanonicoGoogle = G().normalizarNomeParaComparacao(G().textoCanonico(l.parsed));
+      const nomeOriginalGoogle = String(l.textoGoogle || '').replace(/\s+/g, ' ').trim();
+      const nomeOriginalNormalizado = G().normalizarNomeParaComparacao
+        ? G().normalizarNomeParaComparacao(nomeOriginalGoogle)
+        : nomeOriginalGoogle;
+      const nomeForaDoPadrao = nomeOriginalNormalizado !== nomeCanonicoGoogle;
+      // Com OAuth conectado, sugerir a renomeação no fluxo direto em vez de gerar duplicata via CSV.
+      l.aplicarNome = Boolean(window.__googleContactsApi?.status?.().conectado && l.difereNome && nomeForaDoPadrao);
+      if (l.dadosInsuficientes) l.status = 'Dados insuficientes no CRM; não é possível afirmar que o contato já confere.';
+      else if (!l.editavel && !l.precisaConfirmar) l.status = 'Nome e celular já conferem com o CRM.';
       if (l.precisaConfirmar && !l.status) l.status = 'Revise a associação antes de permitir qualquer alteração.';
     });
 
     const comDiferenca = linhas.filter((l) => l.cliente && l.crm && (l.difereNome || l.difereCelular)).length;
-    const jaIguais = linhas.filter((l) => l.cliente && l.crm && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length;
-    return { linhas, semPadrao, semVinculo, comDiferenca, jaIguais, clientesLidos: clientesParaLer.length };
+    const dadosInsuficientes = linhas.filter((l) => l.cliente && l.crm && l.dadosInsuficientes).length;
+    const jaIguais = linhas.filter((l) => l.cliente && l.crm && !l.dadosInsuficientes && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length;
+    return { linhas, semPadrao, semVinculo, comDiferenca, dadosInsuficientes, jaIguais, clientesLidos: clientesParaLer.length };
   }
 
   function criarCheckboxSync(rotulo, marcado, desabilitado, aoMudar) {
@@ -983,14 +1139,25 @@
   function desenharLinhasGoogle(destino, estado, resumo) {
     destino.textContent = '';
     const linhas = estado.googleLinhas || [];
-    const visiveis = linhas.filter((l) => !l.cliente || l.erroLeitura || l.precisaConfirmar || l.difereNome || l.difereCelular || l.status && l.status.startsWith('Atualiza'));
+    const visiveisTodas = linhas.filter((l) => !l.cliente || l.erroLeitura || l.precisaConfirmar || l.dadosInsuficientes || l.difereNome || l.difereCelular || ['atualizando', 'atualizado', 'falha', 'desfeito'].includes(l.estadoOperacao));
+    const tamanhoPagina = 50;
+    const totalPaginas = Math.max(1, Math.ceil(visiveisTodas.length / tamanhoPagina));
+    estado.googlePagina = Math.max(0, Math.min(Number(estado.googlePagina) || 0, totalPaginas - 1));
+    const visiveis = visiveisTodas.slice(estado.googlePagina * tamanhoPagina, (estado.googlePagina + 1) * tamanhoPagina);
     const textoResumo = resumo || ('Contatos Google: ' + linhas.length + ' com raiz reconhecida; ' +
       linhas.filter((l) => l.cliente).length + ' associados a cliente; ' +
       linhas.filter((l) => l.cliente && l.crm && (l.difereNome || l.difereCelular)).length + ' com diferenças; ' +
-      linhas.filter((l) => l.cliente && l.crm && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length + ' já conferem.');
+      linhas.filter((l) => l.cliente && l.crm && l.dadosInsuficientes).length + ' com dados insuficientes; ' +
+      linhas.filter((l) => l.cliente && l.crm && !l.dadosInsuficientes && !l.difereNome && !l.difereCelular && !l.precisaConfirmar && !l.erroLeitura).length + ' já conferem.');
     destino.appendChild(criarDiv(textoResumo, { color: CORES.texto, fontSize: '12px', fontWeight: '600', margin: '4px 0 8px' }));
     if (estado.googleResumo) {
       destino.appendChild(criarDiv(estado.googleResumo, { color: CORES.apagado, fontSize: '11px', marginBottom: '8px' }));
+    }
+    if (linhas.length || (estado.ultimaRodadaUndo || []).length) {
+      const desfazerRodada = criarBotao('Desfazer última rodada (' + (estado.ultimaRodadaUndo || []).length + ')', 'desfazer-google-rodada', false);
+      desfazerRodada.disabled = !(estado.ultimaRodadaUndo || []).length || estado.googleGravando;
+      desfazerRodada.addEventListener('click', () => desfazerCorrecoesGoogle(estado));
+      destino.appendChild(desfazerRodada);
     }
     if (visiveis.length === 0) {
       destino.appendChild(criarDiv('Nenhuma divergência segura para exibir. Se houver contatos sem padrão ou vínculo ambíguo, confira os contadores acima.', { color: CORES.destaque, fontSize: '12px', padding: '8px 0' }));
@@ -1012,6 +1179,9 @@
       destinoAtual.appendChild(criarDiv('Nome desejado: ' + (l.nomeDesejado || '(dados insuficientes)'), { color: l.difereNome ? CORES.aviso : CORES.texto, fontSize: '11.5px', marginTop: '4px', overflowWrap: 'anywhere' }));
       destinoAtual.appendChild(criarDiv('Celular desejado: ' + (l.celularDesejado || '(sem celular válido no CRM)'), { color: l.difereCelular ? CORES.aviso : CORES.texto, fontSize: '11.5px', marginTop: '4px' }));
       const controles = criarDiv('', { display: 'flex', flexDirection: 'column', gap: '3px' });
+      if (l.avisoDados) {
+        controles.appendChild(criarDiv(l.avisoDados, { color: CORES.aviso, fontSize: '11px', marginBottom: '3px' }));
+      }
       if (l.precisaConfirmar) {
         controles.appendChild(criarDiv('Revisão necessária: ' + (l.status || 'confirme a correspondência.'), { color: CORES.aviso, fontSize: '11px', marginBottom: '3px' }));
         if (l.cliente && l.crm && !l.erroLeitura) {
@@ -1046,60 +1216,141 @@
       item.append(empresa, destinoAtual, controles);
       destino.appendChild(item);
     });
+    if (totalPaginas > 1) {
+      const navegacao = criarDiv('', { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', margin: '8px 0' });
+      const anterior = criarBotao('Página anterior', 'pagina-google-anterior', false);
+      anterior.disabled = estado.googlePagina === 0;
+      anterior.addEventListener('click', () => { estado.googlePagina = Math.max(0, estado.googlePagina - 1); desenharLinhasGoogle(destino, estado, resumo); });
+      const contador = criarDiv('Página ' + (estado.googlePagina + 1) + ' de ' + totalPaginas + ' · ' + visiveisTodas.length + ' linhas', { color: CORES.apagado, fontSize: '11px' });
+      const proxima = criarBotao('Próxima página', 'pagina-google-proxima', false);
+      proxima.disabled = estado.googlePagina >= totalPaginas - 1;
+      proxima.addEventListener('click', () => { estado.googlePagina = Math.min(totalPaginas - 1, estado.googlePagina + 1); desenharLinhasGoogle(destino, estado, resumo); });
+      navegacao.append(anterior, contador, proxima);
+      destino.appendChild(navegacao);
+    }
     const selecionadas = linhas.filter((l) => l.cliente && l.editavel && !l.erroLeitura && (!l.precisaConfirmar || l.confirmada) && (l.aplicarNome || l.aplicarCelular));
     const aplicar = criarBotao('Aplicar correções selecionadas no Google (' + selecionadas.length + ')', 'aplicar-google-selecionados', true);
     aplicar.disabled = selecionadas.length === 0 || estado.googleGravando;
     aplicar.style.opacity = aplicar.disabled ? '0.5' : '1';
-    aplicar.addEventListener('click', () => aplicarCorrecoesGoogle(estado, destino));
+    aplicar.addEventListener('click', () => aplicarCorrecoesGoogle(estado));
     destino.appendChild(aplicar);
     if (estado.googleGravando) destino.appendChild(criarDiv('Atualizando contatos no Google em sequência…', { color: CORES.texto, fontSize: '12px', marginTop: '6px' }));
   }
 
-  async function aplicarCorrecoesGoogle(estado, destino) {
+  async function aplicarCorrecoesGoogle(estado) {
     const api = window.__googleContactsApi;
     if (!api || estado.googleGravando) return;
-    const selecionadas = (estado.googleLinhas || []).filter((l) => l.cliente && l.editavel && !l.erroLeitura && (!l.precisaConfirmar || l.confirmada) && (l.aplicarNome || l.aplicarCelular));
+    const selecionadas = (estado.googleLinhas || []).filter((l) => l.cliente && l.editavel && !l.erroLeitura && !l.dadosInsuficientes && (!l.precisaConfirmar || l.confirmada) && (l.aplicarNome || l.aplicarCelular));
     if (selecionadas.length === 0) return;
-    if (!window.confirm('Serão enviados ' + selecionadas.length + ' atualização(ões) para o Google Contacts. Nomes e telefones não selecionados serão preservados. Deseja continuar?')) return;
+
+    const resumirTelefones = (valores) => (valores || []).map((telefone) => String(telefone?.value || '')).filter(Boolean).join(' · ') || '(nenhum)';
+    const telefonesDepois = (linha) => {
+      const valores = Array.isArray(linha.pessoa?.phoneNumbers) ? linha.pessoa.phoneNumbers.map((telefone) => ({ value: String(telefone?.value || ''), type: telefone?.type })) : [];
+      if (!linha.aplicarCelular) return resumirTelefones(valores);
+      if (Number.isInteger(linha.indiceTelefone) && linha.indiceTelefone >= 0) {
+        if (linha.indiceTelefone < valores.length) valores[linha.indiceTelefone] = Object.assign({}, valores[linha.indiceTelefone], { value: linha.celularDesejado });
+      } else {
+        const digitosDesejados = String(linha.celularDesejado || '').replace(/\D/g, '');
+        if (!valores.some((telefone) => String(telefone.value || '').replace(/\D/g, '') === digitosDesejados)) valores.push({ value: linha.celularDesejado, type: 'mobile' });
+      }
+      return resumirTelefones(valores);
+    };
+    const amostra = selecionadas.slice(0, 5).map((linha) => {
+      const nomeAntes = linha.nomeAtual || '(sem nome)';
+      const nomeDepois = linha.aplicarNome ? linha.nomeDesejado : nomeAntes;
+      const telefonesAntes = resumirTelefones(linha.pessoa?.phoneNumbers);
+      const telefonesNovos = telefonesDepois(linha);
+      return (linha.cliente.razaoSocial || linha.parsed.razao || linha.pessoa.resourceName) +
+        '\n  Antes: ' + nomeAntes + ' | ' + telefonesAntes +
+        '\n  Depois: ' + nomeDepois + ' | ' + telefonesNovos;
+    }).join('\n');
+    const sufixoAmostra = selecionadas.length > 5 ? '\n… e mais ' + (selecionadas.length - 5) + ' contato(s).' : '';
+    if (!window.confirm('Prévia de ' + selecionadas.length + ' contato(s) que seriam atualizados no Google. Campos não selecionados serão preservados.\n\n' + amostra + sufixoAmostra + '\n\nContinuar para gerar o backup JSON antes de gravar?')) return;
+
+    if (!baixarBackupGoogle(selecionadas)) {
+      estado.googleResumo = 'Nenhuma alteração enviada: não foi possível preparar o backup JSON. Tente novamente antes de aplicar.';
+      if (estado.redesenharGoogle) estado.redesenharGoogle();
+      return;
+    }
+    if (!window.confirm('O SmartTable solicitou o download do backup JSON com os nomes e telefones originais de ' + selecionadas.length + ' contato(s). Confirme que o arquivo foi salvo antes de continuar com as gravações. Deseja aplicar as correções agora?')) {
+      estado.googleResumo = 'Nenhuma alteração enviada. O lote foi cancelado após a etapa de backup.';
+      if (estado.redesenharGoogle) estado.redesenharGoogle();
+      return;
+    }
+
     estado.googleGravando = true;
+    estado.ultimaRodadaUndo = [];
     if (estado.redesenharGoogle) estado.redesenharGoogle();
     let sucesso = 0;
     let falha = 0;
-    for (const l of selecionadas) {
+    let paradasPorAutorizacao = false;
+    let restantesNaoEnviadas = 0;
+    for (let indice = 0; indice < selecionadas.length; indice += 1) {
+      const linha = selecionadas[indice];
       const alteracoes = {};
-      if (l.aplicarNome) alteracoes.nome = l.nomeDesejado;
-      if (l.aplicarCelular) {
-        alteracoes.celular = l.celularDesejado;
-        alteracoes.indiceTelefone = Number.isInteger(l.indiceTelefone) && l.indiceTelefone >= 0 ? l.indiceTelefone : null;
+      const original = {
+        names: Array.isArray(linha.pessoa?.names) ? linha.pessoa.names.map((nome) => Object.assign({}, nome)) : [],
+        phoneNumbers: Array.isArray(linha.pessoa?.phoneNumbers) ? linha.pessoa.phoneNumbers.map((telefone) => ({
+          value: String(telefone?.value || ''),
+          ...(telefone?.type ? { type: telefone.type } : {}),
+          ...(telefone?.label && !telefone?.type ? { label: telefone.label } : {}),
+        })) : [],
+      };
+      // Guarda o estado anterior antes de enviar o PATCH; se houver timeout ambíguo, o ETag do undo decide.
+      const registroUndo = { linha, pessoaAtualizada: linha.pessoa, original };
+      estado.ultimaRodadaUndo.push(registroUndo);
+      if (linha.aplicarNome) alteracoes.nome = linha.nomeDesejado;
+      if (linha.aplicarCelular) {
+        alteracoes.celular = linha.celularDesejado;
+        alteracoes.indiceTelefone = Number.isInteger(linha.indiceTelefone) && linha.indiceTelefone >= 0 ? linha.indiceTelefone : null;
       }
-      l.status = 'Atualizando no Google…';
+      linha.estadoOperacao = 'atualizando';
+      linha.status = 'Atualizando no Google…';
+      if (estado.redesenharGoogle) estado.redesenharGoogle();
       try {
-        if (estado.redesenharGoogle) estado.redesenharGoogle();
-        const r = await api.atualizarContato(l.pessoa, alteracoes);
+        const r = await api.atualizarContato(linha.pessoa, alteracoes);
         if (r.ok) {
-          l.pessoa = r.pessoa;
-          l.status = 'Atualização aceita pelo Google.';
-          calcularDiferencasGoogle(l);
-          l.confirmada = false;
-          if (!l.difereNome && !l.difereCelular) l.status = 'Atualizado e conferido pela resposta da API.';
+          linha.pessoa = r.pessoa;
+          linha.status = 'Atualização aceita pelo Google.';
+          linha.estadoOperacao = 'atualizado';
+          calcularDiferencasGoogle(linha);
+          linha.confirmada = false;
+          linha.estadoOperacao = 'atualizado';
+          linha.status = 'Atualização aplicada; desfazer disponível enquanto o ETag não mudar.';
+          registroUndo.pessoaAtualizada = r.pessoa;
           sucesso += 1;
         } else {
-          l.status = r.mensagem || 'O Google não confirmou a atualização.';
-          l.pessoa = r.pessoa || l.pessoa;
-          l.erroLeitura = Boolean(r.conflito);
-          l.aplicarNome = false;
-          l.aplicarCelular = false;
+          linha.status = r.mensagem || 'O Google não confirmou a atualização.';
+          linha.pessoa = r.pessoa || linha.pessoa;
+          linha.erroLeitura = Boolean(r.conflito);
+          linha.estadoOperacao = 'falha';
+          linha.aplicarNome = false;
+          linha.aplicarCelular = false;
+          estado.ultimaRodadaUndo = estado.ultimaRodadaUndo.filter((entrada) => entrada !== registroUndo);
           falha += 1;
         }
       } catch (erro) {
-        l.status = erro?.message || 'Falha ao atualizar o contato no Google.';
-        l.aplicarNome = false;
-        l.aplicarCelular = false;
+        linha.status = erro?.message || 'Falha ao atualizar o contato no Google.';
+        linha.estadoOperacao = 'falha';
+        linha.aplicarNome = false;
+        linha.aplicarCelular = false;
         falha += 1;
+        const mensagem = String(erro?.message || '');
+        if (/\b401\b|\b403\b|recusou o acesso|recusou a autorização|autorização expirou/i.test(mensagem)) {
+          estado.ultimaRodadaUndo = estado.ultimaRodadaUndo.filter((entrada) => entrada !== registroUndo);
+        }
+        if (/\b401\b|autorização expirou|recusou a autorização/i.test(mensagem) || !api.status().conectado) {
+          paradasPorAutorizacao = true;
+          restantesNaoEnviadas = selecionadas.length - indice - 1;
+          break;
+        }
       }
+      if (indice < selecionadas.length - 1) await new Promise((resolve) => window.setTimeout(resolve, 250));
     }
     estado.googleGravando = false;
-    estado.googleResumo = 'Resultado desta rodada: ' + sucesso + ' contato(s) atualizado(s); ' + falha + ' falha(s)/conflito(s). Releia os contatos para criar uma nova prévia.';
+    estado.googleResumo = 'Resultado desta rodada: ' + sucesso + ' contato(s) atualizado(s); ' + falha + ' falha(s)/conflito(s).' +
+      (paradasPorAutorizacao ? ' Lote interrompido por falha de autorização; ' + restantesNaoEnviadas + ' atualização(ões) restante(s) não foram enviadas.' : '') +
+      ' Backup JSON gerado antes da gravação. Use “Desfazer última rodada” para restaurar os dados, desde que o ETag não tenha mudado.';
     if (estado.redesenharGoogle) estado.redesenharGoogle();
   }
 
@@ -1133,10 +1384,10 @@
     const resultado = criarDiv('');
     resultado.dataset.papel = 'resultado-google-api';
     secao.appendChild(resultado);
-    function atualizarStatus(texto) {
+    function atualizarStatus(texto, { manterTexto = false } = {}) {
       const st = api.status();
       if (texto) statusEl.textContent = texto;
-      else if (!arguments.length || !arguments[1]) {
+      else if (!manterTexto) {
         if (estado.googleErroBiblioteca) statusEl.textContent = estado.googleErroBiblioteca;
         else if (st.conectado) statusEl.textContent = 'Google conectado nesta sessão. Tokens não são persistidos.';
         else if (!estado.googleBibliotecaPronta) statusEl.textContent = st.configurado
@@ -1152,12 +1403,15 @@
     }
     estado.googleLinhas = [];
     estado.googleResumo = '';
+    estado.googleResumoInicial = '';
+    estado.googlePagina = 0;
+    estado.ultimaRodadaUndo = [];
     estado.googleGravando = false;
     estado.googleLendo = false;
     estado.googleBibliotecaPronta = Boolean(window.google?.accounts?.oauth2);
     estado.googleErroBiblioteca = '';
     estado.redesenharGoogle = () => {
-      desenharLinhasGoogle(resultado, estado);
+      desenharLinhasGoogle(resultado, estado, estado.googleResumoInicial || undefined);
       atualizarStatus();
     };
     salvarId.addEventListener('click', () => {
@@ -1180,7 +1434,7 @@
           atualizarStatus(estado.googleErroBiblioteca);
         } finally {
           estado.googleLendo = false;
-          atualizarStatus('', true);
+          atualizarStatus('', { manterTexto: true });
         }
         return;
       }
@@ -1191,7 +1445,7 @@
         atualizarStatus('Google conectado nesta sessão. Tokens não são persistidos.');
       } catch (erro) {
         atualizarStatus(erro?.message || 'Falha ao conectar a conta Google.');
-      } finally { atualizarStatus('', true); }
+      } finally { atualizarStatus('', { manterTexto: true }); }
     });
     desconectar.addEventListener('click', async () => {
       await api.desconectar();
@@ -1213,15 +1467,16 @@
         const montado = await prepararLinhasGoogle(pessoas, estado, (feitos, total) => atualizarStatus('Lendo responsáveis no CRM: ' + feitos + ' de ' + total + '…'));
         if (!painelDoEstadoAberto(estado)) return;
         estado.googleLinhas = montado.linhas;
+        estado.googlePagina = 0;
+        estado.googleResumoInicial = pessoas.length + ' contato(s) Google lidos · ' + montado.comDiferenca + ' com divergência · ' + (montado.dadosInsuficientes || 0) + ' com dados insuficientes · ' + montado.jaIguais + ' já conferem · ' + montado.clientesLidos + ' cliente(s) consultados no CRM.';
         estado.googleResumo = montado.semPadrao + ' contato(s) sem CNPJ padronizado; ' + montado.semVinculo + ' sem vínculo inequívoco. Esses casos não são alterados sem revisão.';
-        desenharLinhasGoogle(resultado, estado,
-          pessoas.length + ' contato(s) Google lidos · ' + montado.comDiferenca + ' com divergência · ' + montado.jaIguais + ' já conferem · ' + montado.clientesLidos + ' cliente(s) consultados no CRM.');
+        desenharLinhasGoogle(resultado, estado, estado.googleResumoInicial);
         atualizarStatus('Prévia pronta. Selecione os campos e confirme a aplicação no Google.');
       } catch (erro) {
         atualizarStatus(erro?.message || 'Não foi possível consultar o Google Contacts.');
       } finally {
         estado.googleLendo = false;
-        atualizarStatus('', true);
+        atualizarStatus('', { manterTexto: true });
       }
     });
     painel.appendChild(secao);
@@ -1307,6 +1562,9 @@
     if (levantamento.semContatos) {
       andamento.style.color = CORES.aviso;
       andamento.textContent = 'Nenhum CSV do Google foi importado; o checkup ainda verificou quem está sem contato e montou o CSV dos novos contatos possíveis.';
+    } else if (levantamento.precisaReimportar) {
+      andamento.style.color = CORES.aviso;
+      andamento.textContent = 'A importação guardada é antiga. Reimporte o CSV do Google Contacts para detectar também nomes cuja formatação original estava fora do padrão.';
     }
     estado.levantamento = levantamento;
     recalcular();
