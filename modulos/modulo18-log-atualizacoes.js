@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.109.2', data: '23/10/2026',
+      mudancas: [
+        'O cartão Informações de Contato passa a usar a área principal mensurável mesmo quando está dentro de uma coluna estreita; preserva 24 px de margem e não usa 100vw nem transform.',
+        'O ajuste é recalculado ao redimensionar a janela ou alternar estados de navegação. Foram adicionados testes de regressão no DOM simulado e no Chromium com sidebar aberta/fechada.',
+      ],
+    },
+    {
       versao: '1.109.0', data: '23/10/2026',
       mudancas: [
         'O checkup reconhece nomes fora do padrão, evita oferecer CSV de padronização quando já há contato padronizado e avisa quando o CSV guardado é antigo. Celular inválido sem nome não gera contato ausente; com nome, é exibido para referência, mas não entra no CSV.',

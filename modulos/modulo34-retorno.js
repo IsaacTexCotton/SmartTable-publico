@@ -60,6 +60,113 @@
     return item;
   }
 
+  function valorCSSNumerico(estilo, propriedade) {
+    const valor = Number.parseFloat(estilo?.getPropertyValue?.(propriedade) || estilo?.[propriedade] || '0');
+    return Number.isFinite(valor) ? valor : 0;
+  }
+
+  function definirVariavelCSS(elementoAlvo, nome, valor) {
+    const atual = elementoAlvo.style.getPropertyValue(nome);
+    if (valor == null) {
+      if (atual) elementoAlvo.style.removeProperty(nome);
+      return;
+    }
+    if (atual !== valor) elementoAlvo.style.setProperty(nome, valor);
+  }
+
+  function contemNavegacaoLateral(elementoAlvo) {
+    const seletor = 'aside, [role="navigation"], [class*="sidebar"], [id*="sidebar"]';
+    return elementoAlvo.matches?.(seletor) || !!elementoAlvo.querySelector?.(seletor);
+  }
+
+  function existeCorteHorizontalEntre(elementoAlvo, ancestralAlvo) {
+    let atual = elementoAlvo.parentElement;
+    while (atual && atual !== ancestralAlvo) {
+      const overflow = window.getComputedStyle(atual).overflowX;
+      if (overflow === 'hidden' || overflow === 'clip' || overflow === 'auto' || overflow === 'scroll') return true;
+      atual = atual.parentElement;
+    }
+    return atual !== ancestralAlvo;
+  }
+
+  function localizarAreaPrincipal(cartao, larguraBase) {
+    const larguraViewport = document.documentElement.clientWidth || window.innerWidth || 0;
+    let melhor = null;
+    for (let ancestral = cartao.parentElement;
+      ancestral && ancestral !== document.body && ancestral !== document.documentElement;
+      ancestral = ancestral.parentElement) {
+      const caixa = ancestral.getBoundingClientRect();
+      if (!Number.isFinite(caixa.width) || caixa.width <= larguraBase + 80) continue;
+      // Não usar o shell da aplicação/viewport inteira: ele pode incluir a sidebar.
+      if (larguraViewport && caixa.width >= larguraViewport - 16) continue;
+      if (contemNavegacaoLateral(ancestral)) continue;
+      if (existeCorteHorizontalEntre(cartao, ancestral)) continue;
+      if (!melhor || caixa.width > melhor.caixa.width) melhor = { elemento: ancestral, caixa: caixa };
+    }
+    return melhor;
+  }
+
+  function ajustarLarguraCartao(cartao) {
+    const pai = cartao?.parentElement;
+    if (!pai) return false;
+    const caixaPai = pai.getBoundingClientRect();
+    const larguraBase = caixaPai.width;
+    const larguraViewport = document.documentElement.clientWidth || window.innerWidth || 0;
+    if (!(larguraBase > 0) || !(larguraViewport > 0)) {
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', null);
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', null);
+      return false;
+    }
+
+    const area = localizarAreaPrincipal(cartao, larguraBase);
+    if (!area) {
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', null);
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', null);
+      return false;
+    }
+
+    const estiloArea = window.getComputedStyle(area.elemento);
+    const esquerdaArea = area.caixa.left +
+      valorCSSNumerico(estiloArea, 'border-left-width') +
+      valorCSSNumerico(estiloArea, 'padding-left');
+    const direitaArea = area.caixa.right -
+      valorCSSNumerico(estiloArea, 'border-right-width') -
+      valorCSSNumerico(estiloArea, 'padding-right');
+    const larguraUtil = direitaArea - esquerdaArea;
+    if (!(larguraUtil > larguraBase + 32)) {
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', null);
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', null);
+      return false;
+    }
+
+    // Usa a caixa útil do conteúdo (não a viewport completa), deixando 24 px
+    // em cada lado e respeitando o limite de desenho de 1180 px.
+    let larguraFinal = Math.min(1180, larguraUtil - 48, larguraViewport - 48);
+    if (!(larguraFinal > larguraBase + 16)) {
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', null);
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', null);
+      return false;
+    }
+    let esquerdaFinal = esquerdaArea + (larguraUtil - larguraFinal) / 2;
+    esquerdaFinal = Math.max(24, Math.min(esquerdaFinal, larguraViewport - 24 - larguraFinal));
+    larguraFinal = Math.min(larguraFinal, direitaArea - 24 - esquerdaFinal, larguraViewport - 24 - esquerdaFinal);
+    if (!(larguraFinal > 0)) {
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', null);
+      definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', null);
+      return false;
+    }
+
+    const estiloPai = window.getComputedStyle(pai);
+    const inicioPai = caixaPai.left +
+      valorCSSNumerico(estiloPai, 'border-left-width') +
+      valorCSSNumerico(estiloPai, 'padding-left');
+    const larguraFormatada = (Math.round(larguraFinal * 100) / 100) + 'px';
+    const deslocamentoFormatado = (Math.round((esquerdaFinal - inicioPai) * 100) / 100) + 'px';
+    definirVariavelCSS(cartao, '--smt-retorno-cartao-largura', larguraFormatada);
+    definirVariavelCSS(cartao, '--smt-retorno-cartao-deslocamento', deslocamentoFormatado);
+    return true;
+  }
+
   function instalarEstilos() {
     if (document.getElementById(ID_ESTILOS) || !document.head) return;
     const estilo = elemento('style');
@@ -85,7 +192,7 @@
       '.smt-retorno-btn-principal{border-color:#1f5f8b;background:#1f5f8b;color:#fff;}',
       '.smt-retorno-btn-principal:hover{background:#194d70;}',
       '.smt-retorno-btn-perigo{color:#b42318;border-color:#fecdca;}',
-      '[data-smt-retorno-cartao="true"]{width:100%!important;max-width:none!important;margin:0 0 16px!important;position:static!important;left:auto!important;transform:none!important;padding:14px 18px 16px!important;background:#fff!important;border:1px solid #e2e5ea!important;border-radius:10px!important;box-shadow:none!important;box-sizing:border-box!important;color:#1b2330!important;}',
+      '[data-smt-retorno-cartao="true"]{width:var(--smt-retorno-cartao-largura,100%)!important;max-width:none!important;margin:0 0 16px!important;margin-left:var(--smt-retorno-cartao-deslocamento,0px)!important;position:static!important;left:auto!important;transform:none!important;padding:14px 18px 16px!important;background:#fff!important;border:1px solid #e2e5ea!important;border-radius:10px!important;box-shadow:none!important;box-sizing:border-box!important;color:#1b2330!important;}',
       '[data-smt-retorno-resumo="true"]{display:grid!important;grid-template-columns:minmax(220px,300px) minmax(0,1fr)!important;gap:16px!important;align-items:start!important;padding-bottom:14px!important;}',
       '[data-smt-retorno-identificacao="true"] h2{margin:0!important;font-size:17px!important;line-height:1.25!important;font-weight:650!important;color:#1b2330!important;}',
       '[data-smt-retorno-identificacao="true"] p{margin:5px 0 0!important;font-size:12px!important;line-height:1.45!important;color:#556072!important;}',
@@ -1001,6 +1108,7 @@
       const resumoCliente = cartaoInfo.previousElementSibling;
       if (cartaoCliente && resumoCliente) {
         cartaoCliente.dataset.smtRetornoCartao = 'true';
+        ajustarLarguraCartao(cartaoCliente);
         resumoCliente.dataset.smtRetornoResumo = 'true';
         const identificacao = resumoCliente.querySelector(':scope > div:first-child');
         const indicadores = resumoCliente.querySelector(':scope > div:nth-child(2)');
@@ -1074,7 +1182,38 @@
     }
     criarBotaoRetorno();
     if (observador) return;
-    observador = new MutationObserver(function () { criarBotaoRetorno(); });
+    window.addEventListener('resize', criarBotaoRetorno, { passive: true });
+    // O listener delegado detecta abertura/fechamento de navegação sem observar
+    // cada atributo de cada campo da página, o que criaria reentrância no CRM.
+    document.addEventListener('click', function (evento) {
+      const alvo = evento.target?.nodeType === 1 ? evento.target : evento.target?.parentElement;
+      if (!alvo?.closest?.('aside, nav, [role="navigation"], [class*="sidebar"], [id*="sidebar"], [aria-controls], [aria-expanded], [data-sidebar]')) return;
+      window.setTimeout(criarBotaoRetorno, 0);
+    }, true);
+    observador = new MutationObserver(function (mutacoes) {
+      const seletorSmartTable = [
+        '#' + ID_DIALOGO,
+        '#' + ID_LAYOUT_PERFIL,
+        '#' + ID_ATALHOS_LINHA,
+        '#' + ID_FIXADAS,
+        '#' + ID_REGISTRO_RAPIDO,
+        '[data-smt-retorno-cabecalho="true"]',
+        '[data-smt-retorno-grade="true"]',
+        '.smt-retorno-dado',
+        '.smt-retorno-valor-linha',
+        '.smt-retorno-dado-acoes',
+        '.smt-retorno-who',
+      ].join(',');
+      const mutacaoDoModulo = function (mutacao) {
+        const alvo = mutacao.target?.nodeType === 1 ? mutacao.target : mutacao.target?.parentElement;
+        return !!alvo?.closest?.(seletorSmartTable);
+      };
+      // Não reagir às próprias mutações de layout/painel; observar as alterações
+      // estruturais do CRM evita que a preparação de campos gere um ciclo.
+      if (mutacoes.some(function (mutacao) {
+        return mutacao.type === 'childList' && !mutacaoDoModulo(mutacao);
+      })) criarBotaoRetorno();
+    });
     observador.observe(document.body, { childList: true, subtree: true });
   }
 
