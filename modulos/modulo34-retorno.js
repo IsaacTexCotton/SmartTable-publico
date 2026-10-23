@@ -3,8 +3,9 @@
  * -------------------------------------------------------------------------
  * Frases reutilizáveis por operador, guardadas no localStorage deste navegador.
  * Cada frase associa um nome, um resultado nativo e uma observação. No perfil,
- * as frases fixadas preenchem o registro rápido; o envio usa o botão nativo do
- * CRM. No painel Retorno, aplicar uma frase mantém o fluxo de registro nativo.
+ * os atalhos fixados inserem apenas a observação no Registro Rápido; o operador
+ * confirma o resultado e salva explicitamente. O painel Retorno mantém o fluxo
+ * de gestão e aplicação de frases já existente.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -203,7 +204,7 @@
       '[data-smt-retorno-kpi="alerta"]{background:#fdecea!important;border-color:#f2b8b2!important;}[data-smt-retorno-kpi="alerta"]>p{color:#8c1d14!important;}[data-smt-retorno-kpi="alerta"]>p:last-child{font-size:16px!important;color:#b42318!important;}',
       '[data-smt-retorno-kpi="zero"]{background:#f7f8fa!important;}[data-smt-retorno-kpi="zero"]>p:last-child{color:#7b8596!important;font-weight:500!important;}',
       '[data-smt-retorno-kpi="aviso"]{background:#fff4dc!important;border-color:#f0d48f!important;}[data-smt-retorno-kpi="aviso"]>p{color:#8a5a00!important;}[data-smt-retorno-kpi="aviso"]>p:last-child{font-size:16px!important;color:#8a5a00!important;}',
-      '[data-smt-retorno-contato="true"]{display:grid!important;grid-template-columns:minmax(0,5fr) minmax(0,7fr)!important;gap:14px!important;margin:0!important;padding:14px 0 0!important;border-top:1px solid #e2e5ea!important;}',
+      '[data-smt-retorno-contato="true"]{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(320px,380px)!important;gap:14px!important;margin:0!important;padding:14px 0 0!important;border-top:1px solid #e2e5ea!important;}',
       '[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"]{grid-column:1;grid-row:1;display:flex!important;align-items:center!important;justify-content:space-between!important;flex-wrap:wrap!important;gap:8px!important;margin:0 0 4px!important;padding:0!important;}',
       '[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"] h3{font-size:13px!important;letter-spacing:0!important;text-transform:none!important;color:#1b2330!important;}',
       '[data-smt-retorno-contato="true"]>#smarttable-retorno-layout{grid-column:2;grid-row:1/3;display:block!important;min-width:0!important;}',
@@ -306,7 +307,30 @@
       '.smt-retorno-textarea{resize:vertical;min-height:86px;}',
       '.smt-retorno-form-acoes{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;}',
       '.smt-retorno-form-wrap[hidden]{display:none!important;}',
-      '@media(max-width:520px){.smt-retorno-dialog{padding:14px;max-height:90vh;}.smt-retorno-item{grid-template-columns:1fr;}.smt-retorno-acoes{flex-direction:row;justify-content:flex-end;}.smt-retorno-toolbar{align-items:flex-start;flex-direction:column;}}'
+      '@media(max-width:520px){.smt-retorno-dialog{padding:14px;max-height:90vh;}.smt-retorno-item{grid-template-columns:1fr;}.smt-retorno-acoes{flex-direction:row;justify-content:flex-end;}.smt-retorno-toolbar{align-items:flex-start;flex-direction:column;}}',
+      /* Registro Rápido e frases fixadas compartilham o mesmo painel. */
+      '#smarttable-retorno-coluna-direita{width:100%!important;max-width:none!important;display:block!important;min-width:0!important;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-atalhos-linha{display:block!important;width:100%;min-width:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-content:start;width:100%;min-width:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 2px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-resultado-linha{display:grid;grid-template-columns:62px minmax(0,1fr);align-items:center;gap:8px;min-width:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-resultado-linha label{margin:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-resultado-linha select{min-width:0;margin:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-acoes{display:flex;justify-content:flex-end;align-items:center;gap:8px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas{display:grid!important;gap:6px;align-content:start;justify-items:stretch;width:100%;min-width:0;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;margin:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-fixadas-cabecalho{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;min-height:0;margin:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-fixadas-titulacao{display:flex;align-items:center;gap:5px;min-width:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas .smt-retorno-fixadas-ajuda{display:none;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas-lista{display:flex!important;flex-wrap:wrap;align-items:flex-start;justify-content:flex-start;gap:6px;width:100%;min-width:0;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-fixadas-lista .smt-retorno-sem-fixadas{flex:1 1 100%;margin:0;padding:8px;border:1px dashed #e2e5ea;border-radius:7px;color:#556072;font-size:12px;}',
+      '#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido textarea{min-height:56px;resize:vertical;}',
+      '.smt-retorno-atalho-fixado{display:inline-flex!important;align-items:center;flex:0 1 auto;width:auto!important;max-width:100%;min-width:0;min-height:28px;height:auto;padding:5px 8px!important;white-space:normal!important;text-align:left!important;line-height:1.3!important;background:#fff!important;border:1px solid #e2e5ea!important;border-radius:999px!important;color:#1b2330!important;font-family:inherit!important;font-size:12px!important;font-weight:500!important;cursor:pointer;}',
+      '.smt-retorno-chip-mais{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:13px;height:13px;color:#1f5f8b;font-size:16px;line-height:1;}',
+      '.smt-retorno-atalho-texto{display:block;max-width:250px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:1.4;color:inherit;}',
+      '.smt-retorno-atalho-fixado:hover,.smt-retorno-atalho-fixado:focus-visible{background:#e8f1f8!important;border-color:#1f5f8b!important;color:#1b2330!important;outline:none;}',
+      '#smarttable-retorno-abrir{font-size:12px!important;height:28px!important;min-height:28px!important;padding:0 8px!important;}',
+      '@media(max-width:1100px){[data-smt-retorno-contato="true"]>[data-smt-retorno-cabecalho="true"]{grid-column:1;grid-row:1;}[data-smt-retorno-contato="true"]>#perfil-restante{grid-column:1;grid-row:2;}[data-smt-retorno-contato="true"]>#smarttable-retorno-layout{grid-column:1;grid-row:3;}}',
+      '@media(max-width:760px){#smarttable-retorno-coluna-direita #smarttable-retorno-registro-rapido .smt-retorno-rapido-resultado-linha{grid-template-columns:minmax(0,1fr);gap:4px;}}',
     ].join('\n');
     document.head.appendChild(estilo);
   }
@@ -693,22 +717,18 @@
     frases.slice(paginaFixadas * POR_PAGINA, (paginaFixadas + 1) * POR_PAGINA).forEach(function (frase) {
       const atalho = elemento('button', 'smt-retorno-atalho-fixado');
       atalho.type = 'button';
-      atalho.title = 'Inserir esta frase no formulário de registro: ' + frase.rotulo;
-      atalho.setAttribute('aria-label', 'Inserir frase fixada no formulário: ' + frase.rotulo);
+      atalho.title = 'Inserir no campo Observação: ' + frase.observacao;
+      atalho.setAttribute('aria-label', 'Inserir frase fixada: ' + frase.rotulo);
 
-      const pin = elemento('span', 'smt-retorno-pin-wrap');
-      pin.appendChild(iconeAlfinete());
-      const texto = elemento('span', 'smt-retorno-atalho-texto', frase.rotulo);
-      const chevron = elemento('span', 'smt-retorno-atalho-chevron', '›');
-      chevron.setAttribute('aria-hidden', 'true');
-      atalho.append(pin, texto, chevron);
+      const mais = elemento('span', 'smt-retorno-chip-mais', '＋');
+      mais.setAttribute('aria-hidden', 'true');
+      const texto = elemento('span', 'smt-retorno-atalho-texto', frase.observacao);
+      atalho.append(mais, texto);
       atalho.addEventListener('click', function () {
-        const seletor = document.getElementById('smarttable-retorno-rapido-resultado');
         const campoObservacao = document.getElementById('smarttable-retorno-rapido-observacao');
-        if (!seletor || !campoObservacao) return;
-        seletor.value = frase.resultadoId;
+        if (!campoObservacao) return;
+        // Atalho é apenas inserção de texto: não muda o resultado e não registra.
         campoObservacao.value = frase.observacao;
-        seletor.dispatchEvent(new window.Event('change', { bubbles: true }));
         campoObservacao.dispatchEvent(new window.Event('input', { bubbles: true }));
         campoObservacao.focus();
       });
@@ -1001,7 +1021,9 @@
 
     formularioRapido = elemento('form', '');
     formularioRapido.id = ID_REGISTRO_RAPIDO;
-    formularioRapido.appendChild(elemento('p', 'smt-retorno-rapido-titulo', 'Registro rápido'));
+    const topo = elemento('div', 'smt-retorno-rapido-top');
+    topo.appendChild(elemento('p', 'smt-retorno-rapido-titulo', 'Registro rápido'));
+    formularioRapido.appendChild(topo);
     const rotuloResultado = elemento('label', 'smt-retorno-rapido-label', 'Resultado do contato');
     rotuloResultado.htmlFor = 'smarttable-retorno-rapido-resultado';
     const seletor = elemento('select', 'smt-retorno-rapido-campo');
@@ -1019,6 +1041,8 @@
     if (resultados.some(function (resultado) { return resultado.id === 'REGISTRO'; })) {
       seletor.value = 'REGISTRO';
     }
+    const linhaResultado = elemento('div', 'smt-retorno-rapido-resultado-linha');
+    linhaResultado.append(rotuloResultado, seletor);
     const rotuloObservacao = elemento('label', 'smt-retorno-rapido-label');
     rotuloObservacao.htmlFor = 'smarttable-retorno-rapido-observacao';
     rotuloObservacao.appendChild(document.createTextNode('Observação '));
@@ -1033,7 +1057,7 @@
     enviar.type = 'submit';
     const acoes = elemento('div', 'smt-retorno-rapido-acoes');
     acoes.appendChild(enviar);
-    formularioRapido.append(rotuloResultado, seletor, rotuloObservacao, campo, acoes);
+    formularioRapido.append(linhaResultado, rotuloObservacao, campo, acoes);
     formularioRapido.addEventListener('submit', function (evento) {
       evento.preventDefault();
       const resultadoId = seletor.value;
@@ -1148,17 +1172,19 @@
     }
     const registroRapido = criarRegistroRapido();
     if (registroRapido.parentElement !== linhaAtalhos) linhaAtalhos.appendChild(registroRapido);
-    const acoesRapidas = registroRapido.querySelector('.smt-retorno-rapido-acoes');
-    if (acoesRapidas && botao.parentElement !== acoesRapidas) acoesRapidas.appendChild(botao);
+    const cabecalhoRapido = registroRapido.querySelector('.smt-retorno-rapido-top');
+    if (cabecalhoRapido && botao.parentElement !== cabecalhoRapido) cabecalhoRapido.appendChild(botao);
 
     let fixadas = document.getElementById(ID_FIXADAS);
     if (!fixadas) {
       fixadas = elemento('div', '');
       fixadas.id = ID_FIXADAS;
       fixadas.hidden = true;
-      linhaAtalhos.appendChild(fixadas);
-    } else if (fixadas.parentElement !== linhaAtalhos) {
-      linhaAtalhos.appendChild(fixadas);
+    }
+    const rotuloObservacaoRapida = registroRapido.querySelector('label[for="smarttable-retorno-rapido-observacao"]');
+    if (rotuloObservacaoRapida &&
+      (fixadas.parentElement !== registroRapido || fixadas.nextElementSibling !== rotuloObservacaoRapida)) {
+      registroRapido.insertBefore(fixadas, rotuloObservacaoRapida);
     }
     if (fixadas.dataset.inicializado !== 'true') {
       fixadas.dataset.inicializado = 'true';

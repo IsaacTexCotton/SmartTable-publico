@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.110.0', data: '23/10/2026',
+      mudancas: [
+        'Une Registro Rápido e Frases Fixadas no mesmo formulário: os atalhos passam a aparecer como chips compactos entre o resultado e a observação.',
+        'Clicar numa frase fixada insere somente o texto na observação, preserva o resultado selecionado e não registra automaticamente. O botão Registrar contato continua explícito.',
+        'Em telas largas, a coluna de registro fica limitada a aproximadamente 380 px e as informações de contato recebem o espaço restante; em telas menores, as áreas se empilham sem rolagem horizontal.',
+      ],
+    },
+    {
       versao: '1.109.2', data: '23/10/2026',
       mudancas: [
         'O cartão Informações de Contato passa a usar a área principal mensurável mesmo quando está dentro de uma coluna estreita; preserva 24 px de margem e não usa 100vw nem transform.',
