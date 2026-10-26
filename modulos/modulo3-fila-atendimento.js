@@ -627,7 +627,8 @@
       if (typeof fn !== 'function' || fn.__smartTableEnvolvida) return fn;
       const envolvida = function (...args) {
         try {
-          marcarSucessoDoRegistro();
+          // A Checagem abre a conversa sem registrar contato; não criar evento falso no Diário.
+          if (window.__checagemRetornosAbrindoWhatsApp !== true) marcarSucessoDoRegistro();
         } catch (erro) {
           console.error('[Fila] Erro ao processar sucesso do registro -- o WhatsApp abre normalmente mesmo assim.', erro);
         }

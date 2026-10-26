@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.112.0', data: '26/10/2026',
+      mudancas: [
+        'Inclui uma fila local de Checagem de Retornos baseada nos contatos de WhatsApp de hoje, ordenada pelo horário e independente da régua de prioridade.',
+        'Retornou e Sem retorno usam o formulário nativo do CRM. O cliente só sai da fila após confirmação de um novo item na aba Contatos; Não foi possível verificar não grava no CRM.',
+        'Falhas de confirmação permanecem na fila e não são repetidas automaticamente. A checagem não altera o fluxo normal do Alt+S, as prioridades nem os contadores.',
+      ],
+    },
+    {
       versao: '1.111.0', data: '23/10/2026',
       mudancas: [
         'Alt+S usa atraso real, prioridade da régua v7 apenas com cache de hoje para o cliente, e saldo vencido apenas com saldos legíveis. O atraso é omitido quando um vencimento é ilegível ou o título mais antigo é NÃO COBRAR/CARTEIRA.',

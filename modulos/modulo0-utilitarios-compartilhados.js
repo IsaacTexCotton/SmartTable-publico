@@ -664,6 +664,7 @@
     'Log de Atualização',
     'Contexto Adicional',
     'Diário',
+    'Checagem de Retornos',
     'Painel de Configurações',
     'Recebido na Semana',
     'Carteira',
