@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.111.0', data: '23/10/2026',
+      mudancas: [
+        'Alt+S usa atraso real, prioridade da régua v7 apenas com cache de hoje para o cliente, e saldo vencido apenas com saldos legíveis. O atraso é omitido quando um vencimento é ilegível ou o título mais antigo é NÃO COBRAR/CARTEIRA.',
+        'O resumo tem limite de 250 caracteres; trechos opcionais são removidos sem truncar valores. O envio ao WhatsApp e a prevenção de registro duplicado permanecem iguais.',
+      ],
+    },
+    {
       versao: '1.110.0', data: '23/10/2026',
       mudancas: [
         'Une Registro Rápido e Frases Fixadas no mesmo formulário: os atalhos passam a aparecer como chips compactos entre o resultado e a observação.',

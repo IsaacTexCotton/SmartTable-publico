@@ -3,12 +3,10 @@
 // Adiciona um botao novo no modal "Registrar Contato", ao lado de
 // "Salvar Contato". Ao clicar:
 //
-//   1. Calcula um resumo padronizado ("Enviado cobranca Xo dia.") a partir
-//      da classificacao que o modulo de Aviso de Cobranca ja calcula.
-//      Prioridade: titulo no ULTIMO_DIA (6o dia, fluxo cartorio) vence o
-//      titulo mais vencido do cliente. EXCECAO: cliente sem nenhum contato
-//      registrado ainda registra "Primeiro contato - Tentativa" em vez do
-//      dia de atraso (ver ehPrimeiroContato).
+//   1. Calcula uma anotação padronizada com atraso real, prioridade confiável
+//      da régua v7 e saldo vencido quando os dados estiverem disponíveis.
+//      Atraso real é o do título elegível mais antigo. Primeiro contato e
+//      acordos mantêm suas anotações específicas.
 //   2. Registra o contato via API com esse resumo (canal=WHATSAPP,
 //      resultado=REGISTRO), sem depender do formulario nem do texto que
 //      esta na caixa de observacao.
@@ -40,14 +38,11 @@
     window.__smartTableUtil?.registrarModuloCarregado?.('Registrar e Enviar');
 
     const ENDPOINT_CONTATOS = '/api/crm/contatos';
+    const LIMITE_RESUMO_ALT_S = 250;
 
     // ============================================================
     // RESUMO PADRONIZADO
     // ============================================================
-
-    function maiorAtraso(lista) {
-        return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
-    }
 
     // PEDIDO DO USUARIO: cliente sem NENHUM contato registrado ainda nao
     // esta em regua de cobranca -- registrar "Enviado cobranca Xo dia."
@@ -63,12 +58,130 @@
     // ausencia nao pode quebrar nada.
     const RESUMO_PRIMEIRO_CONTATO = 'Primeiro contato - Tentativa';
 
+    /**
+     * Monta a anotação do Alt+S sem consultar DOM, cache ou APIs.
+     * O limite pode ser reduzido nos testes para cobrir a saída segura se nem
+     * o texto mínimo couber; em produção, usa sempre LIMITE_RESUMO_ALT_S.
+     *
+     * @param {{diasAtrasoReal?: number|null, prioridadeNome?: string|null, saldoVencidoTexto?: string|null}} dados
+     * @param {number} limiteCaracteres
+     * @returns {string|null} null se o texto mínimo exceder o limite
+     */
+    function construirAnotacaoAltS(dados = {}, limiteCaracteres = LIMITE_RESUMO_ALT_S) {
+        if (!Number.isInteger(limiteCaracteres) || limiteCaracteres < 0) return null;
+
+        const dias = Number.isInteger(dados.diasAtrasoReal) && dados.diasAtrasoReal >= 1
+            ? dados.diasAtrasoReal
+            : null;
+        let prioridade = typeof dados.prioridadeNome === 'string' && dados.prioridadeNome.trim()
+            ? dados.prioridadeNome.trim()
+            : null;
+        const saldoRecebido = typeof dados.saldoVencidoTexto === 'string'
+            ? dados.saldoVencidoTexto.trim()
+            : '';
+        let saldo = /^R\$\s*-?[\d.]+,\d{2}$/u.test(saldoRecebido) ? saldoRecebido : null;
+        let incluirAtraso = dias !== null;
+
+        function montar() {
+            let texto = 'Enviado cobrança';
+            if (incluirAtraso) texto += ' — atraso de ' + dias + ' ' + (dias === 1 ? 'dia' : 'dias');
+            texto += '.';
+            if (prioridade) texto += ' Prioridade: ' + prioridade + '.';
+            if (saldo) texto += ' Saldo: ' + saldo + '.';
+            return texto;
+        }
+
+        let texto = montar();
+        if (texto.length > limiteCaracteres && prioridade) {
+            prioridade = null;
+            texto = montar();
+        }
+        if (texto.length > limiteCaracteres && saldo) {
+            saldo = null;
+            texto = montar();
+        }
+        if (texto.length > limiteCaracteres && incluirAtraso) {
+            incluirAtraso = false;
+            texto = montar();
+        }
+        return texto.length <= limiteCaracteres ? texto : null;
+    }
+
+    function normalizarCnpjAltS(valor) {
+        return String(valor ?? '').replace(/\D/g, '');
+    }
+
+    function obterPrioridadeConfiavelAltS() {
+        const fila = window.filaPrioridadeDebug;
+        if (
+            !fila ||
+            fila.CONFIG?.VERSAO_REGUA !== 7 ||
+            typeof fila.lerCacheClassificacao !== 'function' ||
+            !fila.NOMES_PRIORIDADE
+        ) return null;
+
+        let cnpjAtual = '';
+        try {
+            cnpjAtual = normalizarCnpjAltS(new URLSearchParams(window.location.search).get('cnpj'));
+        } catch (erro) {
+            return null;
+        }
+        if (!cnpjAtual) return null;
+
+        try {
+            const cache = fila.lerCacheClassificacao();
+            const classificacao = cache?.resultados?.find((item) =>
+                normalizarCnpjAltS(item?.cliente?.cnpj) === cnpjAtual
+            );
+            const faixa = classificacao?.prioridade;
+            if (!Number.isInteger(faixa)) return null;
+            const nome = fila.NOMES_PRIORIDADE[faixa];
+            return typeof nome === 'string' && nome.trim() ? nome : null;
+        } catch (erro) {
+            return null;
+        }
+    }
+
+    function obterSaldoVencidoFormatadoAltS(registros) {
+        const fila = window.filaPrioridadeDebug;
+        const util = window.__smartTableUtil;
+        if (
+            !Array.isArray(registros) ||
+            registros.length === 0 ||
+            typeof fila?.valorVencidoEntre !== 'function' ||
+            typeof util?.numeroDeMoedaBr !== 'function' ||
+            typeof util?.formatarMoeda !== 'function'
+        ) return null;
+
+        let todosSaldosLegiveis = false;
+        try {
+            todosSaldosLegiveis = registros.every((registro) => {
+                const valor = util.numeroDeMoedaBr(registro?.saldoTexto);
+                return typeof valor === 'number' && Number.isFinite(valor);
+            });
+        } catch (erro) {
+            return null;
+        }
+        if (!todosSaldosLegiveis) return null;
+
+        try {
+            const total = fila.valorVencidoEntre(registros);
+            if (typeof total !== 'number' || !Number.isFinite(total)) return null;
+            const texto = util.formatarMoeda(total);
+            return typeof texto === 'string' && texto !== '--' && texto.includes('R$') && /\d/.test(texto)
+                ? texto
+                : null;
+        } catch (erro) {
+            return null;
+        }
+    }
+
     function ehPrimeiroContato() {
         return !!(window.__contextoAdicional && window.__contextoAdicional.semContatoAnterior);
     }
 
-    // Reaproveita a classificacao ja calculada pelo modulo de Aviso de
-    // Cobranca, em vez de duplicar aqui o calculo de prazos e feriados.
+    // Usa os dias reais do Módulo 1, a classificação v7 do cache existente
+    // e a soma oficial do Módulo 7; não recalcula a régua nem o saldo.
     function calcularResumoPadronizado() {
         if (ehPrimeiroContato()) return RESUMO_PRIMEIRO_CONTATO;
 
@@ -101,43 +214,33 @@
             return 'Enviado cobrança.';
         }
 
-        // CORRIGIDO (bug real, relatado pelo usuário): o criterio antigo so
-        // priorizava ULTIMO_DIA -- um titulo em NEGATIVADO_SCPC bem no 19o
-        // dia (aviso de suspensao de cadastro) perdia pra qualquer outro
-        // titulo do mesmo cliente com mais dias de atraso (ex.: ja em
-        // EM_CARTORIO ha mais tempo), fazendo a nota do CRM (e a mensagem
-        // do Modulo 4, que espelha esta logica de proposito) citar o
-        // titulo errado -- sem nenhuma mencao ao aviso mais urgente do dia.
-        // A janela de aviso SCPC (16 a 19 dias -- mesmos limiares do
-        // Modulo 4, MANTER SINCRONIZADO se um dia mudarem) agora tem a
-        // MESMA prioridade que ULTIMO_DIA.
-        const emUltimoDia = registros.filter(r => r.situacaoKey === 'ULTIMO_DIA');
-        let escolhido;
-        if (emUltimoDia.length > 0) {
-            escolhido = maiorAtraso(emUltimoDia);
-        } else {
-            const emAvisoSuspensaoScpc = registros.filter(
-                r => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal >= 16 && r.diasAtrasoReal <= 19
-            );
-            if (emAvisoSuspensaoScpc.length > 0) {
-                escolhido = maiorAtraso(emAvisoSuspensaoScpc);
-            } else {
-                // CORRIGIDO (bug real, relatado pelo usuário): título já
-                // EM_CARTORIO saiu da cobrança amigável -- a prioridade de
-                // pagamento é sempre um título que AINDA NÃO foi pra
-                // cartório, mesmo que ele tenha menos dias de atraso do que
-                // o título em cartório. Sem essa regra, um título em
-                // cartório há 45 dias vencia um título em atraso inicial há
-                // apenas 3 dias só por ter mais dias, fazendo a nota do CRM
-                // (e a mensagem do Módulo 4, que espelha esta lógica de
-                // propósito) citar o título errado. Só cai pra um título em
-                // cartório se literalmente não sobrar nenhum outro.
-                const naoCartorio = registros.filter(r => r.situacaoKey !== 'EM_CARTORIO');
-                escolhido = naoCartorio.length > 0 ? maiorAtraso(naoCartorio) : maiorAtraso(registros);
-            }
-        }
+        // O atraso vem do título vencido mais antigo. Dias informados pelo
+        // CRM nunca substituem diasAtrasoReal. Se houver qualquer vencimento
+        // ilegível, não é possível garantir qual título é o mais antigo.
+        const temVencimentoIlegivel = (dados.ignorados || []).some((item) =>
+            typeof item?.motivo === 'string' && item.motivo.startsWith('vencimento ilegível:')
+        );
+        const maiorAtrasoReal = registros.reduce((maior, registro) => (
+            Number.isInteger(registro?.diasAtrasoReal) && registro.diasAtrasoReal > maior
+                ? registro.diasAtrasoReal
+                : maior
+        ), 0);
+        const maiorAtrasoNaoCobrar = (dados.naoCobrar || []).reduce((maior, registro) => (
+            Number.isInteger(registro?.diasAtrasoReal) && registro.diasAtrasoReal > maior
+                ? registro.diasAtrasoReal
+                : maior
+        ), 0);
+        const atrasoConfiavel = !temVencimentoIlegivel && maiorAtrasoReal > maiorAtrasoNaoCobrar;
 
-        return 'Enviado cobrança ' + escolhido.diasAtrasoReal + 'º dia.';
+        const anotacao = construirAnotacaoAltS({
+            diasAtrasoReal: atrasoConfiavel && maiorAtrasoReal >= 1 ? maiorAtrasoReal : null,
+            prioridadeNome: obterPrioridadeConfiavelAltS(),
+            saldoVencidoTexto: obterSaldoVencidoFormatadoAltS(registros),
+        });
+        if (anotacao === null) {
+            throw new Error('Não foi possível montar uma anotação dentro do limite de 250 caracteres.');
+        }
+        return anotacao;
     }
 
     // ============================================================
