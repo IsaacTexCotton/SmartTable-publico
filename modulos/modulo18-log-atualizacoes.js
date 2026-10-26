@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.113.0', data: '26/10/2026',
+      mudancas: [
+        'A Checagem de Retornos agora abre pelo atalho Shift+Alt+R, sem botão flutuante, e possui Iniciar checagem, pausa e setas para navegar entre clientes.',
+        'O fluxo navega automaticamente entre clientes e abre link direto do WhatsApp usando primeiro o celular do responsável financeiro; o celular do cliente é fallback. Há link manual se o navegador bloquear a abertura.',
+        'Novo contato no mesmo dia reabre a checagem. A confirmação usa os IDs dos botões nativos do CRM, sem depender do texto exibido; gravações incertas nunca são repetidas automaticamente.',
+      ],
+    },
+    {
       versao: '1.112.0', data: '26/10/2026',
       mudancas: [
         'Inclui uma fila local de Checagem de Retornos baseada nos contatos de WhatsApp de hoje, ordenada pelo horário e independente da régua de prioridade.',

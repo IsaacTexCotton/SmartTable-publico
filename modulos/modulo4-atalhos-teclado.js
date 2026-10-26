@@ -139,6 +139,7 @@
     { tecla: 'Alt+U', descricao: 'Fila por Prioridade: continua a de hoje; só monta do zero se não houver' },
     { tecla: 'Shift+Alt+U', descricao: 'Refazer a fila por prioridade do zero (tira quem já foi contatado hoje)' },
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
+    { tecla: 'Shift+Alt+R', descricao: 'Checagem de Retornos: iniciar, navegar e registrar os contatos de hoje' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
     { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório(s) de outra(s) razão(ões) do grupo, se houver, + relatório + contato + mensagem personalizada)' },
     // Texto aprovado pelo usuário.

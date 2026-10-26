@@ -14,7 +14,7 @@
   const VERSAO_SCHEMA = 1;
   const PREFIXO_CHAVE_DIA = 'smarttable_checagem_retornos_v1_';
   const CHAVE_HISTORICO = 'smarttable_checagem_retornos_historico_v1';
-  const ID_BOTAO = 'smarttable-checagem-retornos-abrir';
+  const CHAVE_HANDSHAKE_WHATSAPP = 'smarttable_checagem_retornos_whatsapp_handshake_v1';
   const ID_PAINEL = 'smarttable-checagem-retornos-painel';
   const ID_ESTILOS = 'smarttable-checagem-retornos-estilos';
   const LIMITE_RESUMO_CRM = 250;
@@ -58,10 +58,10 @@
     return String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
   }
   function estadoDiaVazio(dia) {
-    return { versao: VERSAO_SCHEMA, dia: dia, clientes: {}, clienteAtivo: '' };
+    return { versao: VERSAO_SCHEMA, dia: dia, clientes: {}, clienteAtivo: '', fluxoAtivo: false, fluxoTokenWhatsApp: '', janelaWhatsAppReservada: false, aberturaAutomaticaPendente: false };
   }
   function estadoClienteVazio(evento) {
-    return { estado: ESTADOS.PENDENTE, eventoDia: evento.d, eventoHora: evento.h, nome: '', url: '', operacao: null };
+    return { estado: ESTADOS.PENDENTE, eventoDia: evento.d, eventoHora: evento.h, eventoReferencia: evento.referencia, nome: '', url: '', telefoneCliente: '', whatsappUrl: '', whatsappOrigem: '', operacao: null };
   }
 
   // Função pura: o evento mais recente do cliente é a referência; empates
@@ -76,19 +76,26 @@
       const anterior = maisRecentes.get(cnpj);
       // A ordem do array do Diário é a ordem de gravação; não substituí-la
       // pela maior hora protege contra relógio alterado dentro do mesmo dia.
-      maisRecentes.set(cnpj, { cnpj: cnpj, h: evento.h, d: evento.d, ordem: anterior ? anterior.ordem : indice });
+      maisRecentes.set(cnpj, { cnpj: cnpj, h: evento.h, d: evento.d, ordem: anterior ? anterior.ordem : indice, referencia: indice });
     });
     const clientes = estadoDia && estadoDia.clientes && typeof estadoDia.clientes === 'object'
       ? estadoDia.clientes : {};
     return Array.from(maisRecentes.values()).map(function (evento) {
       const local = clientes[evento.cnpj] || {};
+      const mudouEvento = Number.isInteger(local.eventoReferencia) && local.eventoReferencia !== evento.referencia;
+      const operacaoAberta = local.operacao && (local.operacao.status === 'em_andamento' || local.operacao.status === 'incerta');
+      const estadoLocal = mudouEvento && !operacaoAberta ? ESTADOS.PENDENTE : (local.estado || ESTADOS.PENDENTE);
       return {
         cnpj: evento.cnpj, dia: evento.d, hora: evento.h,
         nome: typeof local.nome === 'string' ? local.nome : '',
         url: typeof local.url === 'string' ? local.url : '',
-        estado: local.estado || ESTADOS.PENDENTE,
+        telefoneCliente: typeof local.telefoneCliente === 'string' ? local.telefoneCliente : '',
+        whatsappUrl: typeof local.whatsappUrl === 'string' ? local.whatsappUrl : '',
+        whatsappOrigem: typeof local.whatsappOrigem === 'string' ? local.whatsappOrigem : '',
+        estado: estadoLocal,
         operacao: local.operacao || null,
         ordem: evento.ordem,
+        referencia: evento.referencia,
       };
     }).filter(function (cliente) {
       return cliente.estado !== ESTADOS.VERIFICADO_RETORNOU &&
@@ -201,8 +208,17 @@
     try { return normalizarCnpj(new URL(window.location.href).searchParams.get('cnpj')); }
     catch (erro) { return ''; }
   }
+  function obterRegistroLista(cnpj) {
+    const alvo = normalizarCnpj(cnpj);
+    if (!Array.isArray(window.CLIENTES)) return null;
+    return window.CLIENTES.find(function (cliente) { return normalizarCnpj(cliente && cliente.cnpj) === alvo; }) || null;
+  }
   function resolverCliente(cnpj) {
     const alvo = normalizarCnpj(cnpj);
+    const registro = obterRegistroLista(alvo);
+    const telefoneCliente = registro
+      ? String(registro.celular || registro.telefoneCelular || registro.telefone || registro.telefoneContato || '')
+      : '';
     if (lerCnpjAtual() === alvo) {
       const titulos = Array.from(document.querySelectorAll('h1, h2, [data-nome-cliente]'));
       const titulo = titulos.find(function (el) {
@@ -211,16 +227,21 @@
       });
       return {
         cnpj: alvo,
-        nome: titulo ? (titulo.getAttribute('data-nome-cliente') || titulo.textContent || '').trim().slice(0, 120) : '',
+        nome: (registro && (registro.razaoSocial || registro.nomeFantasia)) || (titulo ? (titulo.getAttribute('data-nome-cliente') || titulo.textContent || '').trim().slice(0, 120) : ''),
         url: window.location.href,
+        telefoneCliente: telefoneCliente,
       };
+    }
+    if (registro) {
+      const urlRegistro = window.__smartTableUtil?.montarUrlCliente?.(registro.controleCliente, registro.cnpj);
+      if (urlRegistro) return { cnpj: alvo, nome: String(registro.razaoSocial || registro.nomeFantasia || '').trim().slice(0, 120), url: urlRegistro, telefoneCliente: telefoneCliente };
     }
     for (const linha of document.querySelectorAll('table tbody tr')) {
       const texto = linha.textContent || '';
       const match = texto.match(/Controle:\s*(\d+)\|([\d.\/-]+)/);
       if (!match || normalizarCnpj(match[2]) !== alvo) continue;
       const url = window.__smartTableUtil?.montarUrlCliente?.(match[1], match[2]);
-      if (url) return { cnpj: alvo, nome: texto.split('Controle:')[0].trim().slice(0, 120), url: url };
+      if (url) return { cnpj: alvo, nome: texto.split('Controle:')[0].trim().slice(0, 120), url: url, telefoneCliente: telefoneCliente };
     }
     return null;
   }
@@ -232,6 +253,23 @@
     let mudou = false;
     const eventos = window.__diario && typeof window.__diario.eventos === 'function'
       ? window.__diario.eventos({ tipo: 'contato' }) : [];
+    // Migra estados v1.112 que não armazenavam eventoReferencia. Preserva
+    // resultados já verificados e cria uma linha de base para novos eventos.
+    const referenciaAtual = new Map();
+    (Array.isArray(eventos) ? eventos : []).forEach(function (evento, indice) {
+      if (!evento || evento.t !== 'contato' || evento.d !== dia) return;
+      const cnpj = normalizarCnpj(evento.c);
+      if (!/^\d{14}$/.test(cnpj) || !Number.isInteger(evento.h) || evento.h < 0 || evento.h > 1439) return;
+      referenciaAtual.set(cnpj, { referencia: indice, dia: evento.d, hora: evento.h });
+    });
+    referenciaAtual.forEach(function (referencia, cnpj) {
+      const local = estadoDia.clientes[cnpj];
+      if (!local || Number.isInteger(local.eventoReferencia)) return;
+      local.eventoReferencia = referencia.referencia;
+      if (!Number.isInteger(local.eventoDia)) local.eventoDia = referencia.dia;
+      if (!Number.isInteger(local.eventoHora)) local.eventoHora = referencia.hora;
+      mudou = true;
+    });
     const filaInicial = construirFila(eventos, estadoDia, dia);
     filaInicial.forEach(function (item) {
       let local = estadoDia.clientes[item.cnpj];
@@ -245,10 +283,20 @@
         local.eventoHora = item.hora;
         mudou = true;
       }
+      if (local.eventoReferencia !== item.referencia) {
+        const operacaoAberta = local.operacao && (local.operacao.status === 'em_andamento' || local.operacao.status === 'incerta');
+        if (Number.isInteger(local.eventoReferencia) && !operacaoAberta) {
+          local.estado = ESTADOS.PENDENTE;
+          local.operacao = null;
+        }
+        local.eventoReferencia = item.referencia;
+        mudou = true;
+      }
       const resolvido = resolverCliente(item.cnpj);
       if (resolvido) {
         if (resolvido.nome && local.nome !== resolvido.nome) { local.nome = resolvido.nome; mudou = true; }
         if (resolvido.url && local.url !== resolvido.url) { local.url = resolvido.url; mudou = true; }
+        if (resolvido.telefoneCliente && local.telefoneCliente !== resolvido.telefoneCliente) { local.telefoneCliente = resolvido.telefoneCliente; mudou = true; }
       }
     });
     if (mudou) persistirPar(estadoDia, historico);
@@ -283,10 +331,9 @@
     const style = document.createElement('style');
     style.id = ID_ESTILOS;
     style.textContent = [
-      '#smarttable-checagem-retornos-abrir{position:fixed;right:16px;bottom:18px;z-index:999996;border:1px solid #344054;background:#16232f;color:#fff;border-radius:9px;padding:10px 14px;font:600 13px system-ui;box-shadow:0 3px 12px #0002;cursor:pointer}',
       '#smarttable-checagem-retornos-painel{position:fixed;right:16px;bottom:66px;width:min(660px,calc(100vw - 32px));max-height:82vh;overflow:auto;z-index:999997;background:#fff;color:#182230;border:1px solid #cfd5df;border-radius:12px;box-shadow:0 8px 34px #0003;padding:16px;font:14px/1.45 system-ui,-apple-system,sans-serif}',
       '#smarttable-checagem-retornos-painel *{box-sizing:border-box}',
-      '.smt-cr-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid #eaecf0;padding-bottom:12px;margin-bottom:12px}',
+      '.smt-cr-header{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;border-bottom:1px solid #eaecf0;padding:0 42px 12px 0;margin-bottom:12px}.smt-cr-header [data-smt-cr-fechar]{position:absolute;top:0;right:0}.smt-cr-header>div{min-width:0;flex:1;text-align:center}.smt-cr-header .smt-cr-title{overflow-wrap:anywhere}',
       '.smt-cr-title{font-size:18px;font-weight:700;margin:0 0 4px}',
       '.smt-cr-muted{color:#667085;font-size:12px;margin:4px 0}',
       '.smt-cr-btn{border:1px solid #cfd5df;border-radius:7px;padding:7px 10px;background:#fff;color:#182230;cursor:pointer;font:600 12px system-ui}',
@@ -310,15 +357,6 @@
       '@media(max-width:520px){.smt-cr-card{align-items:flex-start;flex-direction:column}.smt-cr-title{font-size:16px}}',
     ].join('\n');
     document.head.appendChild(style);
-  }
-  function instalarBotaoAbrir() {
-    if (document.getElementById(ID_BOTAO) || !document.body) return;
-    const botao = criarBotao('Checagem de Retornos', function () {
-      if (painel && painel.isConnected) fecharPainel();
-      else abrirPainel();
-    }, '');
-    botao.id = ID_BOTAO;
-    document.body.appendChild(botao);
   }
   function fecharPainel() {
     document.removeEventListener('keydown', aoTeclar);
@@ -544,16 +582,7 @@
       renderizarPainel();
       return;
     }
-    if (resultado === RESULTADOS.RETORNOU && !/registro/i.test(botaoResultado.textContent || '')) {
-      mensagemStatus = 'O botão Registro não corresponde ao resultado esperado. Nenhum registro foi enviado.';
-      renderizarPainel();
-      return;
-    }
-    if (resultado === RESULTADOS.SEM_RETORNO && !/sem\s*retorno/i.test(botaoResultado.textContent || '')) {
-      mensagemStatus = 'O botão Sem Retorno não corresponde ao resultado esperado. Nenhum registro foi enviado.';
-      renderizarPainel();
-      return;
-    }
+    // Os IDs nativos são a fonte de verdade; o rótulo varia entre versões do CRM.
     const hora = horaAtual();
     const marca = montarObservacao(resultado, hora, '');
     const resumo = montarObservacao(resultado, hora, textoOpcional);
@@ -750,10 +779,14 @@
     }
     return true;
   }
-  function navegarParaCliente(cnpj) {
+  function navegarParaCliente(cnpj, abrirWhatsAppQuandoChegar) {
     if (lerCnpjAtual() === cnpj) {
       if (painel) renderizarPainel();
       else abrirPainel();
+      const estadoAtual = lerEstadoDia(chaveDia());
+      if (abrirWhatsAppQuandoChegar && estadoAtual.fluxoAtivo && estadoAtual.aberturaAutomaticaPendente) {
+        window.setTimeout(function () { abrirWhatsAppAutomaticamente(cnpj); }, 0);
+      }
       return;
     }
     const estadoDia = lerEstadoDia(chaveDia());
@@ -773,6 +806,12 @@
       return;
     }
     if (!setAtivo(cnpj)) return;
+    const estadoAntesDaNavegacao = lerEstadoDia(chaveDia());
+    if (abrirWhatsAppQuandoChegar && estadoAntesDaNavegacao.fluxoAtivo) {
+      estadoAntesDaNavegacao.aberturaAutomaticaPendente = true;
+      estadoAntesDaNavegacao.clienteAtivo = cnpj;
+      persistirEstado(estadoAntesDaNavegacao);
+    }
     window.location.href = destino.href;
   }
 
@@ -782,67 +821,281 @@
       renderizarPainel();
       return;
     }
-    const fn = window.abrirWhatsAppCliente;
-    if (typeof fn !== 'function') {
-      mensagemStatus = 'O CRM não disponibilizou a função nativa de abertura do WhatsApp nesta página.';
+    const telefone = obterTelefoneWhatsApp(cnpj);
+    if (!telefone.url) {
+      mensagemStatus = 'Não encontrei um celular válido do responsável nem do cliente. A checagem continua pendente.';
       renderizarPainel();
       return;
     }
-    let resumo = document.getElementById('contato-resumo');
-    if (!resumo || !String(resumo.value || '').trim()) {
-      const abrir = document.querySelector('[onclick^="openModalContato"]');
-      if (abrir) abrir.click();
-      resumo = document.getElementById('contato-resumo');
-      if (!resumo || !String(resumo.value || '').trim()) {
-        mensagemStatus = 'Abra o formulário de contato e prepare a mensagem no CRM antes de abrir o WhatsApp. A Checagem não envia mensagens.';
-        renderizarPainel();
-        return;
-      }
+    const estadoDia = lerEstadoDia(chaveDia());
+    if (estadoDia.clientes[cnpj]) {
+      estadoDia.clientes[cnpj].whatsappUrl = telefone.url;
+      estadoDia.clientes[cnpj].whatsappOrigem = telefone.origem;
+      persistirEstado(estadoDia);
     }
-    const flagAnterior = window.__checagemRetornosAbrindoWhatsApp;
-    window.__checagemRetornosAbrindoWhatsApp = true;
-    try {
-      fn();
-      mensagemStatus = 'Comando de abertura acionado. Confirme a conversa no WhatsApp; esta ação não registra uma checagem.';
-    } catch (erro) {
-      mensagemStatus = 'O CRM não conseguiu abrir a conversa. O cliente continua na fila.';
-    } finally {
-      if (flagAnterior === undefined) delete window.__checagemRetornosAbrindoWhatsApp;
-      else window.__checagemRetornosAbrindoWhatsApp = flagAnterior;
-    }
+    let janela = null;
+    try { janela = window.open(telefone.url, '_blank'); } catch (erro) {}
+    mensagemStatus = janela
+      ? 'WhatsApp aberto pelo celular do ' + (telefone.origem === 'responsavel' ? 'responsável' : 'cliente') + '. A abertura não confirma resposta.'
+      : 'O navegador bloqueou a abertura. Use o link “Abrir WhatsApp” no popup.';
     renderizarPainel();
   }
 
   function avancarApos(cnpjAtual) {
     const snapshot = sincronizarEstadoComDiario();
+    if (!snapshot.estadoDia.fluxoAtivo) { renderizarPainel(); return; }
     const proximo = construirFila(snapshot.eventos, snapshot.estadoDia, snapshot.dia)
-      .find(function (cliente) { return cliente.cnpj !== cnpjAtual; });
-    if (proximo && (proximo.url || snapshot.estadoDia.clientes[proximo.cnpj]?.url)) {
+      .find(function (cliente) { return cliente.cnpj !== cnpjAtual && cliente.estado !== ESTADOS.NAO_VERIFICAVEL && (cliente.url || snapshot.estadoDia.clientes[cliente.cnpj]?.url); });
+    if (proximo) {
       snapshot.estadoDia.clienteAtivo = proximo.cnpj;
+      snapshot.estadoDia.aberturaAutomaticaPendente = true;
       if (!persistirEstado(snapshot.estadoDia)) {
         mensagemStatus += ' Não consegui persistir o próximo cliente; a fila permanece disponível.';
         renderizarPainel();
         return;
       }
-      navegarParaCliente(proximo.cnpj);
+      navegarParaCliente(proximo.cnpj, true);
       return;
     }
+    const token = snapshot.estadoDia.fluxoTokenWhatsApp;
+    snapshot.estadoDia.clienteAtivo = '';
+    snapshot.estadoDia.fluxoAtivo = false;
+    snapshot.estadoDia.aberturaAutomaticaPendente = false;
+    snapshot.estadoDia.fluxoTokenWhatsApp = '';
+    snapshot.estadoDia.janelaWhatsAppReservada = false;
+    publicarHandshakeWhatsApp(token, '');
+    persistirEstado(snapshot.estadoDia);
+    mensagemStatus = 'Checagem concluída: não há mais clientes pendentes na fila de hoje.';
+    renderizarPainel();
+  }
+
+
+  function normalizarNumeroWhatsApp(valor) {
+    let digitos = String(valor == null ? '' : valor).replace(/\D/g, '');
+    if (digitos.length >= 12 && digitos.startsWith('55')) digitos = digitos.slice(2);
+    if (digitos.length !== 11 || digitos[2] !== '9') return '';
+    return '55' + digitos;
+  }
+  function escolherTelefoneWhatsApp(celularResponsavel, celularCliente) {
+    const responsavel = normalizarNumeroWhatsApp(celularResponsavel);
+    if (responsavel) return { numero: responsavel, origem: 'responsavel', url: 'https://wa.me/' + responsavel };
+    const cliente = normalizarNumeroWhatsApp(celularCliente);
+    if (cliente) return { numero: cliente, origem: 'cliente', url: 'https://wa.me/' + cliente };
+    return { numero: '', origem: '', url: '' };
+  }
+  function obterTelefoneWhatsApp(cnpj) {
+    const estado = lerEstadoDia(chaveDia());
+    const cliente = estado.clientes[cnpj] || {};
+    const responsavel = window.__RESPONSAVEL__ && typeof window.__RESPONSAVEL__ === 'object'
+      ? String(window.__RESPONSAVEL__.celular || '')
+      : '';
+    return escolherTelefoneWhatsApp(responsavel, cliente.telefoneCliente || '');
+  }
+  function publicarHandshakeWhatsApp(token, url) {
+    if (!token) return false;
+    try {
+      const bruto = window.localStorage.getItem(CHAVE_HANDSHAKE_WHATSAPP);
+      const mensagem = bruto ? JSON.parse(bruto) : null;
+      if (!mensagem || mensagem.token !== token) return false;
+      mensagem.status = url ? 'abrir' : 'cancelar';
+      mensagem.url = url || '';
+      mensagem.atualizadoEm = Date.now();
+      window.localStorage.setItem(CHAVE_HANDSHAKE_WHATSAPP, JSON.stringify(mensagem));
+      return true;
+    } catch (erro) { return false; }
+  }
+  function reservarJanelaWhatsAppPorGesto() {
+    const token = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 9);
+    let janela = null;
+    let reservada = false;
+    try {
+      window.localStorage.setItem(CHAVE_HANDSHAKE_WHATSAPP, JSON.stringify({
+        token: token, status: 'aguardando', criadoEm: Date.now(), url: '',
+      }));
+      janela = window.open('about:blank', '_blank');
+      if (janela && !janela.closed) {
+        const script = '(function(){const token=' + JSON.stringify(token) + ';const key=' + JSON.stringify(CHAVE_HANDSHAKE_WHATSAPP) + ';let tentativas=0;const timer=setInterval(function(){tentativas++;try{const origem=window.opener;const bruto=origem&&origem.localStorage.getItem(key);const msg=bruto?JSON.parse(bruto):null;if(msg&&msg.token===token){if(msg.status==="abrir"&&/^https:\\/\\/wa\\.me\\/55\\d{11}$/.test(msg.url||"")){origem.localStorage.removeItem(key);clearInterval(timer);window.location.replace(msg.url);return;}if(msg.status==="cancelar"){clearInterval(timer);window.close();return;}}}catch(e){}if(tentativas>120){clearInterval(timer);window.close();}},250);})();';
+        janela.document.open();
+        janela.document.write('<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Preparando WhatsApp</title><body style="font:16px system-ui;padding:24px;color:#344054">Preparando a conversa do próximo cliente…<script>' + script + '</script></body></html>');
+        janela.document.close();
+        reservada = true;
+      }
+    } catch (erro) {
+      try { if (janela && !janela.closed) janela.close(); } catch (ignorado) {}
+    }
     const estadoDia = lerEstadoDia(chaveDia());
-    estadoDia.clienteAtivo = '';
+    estadoDia.fluxoTokenWhatsApp = token;
+    estadoDia.janelaWhatsAppReservada = reservada;
+    if (!persistirEstado(estadoDia)) {
+      publicarHandshakeWhatsApp(token, '');
+      return '';
+    }
+    return token;
+  }
+  async function aguardarResponsavelWhatsApp() {
+    const limite = Date.now() + 2500;
+    while ((!window.__RESPONSAVEL__ || typeof window.__RESPONSAVEL__ !== 'object') && Date.now() < limite) {
+      await new Promise(function (resolve) { window.setTimeout(resolve, 100); });
+    }
+  }
+  async function abrirWhatsAppAutomaticamente(cnpj) {
+    if (window.__checagemRetornosAberturaAutomatica === true) return;
+    window.__checagemRetornosAberturaAutomatica = true;
+    try {
+      let estadoDia = lerEstadoDia(chaveDia());
+      const cliente = estadoDia.clientes[cnpj];
+      if (!cliente || !estadoDia.aberturaAutomaticaPendente || estadoDia.clienteAtivo !== cnpj) return;
+      const token = estadoDia.fluxoTokenWhatsApp || '';
+      const reservada = estadoDia.janelaWhatsAppReservada === true;
+      estadoDia.aberturaAutomaticaPendente = false;
+      if (!persistirEstado(estadoDia)) {
+        mensagemStatus = 'Não consegui persistir a abertura automática. Use o link do WhatsApp no popup.';
+        renderizarPainel();
+        return;
+      }
+      await aguardarResponsavelWhatsApp();
+      const telefone = obterTelefoneWhatsApp(cnpj);
+      estadoDia = lerEstadoDia(chaveDia());
+      const atual = estadoDia.clientes[cnpj];
+      if (!atual) return;
+      atual.whatsappUrl = telefone.url;
+      atual.whatsappOrigem = telefone.origem;
+      persistirEstado(estadoDia);
+      if (!telefone.url) {
+        publicarHandshakeWhatsApp(token, '');
+        mensagemStatus = 'Não encontrei um celular válido do responsável nem do cliente. A checagem continua pendente.';
+        renderizarPainel();
+        return;
+      }
+      if (reservada && publicarHandshakeWhatsApp(token, telefone.url)) {
+        mensagemStatus = 'WhatsApp preparado automaticamente pelo celular do ' + (telefone.origem === 'responsavel' ? 'responsável' : 'cliente') + '.';
+      } else {
+        publicarHandshakeWhatsApp(token, '');
+        let janela = null;
+        try { janela = window.open(telefone.url, '_blank'); } catch (erro) {}
+        mensagemStatus = janela
+          ? 'WhatsApp aberto pelo celular do ' + (telefone.origem === 'responsavel' ? 'responsável' : 'cliente') + '.'
+          : 'O navegador bloqueou a abertura automática. Use o link “Abrir WhatsApp” no popup.';
+      }
+      renderizarPainel();
+    } finally {
+      window.__checagemRetornosAberturaAutomatica = false;
+    }
+  }
+  function iniciarFluxo() {
+    const snapshot = sincronizarEstadoComDiario();
+    const fila = construirFila(snapshot.eventos, snapshot.estadoDia, snapshot.dia);
+    if (!fila.length) {
+      mensagemStatus = 'Não há clientes elegíveis pendentes hoje.';
+      renderizarPainel();
+      return;
+    }
+    const alvo = fila[0];
+    if (!alvo.url) {
+      mensagemStatus = 'Não consegui resolver a URL do primeiro cliente da fila. Nenhuma navegação foi feita.';
+      renderizarPainel();
+      return;
+    }
+    const token = reservarJanelaWhatsAppPorGesto();
+    const estadoDia = lerEstadoDia(chaveDia());
+    estadoDia.fluxoAtivo = true;
+    estadoDia.clienteAtivo = alvo.cnpj;
+    estadoDia.aberturaAutomaticaPendente = true;
+    estadoDia.fluxoTokenWhatsApp = token || estadoDia.fluxoTokenWhatsApp || '';
+    if (!persistirEstado(estadoDia)) {
+      mensagemStatus = 'Não consegui salvar o início do fluxo. Nenhuma navegação foi feita.';
+      renderizarPainel();
+      return;
+    }
+    mensagemStatus = 'Checagem iniciada. Abrindo o primeiro cliente…';
+    navegarParaCliente(alvo.cnpj, true);
+  }
+  function pausarFluxo() {
+    const estadoDia = lerEstadoDia(chaveDia());
+    estadoDia.fluxoAtivo = false;
+    estadoDia.aberturaAutomaticaPendente = false;
+    publicarHandshakeWhatsApp(estadoDia.fluxoTokenWhatsApp, '');
+    estadoDia.fluxoTokenWhatsApp = '';
+    estadoDia.janelaWhatsAppReservada = false;
+    mensagemStatus = 'Fluxo pausado. O estado e o histórico foram preservados.';
     persistirEstado(estadoDia);
     renderizarPainel();
+  }
+  function todosOsClientesDaFila(snapshot) {
+    const estadoDia = snapshot.estadoDia;
+    const fila = construirFila(snapshot.eventos, estadoDia, snapshot.dia);
+    const verificados = Object.keys(estadoDia.clientes || {}).map(function (cnpj) {
+      const cliente = estadoDia.clientes[cnpj] || {};
+      if (cliente.estado !== ESTADOS.VERIFICADO_RETORNOU && cliente.estado !== ESTADOS.VERIFICADO_SEM_RETORNO) return null;
+      return {
+        cnpj: cnpj, dia: cliente.eventoDia, hora: cliente.eventoHora,
+        nome: cliente.nome || '', url: cliente.url || '', telefoneCliente: cliente.telefoneCliente || '',
+        whatsappUrl: cliente.whatsappUrl || '', whatsappOrigem: cliente.whatsappOrigem || '',
+        estado: cliente.estado, operacao: cliente.operacao || null, ordem: Number.isInteger(cliente.eventoReferencia) ? cliente.eventoReferencia : 0,
+      };
+    }).filter(Boolean);
+    const unicos = new Map();
+    fila.concat(verificados).forEach(function (cliente) { unicos.set(cliente.cnpj, cliente); });
+    return Array.from(unicos.values()).sort(function (a, b) { return (a.hora || 0) - (b.hora || 0) || (a.ordem || 0) - (b.ordem || 0); });
+  }
+  function navegarClienteRelativo(direcao) {
+    const snapshot = sincronizarEstadoComDiario();
+    const todos = todosOsClientesDaFila(snapshot);
+    if (!todos.length) {
+      mensagemStatus = 'Não há clientes para navegar na checagem de hoje.';
+      renderizarPainel();
+      return;
+    }
+    const atual = lerCnpjAtual() || snapshot.estadoDia.clienteAtivo;
+    let indice = todos.findIndex(function (cliente) { return cliente.cnpj === atual; });
+    if (indice < 0) indice = direcao > 0 ? -1 : todos.length;
+    const proximo = todos[Math.max(0, Math.min(todos.length - 1, indice + direcao))];
+    if (!proximo || proximo.cnpj === atual) return;
+    const estadoDia = lerEstadoDia(chaveDia());
+    let token = '';
+    if (estadoDia.fluxoAtivo) token = reservarJanelaWhatsAppPorGesto();
+    estadoDia.clienteAtivo = proximo.cnpj;
+    if (estadoDia.fluxoAtivo) {
+      estadoDia.aberturaAutomaticaPendente = true;
+      if (token) estadoDia.fluxoTokenWhatsApp = token;
+    }
+    if (!persistirEstado(estadoDia)) {
+      mensagemStatus = 'Não consegui salvar a navegação. Nenhuma mudança foi feita.';
+      renderizarPainel();
+      return;
+    }
+    navegarParaCliente(proximo.cnpj, Boolean(estadoDia.fluxoAtivo));
+  }
+  function atalhoChecagem(evento) {
+    if (!evento.altKey || !evento.shiftKey || evento.ctrlKey || evento.metaKey || evento.repeat || evento.code !== 'KeyR') return;
+    if (window.__editorMensagens?.estaAberto?.() || window.__promessaRapida?.estaAberto?.()) return;
+    evento.preventDefault();
+    if (painel && painel.isConnected) fecharPainel();
+    else abrirPainel();
   }
 
   function criarCabecalho() {
     const cabecalho = elemento('div', undefined, 'smt-cr-header');
     const grupo = elemento('div');
+    grupo.style.minWidth = '0';
+    grupo.style.flex = '1';
+    grupo.style.textAlign = 'center';
     const titulo = elemento('h2', 'Checagem de Retornos', 'smt-cr-title');
     titulo.id = 'smt-cr-titulo';
     grupo.appendChild(titulo);
     grupo.appendChild(elemento('p', 'Contatos de hoje, do mais antigo ao mais recente. Abrir o WhatsApp não confirma resposta.', 'smt-cr-muted'));
+    const anterior = criarBotao('←', function () { navegarClienteRelativo(-1); }, 'smt-cr-btn');
+    anterior.setAttribute('aria-label', 'Cliente anterior');
+    const proximo = criarBotao('→', function () { navegarClienteRelativo(1); }, 'smt-cr-btn');
+    proximo.setAttribute('aria-label', 'Próximo cliente');
+    const todos = todosOsClientesDaFila(sincronizarEstadoComDiario());
+    const cnpjAtual = lerCnpjAtual() || lerEstadoDia(chaveDia()).clienteAtivo;
+    const indice = todos.findIndex(function (cliente) { return cliente.cnpj === cnpjAtual; });
+    anterior.disabled = indice <= 0;
+    proximo.disabled = indice >= todos.length - 1;
     const fechar = criarBotao('Fechar', fecharPainel, 'smt-cr-btn');
     fechar.dataset.smtCrFechar = '1';
-    cabecalho.append(grupo, fechar);
+    cabecalho.append(anterior, grupo, proximo, fechar);
     return cabecalho;
   }
   function criarCartaoCliente(cliente, ativo) {
@@ -892,9 +1145,18 @@
       return form;
     }
 
-    form.appendChild(criarBotao('Abrir conversa no WhatsApp', function () {
+    form.appendChild(criarBotao('Abrir WhatsApp', function () {
       abrirWhatsApp(cliente.cnpj);
     }, 'smt-cr-btn'));
+    if (cliente.whatsappUrl) {
+      const linkWhatsapp = elemento('a', 'Abrir WhatsApp pelo link direto', 'smt-cr-muted');
+      linkWhatsapp.href = cliente.whatsappUrl;
+      linkWhatsapp.target = '_blank';
+      linkWhatsapp.rel = 'noopener noreferrer';
+      linkWhatsapp.style.display = 'inline-block';
+      linkWhatsapp.style.marginTop = '6px';
+      form.appendChild(linkWhatsapp);
+    }
     form.appendChild(elemento('label', 'Resultado da checagem', 'smt-cr-label'));
     const escolhas = elemento('div', undefined, 'smt-cr-results');
     [
@@ -947,7 +1209,8 @@
 
     const acoes = elemento('div', undefined, 'smt-cr-actions');
     let acaoEnviada = false;
-    const registrar = criarBotao('Registrar e avançar', function () {
+    const rotuloRegistro = lerEstadoDia(chaveDia()).fluxoAtivo ? 'Registrar e avançar' : 'Registrar resultado';
+    const registrar = criarBotao(rotuloRegistro, function () {
       if (acaoEnviada) return;
       const valor = textarea.value.trim();
       if (!resultadoSelecionado) {
@@ -964,6 +1227,7 @@
         return;
       }
       acaoEnviada = true;
+      if (lerEstadoDia(chaveDia()).fluxoAtivo) reservarJanelaWhatsAppPorGesto();
       if (resultadoSelecionado === RESULTADOS.NAO_VERIFICAVEL) registrarSemVerificacao(cliente.cnpj, valor);
       else iniciarGravacao(cliente.cnpj, resultadoSelecionado, valor);
     }, 'smt-cr-btn smt-cr-primary', true);
@@ -982,7 +1246,8 @@
       const cliente = estadoDia.clientes[cnpj];
       return {
         cnpj: cnpj, dia: cliente.eventoDia, hora: cliente.eventoHora,
-        nome: cliente.nome || '', url: cliente.url || '', estado: cliente.estado,
+        nome: cliente.nome || '', url: cliente.url || '', telefoneCliente: cliente.telefoneCliente || '',
+        whatsappUrl: cliente.whatsappUrl || '', whatsappOrigem: cliente.whatsappOrigem || '', estado: cliente.estado,
         operacao: cliente.operacao || null,
       };
     }).filter(function (cliente) {
@@ -992,6 +1257,10 @@
     painel.replaceChildren();
     painel.appendChild(criarCabecalho());
     painel.appendChild(elemento('div', 'Na fila: ' + fila.length + ' · Verificados hoje: ' + verificados.length, 'smt-cr-muted'));
+    const acoesFluxo = elemento('div', undefined, 'smt-cr-actions');
+    if (estadoDia.fluxoAtivo) acoesFluxo.appendChild(criarBotao('Pausar fluxo', pausarFluxo, 'smt-cr-btn'));
+    else acoesFluxo.appendChild(criarBotao('Iniciar checagem', iniciarFluxo, 'smt-cr-btn smt-cr-primary', fila.length === 0));
+    painel.appendChild(acoesFluxo);
     if (mensagemStatus) {
       const erro = /não consegui|não foi possível|falha|incerta|não encontrei|não localizei|excede|não corresponde/i.test(mensagemStatus);
       const status = elemento('div', mensagemStatus, erro ? 'smt-cr-error' : 'smt-cr-warning');
@@ -1029,11 +1298,14 @@
   function iniciar() {
     limparChavesAntigas();
     instalarEstilos();
-    instalarBotaoAbrir();
     window.__smartTableUtil?.registrarPainel?.('checagemRetornos', fecharPainel);
+    document.addEventListener('keydown', atalhoChecagem);
     const cnpjAtual = lerCnpjAtual();
     const estadoDia = lerEstadoDia(chaveDia());
     if (cnpjAtual && estadoDia.clienteAtivo === cnpjAtual) abrirPainel();
+    if (cnpjAtual && estadoDia.fluxoAtivo && estadoDia.aberturaAutomaticaPendente && estadoDia.clienteAtivo === cnpjAtual) {
+      window.setTimeout(function () { abrirWhatsAppAutomaticamente(cnpjAtual); }, 0);
+    }
     const cliente = cnpjAtual ? estadoDia.clientes[cnpjAtual] : null;
     if (cliente && cliente.operacao && cliente.operacao.status === 'em_andamento') {
       window.setTimeout(function () { observarOperacao(cnpjAtual, cliente.operacao.id, true); }, 0);
@@ -1052,6 +1324,8 @@
     RESULTADOS: RESULTADOS,
     ESTADOS: ESTADOS,
     LIMITE_RESUMO_CRM: LIMITE_RESUMO_CRM,
+    normalizarNumeroWhatsApp: normalizarNumeroWhatsApp,
+    escolherTelefoneWhatsApp: escolherTelefoneWhatsApp,
   });
   window.__checagemRetornos = Object.freeze({
     abrir: abrirPainel,
@@ -1060,6 +1334,9 @@
     obterEstadoHoje: function () { return lerEstadoDia(chaveDia()); },
     obterHistorico: lerHistorico,
     abrirWhatsApp: abrirWhatsApp,
+    iniciarFluxo: iniciarFluxo,
+    pausarFluxo: pausarFluxo,
+    navegarClienteRelativo: navegarClienteRelativo,
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar, { once: true });
