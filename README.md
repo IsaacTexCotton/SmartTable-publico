@@ -7,4 +7,7 @@ próxima cópia.
 
 ## Instalar (Tampermonkey)
 
-- https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js
+- SmartTable: https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/smart-table.user.js
+- Ponte opcional WhatsApp Web → CRM: https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/integracoes/whatsapp-crm-bridge.user.js
+
+A ponte é um userscript separado: instale-a somente se tiver autorização para essa integração. Ela lê apenas o telefone visível de uma conversa após clique explícito; não envia mensagens.

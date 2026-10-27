@@ -147,7 +147,7 @@
     { tecla: 'Alt+N', descricao: 'Registrar promessa: marque o(s) título(s) (1 a 9), escolha a data (H hoje, A amanhã) e Enter -- o SmartTable preenche o contato do CRM, salva e confere' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
-    { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
+    { tecla: 'Alt+B', descricao: 'Busca rápida de cliente por nome, CNPJ ou celular' },
     { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
     { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+M', descricao: 'Carteira: vencido, aging, tendência, cura e resultado do período' },

@@ -24,6 +24,21 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.117.0', data: '27/10/2026',
+      mudancas: [
+        'A Busca Rápida (Alt+B) pesquisa telefones tanto nos campos do cadastro quanto no celular do responsável financeiro, reutilizando a leitura de ficha do Módulo 29.',
+        'A busca por celular consulta até quatro fichas em paralelo, informa falhas e não abre automaticamente um único resultado quando a leitura ficou incompleta.',
+        'Inclui script opcional de ponte com o WhatsApp Web: por clique explícito, transfere o telefone visível da conversa atual para o CRM sem enviar o número em URL nem ler o histórico de mensagens. A ponte precisa ser instalada separadamente.'
+      ],
+    },
+    {
+      versao: '1.116.0', data: '27/10/2026',
+      mudancas: [
+        'A Busca Rápida (Alt+B) aceita número de celular com DDD, com ou sem pontuação e código do Brasil, e abre o cadastro correspondente.',
+        'Quando há mais de um cliente com o mesmo celular, mostra uma lista para escolher. A consulta usa os registros disponíveis no CRM e mantém os demais filtros; se a consulta falhar, conserva o fallback para a busca nativa.',
+      ],
+    },
+    {
       versao: '1.115.0', data: '27/10/2026',
       mudancas: [
         'Inclui o Guia de Implementações pelo atalho Shift+Alt+I, com explicações dos recursos atuais agrupadas por função.',
