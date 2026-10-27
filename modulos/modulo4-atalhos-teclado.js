@@ -60,7 +60,6 @@
     estaDigitando,
     encontrarElementoVisivelPorTexto,
     clicarBotaoPorTexto,
-    esperarElementoVisivelPorTextoNaJanela,
     esperarCondicaoNaJanela,
     esperarRelatorioProntoNaJanela,
     simularCliqueCompleto,
@@ -115,14 +114,14 @@
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
     // Espera pelo Módulo 5 ler a aba "Grupo" (ele desiste em 2,5s).
     TIMEOUT_AGUARDAR_GRUPO_MS: 3000,
-    // Alt+A com outras razões do grupo vencidas: espera pelo botão de
-    // relatório em cada aba de fundo e intervalo do polling (também usado
-    // pra esperar o relatório terminar).
+    // As abas de outras razões são aguardadas em paralelo antes da geração.
     TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
-    // O botão de relatório só reabilita depois de captura + blob + clipboard
-    // + download; confirmado com o usuário que 2000ms fixos não bastavam.
-    TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS: 10000,
+    // Teto total da etapa das outras razões; não multiplica o timeout por aba.
+    TIMEOUT_TOTAL_OUTRAS_RAZOES_MS: 30000,
+    // Espera o estado terminal explícito do Módulo 1 (sucesso ou erro), não
+    // apenas o botão reabilitado. Os dois CDNs podem consumir até 10 s.
+    TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS: 20000,
     // Trechos de texto (minúsculo). O relatório tem ID confirmado: o texto é
     // plano B. Só TEXTO_BOTAO_CONTATO não tem ID confirmado.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -196,8 +195,8 @@
   // (que nunca sai do lugar).
   //
   // Todas as abas abrem DE UMA VEZ, síncronas, dentro do gesto do usuário:
-  // com await entre elas o navegador bloqueia como popup. Só a espera pelo
-  // botão em cada aba é sequencial.
+  // com await entre elas o navegador bloqueia como popup. A espera pelos
+  // botões é paralela; a geração é sequencial para proteger a área de transferência.
   async function gerarRelatoriosDasOutrasRazoes() {
     const grupo = window.__alertaGrupo;
     if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) {
@@ -210,8 +209,7 @@
           console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
           return false;
         }
-        // v1.98.0 (revisão de código): outra razão com "Não cobrar" no Alerta
-        // (Módulo 12) não ganha relatório; antes a aba de fundo gerava a imagem do mesmo jeito.
+        // Outra razão com "Não cobrar" no Alerta não ganha relatório.
         try {
           if (window.__alertaCliente?.estaSuprimidoDaPrioridade?.(empresa.cnpj)) {
             console.warn(`[Atalhos] ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} está com "Não cobrar" no Alerta -- sem relatório dessa razão.`);
@@ -225,32 +223,68 @@
       })
       .map((empresa) => ({ empresa, aba: window.open(empresa.url, '_blank') }));
 
-    for (const { empresa, aba } of tentativas) {
+    // O orçamento total começa antes da espera do DOM. Assim, a carga
+    // paralela das abas e a geração em sequência compartilham o mesmo teto:
+    // falha ou aba desatualizada não soma um timeout completo por empresa.
+    const prazoFinalGrupo = Date.now() + CONFIG_ATALHOS.TIMEOUT_TOTAL_OUTRAS_RAZOES_MS;
+
+    // Todas as abas são abertas sincronicamente no gesto do usuário para não
+    // ativar o bloqueador de pop-ups. A espera pelo DOM ocorre EM PARALELO:
+    // uma empresa lenta não consome o teto de espera de todas as anteriores.
+    const abasPreparadas = await Promise.all(tentativas.map(async ({ empresa, aba }) => {
+      if (!aba) return { empresa, aba, botao: null };
+      try {
+        // Usa o ID próprio do Módulo 1, não um botão homônimo do CRM. Lê
+        // aba.document a cada polling porque a navegação substitui o about:blank.
+        let botao = null;
+        const localizado = await esperarCondicaoNaJanela(() => {
+          try {
+            botao = aba.document.getElementById(CONFIG_ATALHOS.ID_BOTAO_RELATORIO);
+            return !!botao;
+          } catch (erro) {
+            return false;
+          }
+        }, aba, CONFIG_ATALHOS.TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS,
+        CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS);
+        return { empresa, aba, botao: localizado ? botao : null };
+      } catch (erro) {
+        return { empresa, aba, botao: null, erro };
+      }
+    }));
+
+    // A geração segue sequencial para evitar que capturas simultâneas disputem
+    // o foco e a área de transferência do navegador.
+    for (const { empresa, aba, botao, erro } of abasPreparadas) {
       if (!aba) {
         console.warn(`[Atalhos] Não consegui abrir aba para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- popup bloqueado?`);
         continue;
       }
       try {
-        const botao = await esperarElementoVisivelPorTextoNaJanela(
-          'button, a[role="button"], [role="button"]',
-          CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO,
-          aba,
-          CONFIG_ATALHOS.TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS,
-          CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
-        );
-        if (botao) {
-          simularCliqueCompleto(botao);
+        if (erro) {
+          console.warn(`[Atalhos] Erro procurando o botão de relatório para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}:`, erro);
+        }
+        const restanteMs = prazoFinalGrupo - Date.now();
+        if (restanteMs <= 0) {
+          console.warn(
+            `[Atalhos] Teto total de ${CONFIG_ATALHOS.TIMEOUT_TOTAL_OUTRAS_RAZOES_MS} ms atingido ao gerar relatórios do grupo; não vou prolongar a espera por ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}.`
+          );
+        } else if (botao) {
+          if (!botao.disabled) simularCliqueCompleto(botao);
           const terminou = await esperarRelatorioProntoNaJanela(
             botao,
             aba,
-            CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS,
+            Math.min(CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS, restanteMs),
             CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
           );
           if (terminou) {
             console.log(`[Atalhos] Relatório gerado em aba de fundo para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}.`);
           } else {
+            const status = botao.dataset?.relatorioStatus;
+            const motivo = status === 'erro'
+              ? (botao.dataset.relatorioErro || 'a geração falhou')
+              : 'o estado final não foi confirmado a tempo';
             console.warn(
-              `[Atalhos] Não confirmei que o relatório de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} terminou de gerar a tempo -- fechando mesmo assim.`
+              `[Atalhos] Não confirmei o relatório de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} (${motivo}) -- fechando a aba.`
             );
           }
         } else {
@@ -484,22 +518,25 @@
     const botaoRelatorio = acionarGerarRelatorio();
 
     if (!botaoRelatorio) {
-      // Sem botão, segue: não perde a mensagem por causa do relatório.
-      await abrirContatoEEscrever();
+      console.warn('[Atalhos] Alt+A interrompido: não encontrei o botão de relatório.');
+      window.__smartTableUtil?.toast?.('Não encontrei o botão do relatório. Atendimento rápido interrompido; confira a tela e tente novamente.');
       return;
     }
 
-    const terminou = await esperarCondicaoNaJanela(
-      () => botaoRelatorio.disabled === false,
+    const terminou = await esperarRelatorioProntoNaJanela(
+      botaoRelatorio,
       window,
       CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS,
       CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
     );
     if (!terminou) {
-      console.warn(
-        '[Atalhos] O relatório não confirmou término a tempo -- seguindo com a tela de contato mesmo assim.'
-      );
-      window.__smartTableUtil?.toast?.('Relatório pode não ter gerado -- confira antes de enviar.');
+      const status = botaoRelatorio.dataset?.relatorioStatus;
+      const motivo = status === 'erro'
+        ? (botaoRelatorio.dataset.relatorioErro || 'a geração falhou')
+        : 'o estado final não foi confirmado a tempo';
+      console.warn('[Atalhos] Alt+A interrompido: relatório não confirmado (' + motivo + ').');
+      window.__smartTableUtil?.toast?.('O relatório não foi confirmado. Atendimento rápido interrompido; confira o relatório antes de cobrar.');
+      return;
     }
 
     await abrirContatoEEscrever();

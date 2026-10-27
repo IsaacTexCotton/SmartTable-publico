@@ -103,11 +103,17 @@
     });
   }
 
-  // O finally de aoClicar() (Módulo 1) só reabilita o botão depois de
-  // captura, cópia e download: botão habilitado = relatório pronto. Usa a
-  // referência do botão, não busca por texto (que vira "Gerando...").
+  // O botão pode ser reabilitado tanto no sucesso quanto no erro. Por
+  // isso, esperar apenas por disabled === false dava falso positivo e deixava
+  // o Alt+A seguir sem uma imagem válida. O estado é definido pelo Módulo 1.
+  // Resolve true apenas quando a geração foi confirmada com sucesso.
   function esperarRelatorioProntoNaJanela(botao, janela, timeoutMs, intervaloMs) {
-    return esperarCondicaoNaJanela(() => botao.disabled === false, janela, timeoutMs, intervaloMs);
+    return esperarCondicaoNaJanela(
+      () => ['sucesso', 'erro'].includes(botao?.dataset?.relatorioStatus),
+      janela,
+      timeoutMs,
+      intervaloMs
+    ).then((terminou) => terminou && botao?.dataset?.relatorioStatus === 'sucesso');
   }
 
   function dispararEventoDeMouse(elemento, tipo) {

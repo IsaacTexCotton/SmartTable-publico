@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.114.0', data: '27/10/2026',
+      mudancas: [
+        'A geração do relatório tenta duas origens para a mesma versão segura do renderizador; se ambas falharem, avisa claramente em vez de produzir uma imagem com a formatação antiga do CRM.',
+        'Alt+A só avança quando a geração confirma sucesso. Se o relatório falhar ou expirar, interrompe o atendimento antes de preparar uma cobrança incompleta.',
+        'A espera pelas abas das outras razões ocorre em paralelo, com teto total de 30 segundos para a etapa do grupo; capturas ocultas não esperam pelo foco. A geração continua sequencial para proteger a área de transferência.',
+      ],
+    },
+    {
       versao: '1.113.0', data: '26/10/2026',
       mudancas: [
         'A Checagem de Retornos agora abre pelo atalho Shift+Alt+R, sem botão flutuante, e possui Iniciar checagem, pausa e setas para navegar entre clientes.',

@@ -44,16 +44,17 @@
     // de CSS no badge (flexbox, inline-block, span+padding, td com fundo,
     // NBSP, line-height) era necessária -- o defeito sempre esteve na
     // biblioteca, não no HTML/CSS do relatório.
-    const HTML2CANVAS_URL =
-        'https://unpkg.com/html2canvas-pro@2.4.4/dist/html2canvas-pro.min.js';
-    // SEGURANÇA (v1.46.0, revisão de código, AUTORIZADO pelo usuário): o
-    // script roda num iframe da MESMA origem do CRM (acesso à sessão). Sem
-    // integridade, um pacote/CDN comprometido rodaria como o operador. Hash
-    // SHA-384 do arquivo oficial do pacote no npm (html2canvas-pro 2.4.4,
-    // dist/html2canvas-pro.min.js -- o mesmo que o unpkg serve). Trocar a
-    // versão = recalcular: openssl dgst -sha384 -binary ARQ | openssl base64 -A
-    // Arquivo diferente do hash: o navegador recusa, onerror dispara e o
-    // relatório cai no plano B (a lib que o próprio CRM já carrega).
+    // Dois CDNs independentes, mesma versão fixada e mesmo hash SRI. O
+    // jsDelivr é primário; unpkg é a alternativa se o primeiro falhar.
+    // Nunca usamos o html2canvas do CRM como fallback: ele já foi confirmado
+    // como causa da formatação torta dos selos inline.
+    const HTML2CANVAS_URLS = [
+        'https://cdn.jsdelivr.net/npm/html2canvas-pro@2.4.4/dist/html2canvas-pro.min.js',
+        'https://unpkg.com/html2canvas-pro@2.4.4/dist/html2canvas-pro.min.js',
+    ];
+    const HTML2CANVAS_URL = HTML2CANVAS_URLS[0];
+    // SHA-384 do arquivo oficial de html2canvas-pro 2.4.4.
+    // Se a URL, a versão ou o bundle mudar, recalcular o hash antes de publicar.
     const HTML2CANVAS_INTEGRIDADE = 'sha384-p1jiYALFnUMa2gZZSne9+5HrPM/5ByRopgI0w/sKXu8PNCSFPaaZpZyq+mXGToaD';
 
     const SELETOR_TABELA = '#tabela-titulos-ds table';
@@ -1229,75 +1230,146 @@
     // EXPORTACAO
     // ============================================================
 
-    // BUG REAL (diagnosticado no console do operador, v1.29.14): o CRM já
-    // carrega um html2canvas 1.x PRÓPRIO na página (typeof window.html2canvas
-    // === 'function' antes do SmartTable carregar qualquer coisa, e nenhuma
-    // <script> nossa existia no DOM). A versão antiga desta função fazia
-    // "if (typeof html2canvas !== 'undefined') return window.html2canvas" --
-    // ou seja, reaproveitava em silêncio a lib do CRM, que tem o bug de borda
-    // torta em elementos inline, e NUNCA carregava a versão fixada em
-    // HTML2CANVAS_URL. Agora a nossa versão é carregada DENTRO do iframe de
-    // captura (window próprio, sem conflito de global): o CRM continua com a
-    // lib dele intocada (não quebra o botão de Print nativo) e o relatório
-    // sempre usa a versão que a gente escolheu e testou.
-    const TIMEOUT_CARREGAR_HTML2CANVAS_MS = 15000;
+    // O CRM pode carregar uma versão própria de html2canvas 1.x. Ela nunca
+    // será usada para o relatório: seu defeito de renderização já foi
+    // confirmado. Cada URL abaixo tem o mesmo bundle 2.4.4 e SRI.
+    // Limite por CDN; a falha de um host não faz o operador esperar 15 s.
+    const TIMEOUT_CARREGAR_HTML2CANVAS_MS = 5000;
+    const CHAVE_CDN_HTML2CANVAS_PREFERIDO = 'smarttable_html2canvas_cdn_preferido';
+    const CHAVE_FALHA_HTML2CANVAS_ATE = 'smarttable_html2canvas_cdn_falha_ate';
+    const COOLDOWN_FALHA_CDNS_HTML2CANVAS_MS = 30000;
     let _origemUltimaCaptura = null;
 
-    function carregarHtml2CanvasNoIframe(iframe) {
+    // Todos os clientes do grupo compartilham localStorage. Se um CDN já
+    // funcionou, tenta-o primeiro nas próximas capturas; se ambos falharem,
+    // evita repetir até 10 s de espera em cada aba do mesmo atendimento.
+    function obterEstadoDosCdnsHtml2Canvas() {
+        try {
+            const falhaAte = Number(localStorage.getItem(CHAVE_FALHA_HTML2CANVAS_ATE)) || 0;
+            if (falhaAte > Date.now()) {
+                return { urls: [], cooldownRestanteMs: falhaAte - Date.now() };
+            }
+            if (falhaAte) localStorage.removeItem(CHAVE_FALHA_HTML2CANVAS_ATE);
+
+            const preferido = localStorage.getItem(CHAVE_CDN_HTML2CANVAS_PREFERIDO);
+            const urls = HTML2CANVAS_URLS.includes(preferido)
+                ? [preferido, ...HTML2CANVAS_URLS.filter(url => url !== preferido)]
+                : [...HTML2CANVAS_URLS];
+            return { urls, cooldownRestanteMs: 0 };
+        } catch (erro) {
+            // Storage pode estar bloqueado. A captura continua sem cache de CDN.
+            return { urls: [...HTML2CANVAS_URLS], cooldownRestanteMs: 0 };
+        }
+    }
+
+    function registrarCdnHtml2CanvasFuncional(url) {
+        try {
+            localStorage.setItem(CHAVE_CDN_HTML2CANVAS_PREFERIDO, url);
+            localStorage.removeItem(CHAVE_FALHA_HTML2CANVAS_ATE);
+        } catch (erro) {
+            // Falha de storage não deve impedir o relatório.
+        }
+    }
+
+    function registrarFalhaDosCdnsHtml2Canvas() {
+        try {
+            localStorage.removeItem(CHAVE_CDN_HTML2CANVAS_PREFERIDO);
+            localStorage.setItem(
+                CHAVE_FALHA_HTML2CANVAS_ATE,
+                String(Date.now() + COOLDOWN_FALHA_CDNS_HTML2CANVAS_MS)
+            );
+        } catch (erro) {
+            // Falha de storage não deve substituir o erro real de captura.
+        }
+    }
+
+    function carregarHtml2CanvasNoIframe(iframe, url = HTML2CANVAS_URL) {
         return new Promise((resolver, rejeitar) => {
             const doc = iframe.contentDocument;
             const script = doc.createElement('script');
-            const timer = setTimeout(() => {
-                rejeitar(new Error('tempo esgotado carregando ' + HTML2CANVAS_URL));
+            let finalizado = false;
+            let timer = null;
+            const finalizar = (erro, lib) => {
+                if (finalizado) return;
+                finalizado = true;
+                if (timer !== null) clearTimeout(timer);
+                script.onload = null;
+                script.onerror = null;
+                if (erro) {
+                    script.remove();
+                    rejeitar(erro);
+                } else {
+                    resolver(lib);
+                }
+            };
+            timer = setTimeout(() => {
+                finalizar(new Error('tempo esgotado carregando ' + url));
             }, TIMEOUT_CARREGAR_HTML2CANVAS_MS);
             script.integrity = HTML2CANVAS_INTEGRIDADE;
             script.crossOrigin = 'anonymous';
-            script.src = HTML2CANVAS_URL;
+            script.src = url;
             script.onload = () => {
-                clearTimeout(timer);
                 const lib = iframe.contentWindow.html2canvas;
-                if (typeof lib === 'function') resolver(lib);
-                else rejeitar(new Error('script carregou mas não definiu html2canvas'));
+                if (typeof lib === 'function') finalizar(null, lib);
+                else finalizar(new Error('script carregou mas não definiu html2canvas em ' + url));
             };
             script.onerror = () => {
-                clearTimeout(timer);
-                rejeitar(new Error('falha de rede/CSP carregando ' + HTML2CANVAS_URL));
+                finalizar(new Error('falha de rede/CSP/integridade carregando ' + url));
             };
             doc.head.appendChild(script);
         });
     }
 
-    // Plano B: se a nossa versão não carregar (CSP do CRM bloqueando o CDN,
-    // rede fora), usa a lib que já estiver na página -- o relatório sai com
-    // o visual antigo, mas sai. Melhor que não gerar relatório nenhum.
-    function carregarHtml2CanvasDaPagina() {
-        if (typeof window.html2canvas === 'function') return Promise.resolve(window.html2canvas);
-        return Promise.reject(new Error('Não foi possível carregar a biblioteca de captura. ' +
-                                        'Verifique a conexão.'));
-    }
-
     async function obterHtml2Canvas(iframe) {
-        try {
-            const lib = await carregarHtml2CanvasNoIframe(iframe);
-            _origemUltimaCaptura = HTML2CANVAS_URL;
-            return lib;
-        } catch (erro) {
-            console.warn('[aviso-cobranca] Não consegui carregar a versão própria do html2canvas (' +
-                         erro.message + ') -- usando a da página, o visual do relatório pode sair torto.');
-            const lib = await carregarHtml2CanvasDaPagina();
-            _origemUltimaCaptura = 'html2canvas da própria página (plano B)';
-            return lib;
+        const estado = obterEstadoDosCdnsHtml2Canvas();
+        if (estado.cooldownRestanteMs > 0) {
+            throw new Error(
+                'Os CDNs de html2canvas-pro falharam há poucos segundos. ' +
+                'Para evitar novas esperas longas, tente novamente em ' +
+                Math.ceil(estado.cooldownRestanteMs / 1000) + ' s.'
+            );
         }
+
+        const falhas = [];
+        for (const url of estado.urls) {
+            try {
+                const lib = await carregarHtml2CanvasNoIframe(iframe, url);
+                registrarCdnHtml2CanvasFuncional(url);
+                _origemUltimaCaptura = url;
+                return lib;
+            } catch (erro) {
+                falhas.push(url + ': ' + (erro?.message || String(erro)));
+                console.warn('[aviso-cobranca] Falha ao carregar html2canvas-pro em ' + url + ':', erro?.message || erro);
+            }
+        }
+
+        registrarFalhaDosCdnsHtml2Canvas();
+        // Falhar de forma explícita é intencional: usar window.html2canvas do
+        // CRM gera imagens com layout incorreto. O Alt+A receberá o estado
+        // "erro" e não seguirá para preparar/enviar uma cobrança sem relatório.
+        throw new Error(
+            'Não foi possível carregar html2canvas-pro 2.4.4 por nenhum dos CDNs. ' +
+            'Confira a conexão e tente gerar o relatório novamente. ' + falhas.join(' | ')
+        );
     }
 
-    // Aquece o cache HTTP do navegador sem EXECUTAR o script (executar na
-    // janela principal sobrescreveria o html2canvas do CRM).
+    // Abre as conexões com os dois hosts e aquece o cache do CDN primário.
+    // O script só é executado dentro do iframe de captura, nunca nesta página.
     function aquecerHtml2Canvas() {
+        const origens = Array.from(new Set(HTML2CANVAS_URLS.map(url => new URL(url).origin)));
+        for (const origem of origens) {
+            if (document.querySelector('link[data-smarttable-html2canvas-preconnect="' + origem + '"]')) continue;
+            const preconnect = document.createElement('link');
+            preconnect.rel = 'preconnect';
+            preconnect.href = origem;
+            preconnect.crossOrigin = 'anonymous';
+            preconnect.setAttribute('data-smarttable-html2canvas-preconnect', origem);
+            document.head.appendChild(preconnect);
+        }
+
         if (document.querySelector('link[data-smarttable-html2canvas]')) return;
         const link = document.createElement('link');
         link.rel = 'prefetch';
-        // Mesmo modo (CORS) do <script> com integrity: senão o cache aquecido
-        // não serve pra ele.
         link.crossOrigin = 'anonymous';
         link.href = HTML2CANVAS_URL;
         link.setAttribute('data-smarttable-html2canvas', '');
@@ -1383,7 +1455,13 @@
             let copiado = false;
             if (navigator.clipboard && window.ClipboardItem) {
                 try {
-                    await aguardarFoco(TIMEOUT_AGUARDAR_FOCO_MS);
+                    // Abas de outras razões do grupo rodam ocultas. Esperar
+                    // foco nelas acrescentava 8 s por relatório sem chance
+                    // real de o operador trocar para cada aba; tenta copiar
+                    // imediatamente e, se o navegador negar, usa o download.
+                    if (document.visibilityState !== 'hidden') {
+                        await aguardarFoco(TIMEOUT_AGUARDAR_FOCO_MS);
+                    }
                     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
                     copiado = true;
                 } catch (erro) {
@@ -1510,6 +1588,7 @@
         // deve devolver a imagem de um cliente/tentativa anterior (a página
         // não recarrega ao trocar de cliente, ver instalarBotao/aguardarTabelaEInstalar).
         _ultimaImagemBlob = null;
+        _origemUltimaCaptura = null;
 
         // Acordos (Módulo 16, v1.41.0): o relatório só sai depois de saber
         // quais títulos estão em acordo -- nunca uma imagem com título
@@ -1569,6 +1648,8 @@
 
     async function aoClicar(evento) {
         const botao = evento.currentTarget;
+        botao.dataset.relatorioStatus = 'gerando';
+        delete botao.dataset.relatorioErro;
         botao.disabled = true;
         botao.style.opacity = '0.6';
         botao.style.cursor = 'wait';
@@ -1576,6 +1657,7 @@
 
         try {
             const r = await gerarRelatorio();
+            botao.dataset.relatorioStatus = 'sucesso';
 
             let msg = r.total + ' título(s) no relatório. ';
             if (r.copiado) msg += 'Imagem copiada.';
@@ -1596,8 +1678,10 @@
             }
 
         } catch (erro) {
+            botao.dataset.relatorioStatus = 'erro';
+            botao.dataset.relatorioErro = erro?.message || 'Não foi possível gerar o relatório.';
             console.error('[aviso-cobranca]', erro);
-            notificar(erro.message || 'Não foi possível gerar o relatório.', 'error');
+            notificar(botao.dataset.relatorioErro, 'error');
 
         } finally {
             botao.disabled = false;
@@ -1895,6 +1979,7 @@
         // Diagnóstico no console: qual html2canvas gerou o último relatório.
         origemHtml2Canvas: () => _origemUltimaCaptura,
         HTML2CANVAS_URL,
+        HTML2CANVAS_URLS: [...HTML2CANVAS_URLS],
         HTML2CANVAS_INTEGRIDADE,
     };
 
