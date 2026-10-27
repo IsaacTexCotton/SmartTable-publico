@@ -109,6 +109,7 @@
     TECLA_LEMBRETES_BLOQUEIO: 'KeyE',
     TECLA_CONTATOS_GOOGLE: 'KeyJ',
     TECLA_EDITOR_MENSAGENS: 'KeyX',
+    TECLA_IMPLEMENTACOES: 'KeyI',
     // Tetos de segurança: o Alt+A espera o SINAL real (caixa de observações
     // existir, botão de relatório reabilitar), não um tempo fixo.
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
@@ -154,6 +155,7 @@
     { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
     { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos, editar como rascunho, ver a prévia da mensagem completa, publicar, ver o histórico e voltar a uma versão' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
+    { tecla: 'Shift+Alt+I', descricao: 'Guia de Implementações: explicações funcionais e histórico de versões' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
 
@@ -914,6 +916,9 @@
       // diálogo, e estaDigitando() não o pega). Alt+S registraria e enviaria a cobrança por trás dele. O Alt+N, que fecha, segue abaixo.
       if (e.altKey && e.code !== CONFIG_ATALHOS.TECLA_PROMESSA_RAPIDA && window.__promessaRapida?.estaAberto?.()) return;
 
+      // O guia de implementações é modal: evita que outro atalho execute atrás dele.
+      if (e.altKey && !(e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === CONFIG_ATALHOS.TECLA_IMPLEMENTACOES) && window.__painelImplementacoes?.estaAberto?.()) return;
+
       // Única exceção com Shift: Shift+Alt+U REFAZ a fila por prioridade (Alt+U
       // sozinho continua a de hoje). Vem antes da guarda abaixo, que barra
       // Shift. Refazer descarta a fila em andamento e abre ~140 abas de
@@ -924,6 +929,26 @@
       ) {
         e.preventDefault();
         acionarFilaPorPrioridade({ reconstruir: true });
+        return;
+      }
+
+      // Shift+Alt+I abre/fecha o guia. O Alt+I simples permanece sem ação,
+      // conforme a decisão anterior de remover o antigo atalho da fila.
+      if (
+        e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.repeat &&
+        e.code === CONFIG_ATALHOS.TECLA_IMPLEMENTACOES
+      ) {
+        const guiaAberto = window.__painelImplementacoes?.estaAberto?.();
+        if (!guiaAberto && estaDigitando()) return;
+        e.preventDefault();
+        if (guiaAberto) {
+          window.__painelImplementacoes.fecharPainel();
+        } else if (window.__painelImplementacoes?.alternarPainel) {
+          window.__painelImplementacoes.alternarPainel();
+        } else {
+          console.warn('[Atalhos] O Guia de Implementações (Módulo 38) não carregou. Atualize o SmartTable.');
+          window.__smartTableUtil?.toast?.('Guia de Implementações não carregou. Atualize o SmartTable.');
+        }
         return;
       }
 
@@ -1097,6 +1122,7 @@
     obterRessalvaPagamentoEmDiaNaoUtil,
     LISTA_ATALHOS,
     alternarPainelAjuda,
+    alternarPainelImplementacoes: () => window.__painelImplementacoes?.alternarPainel?.(),
     TEXTO_COPIA_CONFIRMADA_APERTE_ALT_S,
     aoClicarNoDocumento,
     TEXTO_AVISO_CLIQUE_MANUAL,

@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.115.0', data: '27/10/2026',
+      mudancas: [
+        'Inclui o Guia de Implementações pelo atalho Shift+Alt+I, com explicações dos recursos atuais agrupadas por função.',
+        'O guia tem busca e uma aba de histórico que reutiliza as entradas de versão já registradas neste log, sem manter uma segunda cópia do histórico.',
+      ],
+    },
+    {
       versao: '1.114.0', data: '27/10/2026',
       mudancas: [
         'A geração do relatório tenta duas origens para a mesma versão segura do renderizador; se ambas falharem, avisa claramente em vez de produzir uma imagem com a formatação antiga do CRM.',

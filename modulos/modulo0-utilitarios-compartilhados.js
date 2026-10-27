@@ -688,6 +688,7 @@
     'Editor de Mensagens',
     'Retorno Rápido',
     'Nome Padronizado do Contato',
+    'Guia de Implementações',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
