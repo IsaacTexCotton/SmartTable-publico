@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte WhatsApp Web / CRM
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.2.0
+// @version      0.2.1
 // @description  Transfere, por clique explícito, o telefone visível ou o nome da conversa para a busca do SmartTable no CRM.
 // @match        https://web.whatsapp.com/*
 // @match        https://texhub.texcotton.com.br/crm/*
@@ -135,7 +135,11 @@
     const rotuloInterface = /^(?:pesquisar|search|chamada de voz|chamada de vídeo|voice call|video call|ligação|mais opções|more options|dados do contato|contact info|online|digitando\.\.\.|typing\.\.\.)$/i;
     for (const seletor of seletores) {
       for (const elemento of header.querySelectorAll(seletor)) {
-        if (elemento.closest('button,[role="button"]')) continue;
+        // O WhatsApp pode envolver o título da conversa em um controle clicável.
+        // Aceita seletores específicos do título; os genéricos seguem ignorando botões.
+        const seletorDoTitulo = seletor === '[data-testid="conversation-info-header-chat-title"]'
+          || seletor === 'span[dir="auto"][title]';
+        if (!seletorDoTitulo && elemento.closest('button,[role="button"]')) continue;
         const nome = String(elemento.getAttribute('title') || elemento.textContent || '')
           .replace(/\s+/g, ' ').trim();
         if (!nome || nome.length > 160 || rotuloInterface.test(nome)) continue;
@@ -172,7 +176,7 @@
     if (!header) return { erro: leitura.erro || 'Não consegui identificar o cabeçalho da conversa atual.' };
     const nome = nomeVisivelDoCabecalho(header);
     const termo = termoBuscaPorNome(nome);
-    if (!termo) return { erro: leitura.erro || 'Não consegui identificar o nome da conversa atual.' };
+    if (!termo) return { erro: 'Não consegui ler o nome no cabeçalho da conversa. Recarregue o WhatsApp e tente novamente.' };
     return { tipo: 'nome', valor: termo };
   }
 
