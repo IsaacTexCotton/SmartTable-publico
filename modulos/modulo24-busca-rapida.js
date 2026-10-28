@@ -7,9 +7,10 @@
  * paralelo; falhas são indicadas e nunca viram 'não encontrado' conclusivo.
  *
  * A ponte opcional integracoes/whatsapp-crm-bridge.user.js envia, por clique
- * explícito, o número visível no cabeçalho/perfil do WhatsApp Web. O Módulo 24
- * recebe o evento smarttable:buscar-celular-whatsapp e usa esta mesma busca.
- * O telefone não é posto na URL nem registrado no console.
+ * explícito, o telefone visível ou um termo derivado do nome da conversa. No
+ * padrão da TexCotton usa a raiz de oito dígitos do CNPJ; fora dele, a primeira
+ * palavra. O Módulo 24 reutiliza esta busca. O telefone não vai à URL; o termo
+ * de nome usa a busca textual existente do CRM. Nenhum dos dois vai ao console.
  *
  * Com resultados conclusivos: zero -> aviso; um -> abre diretamente; vários ->
  * lista para escolha. A busca por nome/CNPJ conserva o comportamento antigo.
@@ -683,25 +684,45 @@
     input.focus();
   }
 
+  function preencherBuscaExterna(valor) {
+    const termo = String(valor ?? '').replace(/\s+/g, ' ').trim();
+    if (!termo || termo.length > 100) return false;
+    if (overlayEl) fecharBuscaRapida();
+    abrirBuscaRapida();
+    const campo = overlayEl?.querySelector('input');
+    if (!campo) return false;
+    campo.value = termo;
+    campo.dispatchEvent(new window.Event('input', { bubbles: true }));
+    campo.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    return true;
+  }
+
   function buscarCelularExterno(valor) {
     const celular = normalizarCelular(valor);
     if (!celular) {
       window.__smartTableUtil?.toast?.('O WhatsApp não forneceu um telefone válido para pesquisar.', 5000);
       return false;
     }
-    if (overlayEl) fecharBuscaRapida();
-    abrirBuscaRapida();
-    const campo = overlayEl?.querySelector('input');
-    if (!campo) return false;
-    campo.value = celular;
-    campo.dispatchEvent(new window.Event('input', { bubbles: true }));
-    campo.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    return true;
+    return preencherBuscaExterna(celular);
+  }
+
+  // Recebe também termos de nome/CNPJ-raiz enviados pela ponte do WhatsApp.
+  function buscarClienteExterno(valor) {
+    const termo = String(valor ?? '').replace(/\s+/g, ' ').trim();
+    if (!termo || termo.length > 100) {
+      window.__smartTableUtil?.toast?.('O WhatsApp não forneceu um nome válido para pesquisar.', 5000);
+      return false;
+    }
+    return preencherBuscaExterna(termo);
   }
 
   document.addEventListener('smarttable:buscar-celular-whatsapp', (evento) => {
-    // O bridge envia somente uma string; valida novamente antes de usar.
-    buscarCelularExterno(typeof evento.detail === 'string' ? evento.detail : '');
+    const detalhe = evento.detail;
+    // Formato antigo: telefone puro. Novo formato: "telefone:..." ou "nome:...".
+    if (typeof detalhe !== 'string') return;
+    if (detalhe.startsWith('nome:')) buscarClienteExterno(detalhe.slice(5));
+    else if (detalhe.startsWith('telefone:')) buscarCelularExterno(detalhe.slice(9));
+    else buscarCelularExterno(detalhe);
   });
 
   window.__buscaRapida = Object.freeze({
@@ -723,6 +744,7 @@
     lerCelularResponsavel,
     contarClientesPorCelular,
     buscarCelularExterno,
+    buscarClienteExterno,
     lerClientesDoHtml,
     CONFIG_BUSCA,
     navegacao,

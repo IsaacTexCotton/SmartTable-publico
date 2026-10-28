@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SmartTable — Ponte WhatsApp Web / CRM
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.1
-// @description  Transfere, por clique explícito, o telefone visível da conversa atual para a busca do SmartTable no CRM.
+// @version      0.2.0
+// @description  Transfere, por clique explícito, o telefone visível ou o nome da conversa para a busca do SmartTable no CRM.
 // @match        https://web.whatsapp.com/*
 // @match        https://texhub.texcotton.com.br/crm/*
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/integracoes/whatsapp-crm-bridge.user.js
@@ -119,9 +119,61 @@
       return { erro: 'Telefone não visível. Abra os dados do contato no WhatsApp e tente novamente.' };
     }
     if (candidatos.size > 1) {
-      return { erro: 'Encontrei mais de um telefone na área de contato. Deixe aberto somente o perfil do cliente e tente novamente.' };
+      return { erro: 'Encontrei mais de um telefone na área visível. Confira a conversa individual e tente novamente.' };
     }
     return { telefone: [...candidatos][0] };
+  }
+
+  // Lê somente o nome primário do cabeçalho; nunca procura nomes no histórico.
+  function nomeVisivelDoCabecalho(header) {
+    const seletores = [
+      '[data-testid="conversation-info-header-chat-title"]',
+      'span[dir="auto"][title]',
+      'span[dir="auto"]',
+      '[title]',
+    ];
+    const rotuloInterface = /^(?:pesquisar|search|chamada de voz|chamada de vídeo|voice call|video call|ligação|mais opções|more options|dados do contato|contact info|online|digitando\.\.\.|typing\.\.\.)$/i;
+    for (const seletor of seletores) {
+      for (const elemento of header.querySelectorAll(seletor)) {
+        if (elemento.closest('button,[role="button"]')) continue;
+        const nome = String(elemento.getAttribute('title') || elemento.textContent || '')
+          .replace(/\s+/g, ' ').trim();
+        if (!nome || nome.length > 160 || rotuloInterface.test(nome)) continue;
+        if (telefoneNoTexto(nome).length) continue;
+        return nome;
+      }
+    }
+    return '';
+  }
+
+  // No padrão "Razão Social - raiz CNPJ - UF - responsável", usa a raiz
+  // (oito dígitos) como termo principal. Fora do padrão, usa a primeira palavra.
+  function termoBuscaPorNome(nome) {
+    const texto = String(nome ?? '').replace(/\s+/g, ' ').trim();
+    if (!texto) return '';
+    const partes = texto.split(/\s+-\s+/);
+    if (partes.length >= 3) {
+      const raiz = partes[1].trim();
+      const digitos = raiz.replace(/\D/g, '');
+      if (/^[\d.\s]+$/.test(raiz) && digitos.length === 8) return digitos;
+    }
+    const primeira = texto.match(/^[^\s]+/)?.[0] || '';
+    return primeira.length >= 2 ? primeira : '';
+  }
+
+  function obterConsultaDaConversa() {
+    const leitura = obterTelefoneDaConversa();
+    if (leitura.telefone) return { tipo: 'telefone', valor: leitura.telefone };
+
+    // Nunca contorna a proteção de grupos nem resolve múltiplos telefones por adivinhação.
+    if (/conversa em grupo|mais de um telefone/i.test(leitura.erro || '')) return leitura;
+
+    const header = document.querySelector('#main header');
+    if (!header) return { erro: leitura.erro || 'Não consegui identificar o cabeçalho da conversa atual.' };
+    const nome = nomeVisivelDoCabecalho(header);
+    const termo = termoBuscaPorNome(nome);
+    if (!termo) return { erro: leitura.erro || 'Não consegui identificar o nome da conversa atual.' };
+    return { tipo: 'nome', valor: termo };
   }
 
   function mostrarAvisoWhatsapp(mensagem, ancora) {
@@ -162,7 +214,7 @@
       botao.id = 'smarttable-whatsapp-crm-button';
       botao.type = 'button';
       botao.textContent = 'Buscar no SmartTable';
-      botao.title = 'Lê somente o telefone visível da conversa atual e solicita a busca no CRM.';
+      botao.title = 'Tenta o telefone visível e, se não houver, identifica o cliente pelo nome da conversa.';
       Object.assign(botao.style, {
         marginInline: '8px',
         padding: '7px 10px',
@@ -175,22 +227,25 @@
         whiteSpace: 'nowrap',
       });
       botao.addEventListener('click', () => {
-        const encontrado = obterTelefoneDaConversa();
+        const encontrado = obterConsultaDaConversa();
         if (encontrado.erro) {
           mostrarAvisoWhatsapp(encontrado.erro);
           return;
         }
         const pedido = {
           id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10),
-          telefone: encontrado.telefone,
+          tipo: encontrado.tipo,
+          valor: encontrado.valor,
+          // Mantém o campo antigo para abas que ainda executem a ponte 0.1.x.
+          ...(encontrado.tipo === 'telefone' ? { telefone: encontrado.valor } : {}),
           criadoEm: Date.now(),
         };
         ultimoPedidoId = pedido.id;
         botao.disabled = true;
-        botao.textContent = 'Enviando telefone…';
+        botao.textContent = 'Enviando busca…';
         try {
           GM_setValue(KEY_PEDIDO, pedido);
-          mostrarAvisoWhatsapp('Telefone identificado. Solicitação enviada; aguardando o CRM.', pedido.id);
+          mostrarAvisoWhatsapp('Identificação enviada; aguardando o CRM.', pedido.id);
           clearTimeout(timeoutPedido);
           timeoutPedido = window.setTimeout(() => {
             if (ultimoPedidoId !== pedido.id) return;
@@ -267,9 +322,19 @@
         return;
       }
 
-      const telefone = normalizarTelefone(pedido.telefone);
-      if (!telefone) {
-        GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: false, mensagem: 'O telefone recebido não é válido para pesquisa.' });
+      // Compatível com pedidos antigos (campo "telefone") durante atualizações.
+      const tipo = pedido.tipo || 'telefone';
+      const valorOriginal = pedido.valor ?? pedido.telefone ?? '';
+      const valor = tipo === 'nome'
+        ? String(valorOriginal).replace(/\s+/g, ' ').trim()
+        : normalizarTelefone(valorOriginal);
+      if (!['telefone', 'nome'].includes(tipo) || !valor
+        || (tipo === 'nome' && valor.length > 100)) {
+        GM_setValue(KEY_RESULTADO, {
+          id: pedido.id,
+          ok: false,
+          mensagem: tipo === 'nome' ? 'O nome recebido não é válido para pesquisa.' : 'O telefone recebido não é válido para pesquisa.',
+        });
         GM_setValue(KEY_PEDIDO, null);
         return;
       }
@@ -313,15 +378,18 @@
       }
 
       try {
-        const evento = new pagina.CustomEvent(EVENTO_BUSCA, { detail: telefone });
+        // Prefixos mantêm o detail como string entre contextos do userscript.
+        // A ponte e o Módulo 24 também aceitam o formato antigo (telefone puro).
+        const detalhe = tipo === 'nome' ? 'nome:' + valor : 'telefone:' + valor;
+        const evento = new pagina.CustomEvent(EVENTO_BUSCA, { detail: detalhe });
         pagina.document.dispatchEvent(evento);
         if (!pagina.document.getElementById('smarttable-busca-rapida')) {
           GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: false, mensagem: 'O SmartTable recebeu o pedido, mas não abriu a busca. Atualize o CRM e tente novamente.' });
         } else {
-          GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: true, mensagem: 'Telefone transferido ao CRM. Confira a busca do SmartTable.' });
+          GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: true, mensagem: 'Identificação transferida ao CRM. Confira a busca do SmartTable.' });
         }
       } catch {
-        GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: false, mensagem: 'Falha ao entregar o telefone ao SmartTable.' });
+        GM_setValue(KEY_RESULTADO, { id: pedido.id, ok: false, mensagem: 'Falha ao entregar a identificação ao SmartTable.' });
       } finally {
         GM_setValue(KEY_PEDIDO, null);
         processandoId = null;
@@ -345,6 +413,13 @@
 
   // Exposto apenas para testes locais em que o harness define ST_TEST_MODE.
   if (typeof window !== 'undefined' && window.ST_TEST_MODE === true) {
-    window.__smartTableWhatsappBridgeTest = Object.freeze({ normalizarTelefone, telefoneNoTexto, obterTelefoneDaConversa });
+    window.__smartTableWhatsappBridgeTest = Object.freeze({
+      normalizarTelefone,
+      telefoneNoTexto,
+      obterTelefoneDaConversa,
+      nomeVisivelDoCabecalho,
+      termoBuscaPorNome,
+      obterConsultaDaConversa,
+    });
   }
 })();

@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.119.0', data: '28/10/2026',
+      mudancas: [
+        'A ponte com o WhatsApp também identifica a conversa pelo nome: usa a raiz de oito dígitos do CNPJ no padrão Razão Social - raiz - UF - responsável e, fora dele, pesquisa pela primeira palavra.',
+        'A busca por nome reutiliza o Módulo 24; a captura continua limitada ao cabeçalho, não lê mensagens nem aceita o fallback de nome em grupos reconhecidos.'
+      ],
+    },
+    {
       versao: '1.118.0', data: '28/10/2026',
       mudancas: [
         'A Busca Rápida corrige celulares com e sem o nono dígito, preserva a busca textual para números ambíguos e permite continuar a pesquisa nos responsáveis financeiros após mostrar correspondências do cadastro.',
