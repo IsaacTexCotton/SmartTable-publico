@@ -62,6 +62,7 @@
   const cacheResponsavel = new Map();
   const CACHE_RESPONSAVEL_TTL_MS = 5 * 60 * 1000;
   let diagnosticoBuscaCelular = { total: 0, fichasConsultadas: 0, falhasDeLeitura: 0 };
+  let sequenciaContagemCelular = 0;
 
   /** Endereço da lista nativa com o termo, preservando os outros parâmetros da URL atual. */
   function urlDaLista(termo) {
@@ -93,18 +94,50 @@
     return digitos.length === 10 || digitos.length === 11 ? digitos : '';
   }
 
-  function telefoneDoCliente(cliente) {
+  /** Retorna as formas equivalentes para celulares antigos sem o nono dígito. */
+  function variantesCelular(valor) {
+    const numero = normalizarCelular(valor);
+    if (!numero) return [];
+    if (numero.length === 11 && numero[2] === '9') {
+      return [numero, numero.slice(0, 2) + numero.slice(3)];
+    }
+    if (numero.length === 10 && /[6-9]/.test(numero[2])) {
+      return [numero, numero.slice(0, 2) + '9' + numero.slice(2)];
+    }
+    return [numero];
+  }
+
+  function celularesEquivalentes(a, b) {
+    const variantes = new Set(variantesCelular(a));
+    return variantesCelular(b).some((numero) => variantes.has(numero));
+  }
+
+  /** Termos com formato inequívoco de CPF/CNPJ continuam na busca textual do CRM. */
+  function celularDaConsulta(termo) {
+    const texto = String(termo ?? '').trim();
+    if (texto.includes('/') || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(texto)) return '';
+    return normalizarCelular(texto);
+  }
+
+  /** Números sem formatação são ambíguos: podem ser telefone ou documento/prefixo. */
+  function termoNumericoAmbiguo(termo) {
+    const texto = String(termo ?? '').trim();
+    return /^\d{10,11}$/.test(texto) || /^55\d{10,11}$/.test(texto);
+  }
+
+  function telefoneDoCliente(cliente, celularAlvo) {
     for (const campo of CAMPOS_TELEFONE_CLIENTE) {
       const valor = cliente?.[campo];
       if (valor === null || valor === undefined || String(valor).trim() === '') continue;
-      if (normalizarCelular(valor)) return String(valor).trim();
+      if (normalizarCelular(valor)
+        && (!celularAlvo || celularesEquivalentes(valor, celularAlvo))) return String(valor).trim();
     }
     return '';
   }
 
   function clienteTemCelular(cliente, celularNormalizado) {
     return CAMPOS_TELEFONE_CLIENTE.some((campo) =>
-      normalizarCelular(cliente?.[campo]) === celularNormalizado
+      celularesEquivalentes(cliente?.[campo], celularNormalizado)
     );
   }
 
@@ -185,8 +218,21 @@
       // Reutiliza primeiro o leitor já existente no Módulo 29.
       const leitor = window.__contatosGoogleLista?.lerPaginaDoCliente;
       if (typeof leitor === 'function') {
-        const leitura = await leitor(cliente, sinal);
-        if (!leitura?.crm) return { celular: '', erro: leitura?.erro || 'formato', cache: false };
+        let leitura = await leitor(cliente, sinal);
+        // Uma falha transitória de rede/HTTP pode ser temporária. Faz só uma
+        // nova tentativa, com jitter e respeitando o cancelamento da busca.
+        if (leitura?.erro && ['rede', 'http'].includes(leitura.erro) && !sinal?.aborted) {
+          await new Promise((resolver) => window.setTimeout(resolver, 200 + Math.random() * 300));
+          if (sinal?.aborted) return { celular: '', erro: 'cancelada', cache: false };
+          leitura = await leitor(cliente, sinal);
+        }
+        if (!leitura?.crm) {
+          return {
+            celular: '',
+            erro: sinal?.aborted ? 'cancelada' : (leitura?.erro || 'formato'),
+            cache: false,
+          };
+        }
         const celular = normalizarCelular(leitura.crm.celular);
         cacheResponsavel.set(chave, { celular, lidoEm: Date.now() });
         return { celular, erro: null, cache: false };
@@ -216,9 +262,16 @@
    * demais fichas (4 consultas simultâneas). A lista/fichas são somente leitura.
    * Retorna null apenas se a própria lista base não puder ser lida.
    */
-  async function contarClientesPorCelular(celularNormalizado, sinal, aoProgresso) {
-    fontesCelular.clear();
-    diagnosticoBuscaCelular = { total: 0, fichasConsultadas: 0, falhasDeLeitura: 0 };
+  async function contarClientesPorCelular(celularNormalizado, sinal, aoProgresso, opcoes = {}) {
+    const idContagem = ++sequenciaContagemCelular;
+    const fontesLocais = new Map();
+
+    function publicarDiagnostico(diagnostico) {
+      if (idContagem !== sequenciaContagemCelular) return;
+      fontesCelular.clear();
+      for (const [chave, valor] of fontesLocais) fontesCelular.set(chave, valor);
+      diagnosticoBuscaCelular = diagnostico;
+    }
 
     try {
       const resposta = await window.fetch(urlDaListaSemBusca(), { credentials: 'same-origin', signal: sinal });
@@ -232,7 +285,7 @@
         const chave = String(cliente?.cnpj || cliente?.controleCliente || '');
         if (!encontrados.has(chave)) {
           encontrados.set(chave, cliente);
-          fontesCelular.set(chave, { fonte: 'cadastro do cliente', telefone: telefoneDoCliente(cliente) });
+          fontesLocais.set(chave, { fonte: 'cadastro do cliente', telefone: telefoneDoCliente(cliente, celularNormalizado) });
         }
       }
 
@@ -250,6 +303,19 @@
         candidatos.push(cliente);
       }
 
+      // Retorna imediatamente quando o próprio cadastro já corresponde. O operador
+      // pode abrir o resultado ou pedir explicitamente a pesquisa mais cara dos
+      // responsáveis financeiros, em vez de esperar por todas as fichas.
+      if (encontrados.size > 0 && opcoes.continuarResponsaveis !== true) {
+        publicarDiagnostico({
+          total: lista.length,
+          fichasConsultadas: 0,
+          falhasDeLeitura: falhas,
+          responsaveisPendentes: candidatos.length > 0,
+        });
+        return [...encontrados.values()];
+      }
+
       let proximo = 0;
       let feitos = 0;
       const trabalhador = async () => {
@@ -259,11 +325,11 @@
           feitos += 1;
           if (leitura.erro) {
             if (leitura.erro !== 'cancelada') falhas += 1;
-          } else if (leitura.celular === celularNormalizado) {
+          } else if (celularesEquivalentes(leitura.celular, celularNormalizado)) {
             const chave = String(cliente?.cnpj || cliente?.controleCliente || '');
             if (!encontrados.has(chave)) {
               encontrados.set(chave, cliente);
-              fontesCelular.set(chave, { fonte: 'responsável financeiro', telefone: leitura.celular });
+              fontesLocais.set(chave, { fonte: 'responsável financeiro', telefone: leitura.celular });
             }
           }
           aoProgresso?.(feitos, candidatos.length);
@@ -271,12 +337,13 @@
       };
 
       await Promise.all(Array.from({ length: 4 }, () => trabalhador()));
-      diagnosticoBuscaCelular = {
+      if (sinal?.aborted) return null;
+      publicarDiagnostico({
         total: lista.length,
         fichasConsultadas: feitos,
         falhasDeLeitura: falhas,
-      };
-      if (sinal?.aborted) return null;
+        responsaveisPendentes: false,
+      });
       return [...encontrados.values()];
     } catch (erro) {
       if (erro?.name !== 'AbortError') {
@@ -316,10 +383,12 @@
 
     const detalhe = document.createElement('div');
     const partes = [c.cnpjFormatado || c.cnpj];
-    const telefone = telefoneDoCliente(c);
-    if (telefone) partes.push(`Celular: ${telefone}`);
     const chaveCorrespondencia = String(c?.cnpj || c?.controleCliente || '');
     const correspondencia = fontesCelular.get(chaveCorrespondencia);
+    const telefone = correspondencia?.fonte === 'cadastro do cliente' && correspondencia.telefone
+      ? correspondencia.telefone
+      : telefoneDoCliente(c);
+    if (telefone) partes.push(`Celular: ${telefone}`);
     if (correspondencia?.fonte === 'responsável financeiro' && correspondencia.telefone) {
       partes.push(`Responsável financeiro: ${correspondencia.telefone}`);
     }
@@ -387,8 +456,18 @@
     const dica = document.createElement('div');
     Object.assign(dica.style, { fontSize: '11px', color: '#98a2b3', marginTop: '8px', display: 'none' });
 
+    const botaoContinuarResponsaveis = document.createElement('button');
+    botaoContinuarResponsaveis.type = 'button';
+    botaoContinuarResponsaveis.textContent = 'Continuar buscando nos responsáveis financeiros';
+    Object.assign(botaoContinuarResponsaveis.style, {
+      display: 'none', marginTop: '10px', padding: '8px 10px',
+      border: '1px solid #b7c8c2', borderRadius: '8px', background: '#fff',
+      color: '#174b35', cursor: 'pointer', font: '600 12px system-ui, sans-serif',
+    });
+
     let clientes = [];
     let selecionado = -1;
+    let sequenciaBusca = 0;
     let ocupado = false;
 
     function mostrarAviso(texto, cor) {
@@ -401,6 +480,9 @@
       selecionado = -1;
       lista.textContent = '';
       dica.style.display = 'none';
+      botaoContinuarResponsaveis.style.display = 'none';
+      botaoContinuarResponsaveis.disabled = false;
+      botaoContinuarResponsaveis.onclick = null;
       input.setAttribute('aria-expanded', 'false');
       input.removeAttribute('aria-activedescendant');
     }
@@ -424,7 +506,7 @@
       navegacao.ir(urlDoCliente(c));
     }
 
-    function mostrarLista(achados, avisoExtra = '') {
+    function mostrarLista(achados, avisoExtra = '', opcoes = {}) {
       limparLista();
       clientes = achados;
       achados.forEach((c, i) => {
@@ -438,11 +520,15 @@
       mostrarAviso(`${achados.length} clientes encontrados.${avisoExtra ? ' ' + avisoExtra : ''}`, avisoExtra ? '#B54708' : undefined);
       dica.textContent = '↑ ↓ escolhem · Enter abre o cliente · Esc volta para a busca';
       dica.style.display = 'block';
+      botaoContinuarResponsaveis.style.display = typeof opcoes.onContinuar === 'function' ? 'block' : 'none';
+      botaoContinuarResponsaveis.disabled = false;
+      botaoContinuarResponsaveis.onclick = opcoes.onContinuar || null;
       input.setAttribute('aria-expanded', 'true');
       selecionar(0);
     }
 
-    async function buscar() {
+    async function buscar(opcoes = {}) {
+      const idBusca = ++sequenciaBusca;
       const termo = input.value.trim();
       if (!termo) {
         fecharBuscaRapida();
@@ -451,25 +537,62 @@
       ocupado = true;
       limparLista();
       mostrarAviso('Buscando...');
-      const celularBusca = normalizarCelular(termo);
+      let celularBusca = celularDaConsulta(termo);
+      const ambiguoNumerico = termoNumericoAmbiguo(termo);
       const controle = new window.AbortController();
       const tetoMs = celularBusca ? CONFIG_BUSCA.TIMEOUT_CELULAR_MS : CONFIG_BUSCA.TIMEOUT_MS;
-      const teto = setTimeout(() => controle.abort(), tetoMs);
+      let tempoEsgotado = false;
+      const teto = setTimeout(() => {
+        tempoEsgotado = true;
+        controle.abort();
+      }, tetoMs);
       cancelarBuscaEmAndamento = () => { clearTimeout(teto); controle.abort(); };
-      const achados = celularBusca
-        ? await contarClientesPorCelular(celularBusca, controle.signal, (feitos, total) => {
+      let achados;
+      if (celularBusca) {
+        achados = await contarClientesPorCelular(celularBusca, controle.signal, (feitos, total) => {
           if (overlayEl === overlay) mostrarAviso(`Consultando responsáveis financeiros: ${feitos}/${total} fichas...`);
-        })
-        : await contarClientes(termo, controle.signal);
+        }, { continuarResponsaveis: opcoes.continuarResponsaveis === true });
+
+        // Números sem formatação podem ser telefone, CPF ou prefixo numérico.
+        // Se a busca telefônica não encontrar nada, preserva a busca textual antiga.
+        if (Array.isArray(achados)
+          && achados.length === 0
+          && ambiguoNumerico
+          && diagnosticoBuscaCelular.falhasDeLeitura === 0) {
+          achados = await contarClientes(termo, controle.signal);
+          celularBusca = '';
+        }
+      } else {
+        achados = await contarClientes(termo, controle.signal);
+      }
       clearTimeout(teto);
+      // A caixa foi fechada ou o termo mudou enquanto buscava: descarta a resposta
+      // antiga sem alterar o estado da pesquisa mais nova.
+      if (overlayEl !== overlay || idBusca !== sequenciaBusca) return;
       ocupado = false;
-      // A caixa foi fechada (Esc, clique fora, Alt+B) enquanto buscava: não faz mais nada.
-      if (overlayEl !== overlay) return;
       cancelarBuscaEmAndamento = null;
 
       if (celularBusca && achados === null) {
-        mostrarAviso('Não foi possível consultar a lista do CRM. Tente novamente; a busca não foi concluída.', '#B42308');
+        mostrarAviso(
+          tempoEsgotado
+            ? 'A busca por celular excedeu o limite de 60 segundos. Tente novamente; alguns resultados podem já estar em cache nesta página.'
+            : 'Não foi possível consultar a lista do CRM. Verifique a conexão e tente novamente; a busca não foi concluída.',
+          '#B42308',
+        );
         input.focus();
+        return;
+      }
+
+      if (celularBusca
+        && opcoes.continuarResponsaveis !== true
+        && Array.isArray(achados)
+        && achados.length > 0
+        && diagnosticoBuscaCelular.responsaveisPendentes) {
+        mostrarLista(
+          achados,
+          'Correspondência pelo cadastro. Você pode abrir um resultado ou continuar a busca nos responsáveis financeiros.',
+          { onContinuar: () => { void buscar({ continuarResponsaveis: true }); } },
+        );
         return;
       }
 
@@ -505,7 +628,16 @@
     }
 
     input.addEventListener('input', () => {
-      // Mexeu no texto: a lista antiga não vale mais.
+      // Mexeu no texto: cancela a busca antiga e invalida qualquer resposta atrasada.
+      if (ocupado) {
+        sequenciaBusca += 1;
+        cancelarBuscaEmAndamento?.();
+        cancelarBuscaEmAndamento = null;
+        ocupado = false;
+      }
+      sequenciaContagemCelular += 1;
+      fontesCelular.clear();
+      diagnosticoBuscaCelular = { total: 0, fichasConsultadas: 0, falhasDeLeitura: 0 };
       if (clientes.length > 0 || aviso.textContent) {
         limparLista();
         mostrarAviso('');
@@ -544,6 +676,7 @@
     caixa.appendChild(aviso);
     caixa.appendChild(lista);
     caixa.appendChild(dica);
+    caixa.appendChild(botaoContinuarResponsaveis);
     overlay.appendChild(caixa);
     document.body.appendChild(overlay);
 
@@ -581,6 +714,10 @@
     urlDaListaSemBusca,
     urlDoCliente,
     normalizarCelular,
+    variantesCelular,
+    celularesEquivalentes,
+    celularDaConsulta,
+    termoNumericoAmbiguo,
     telefoneDoCliente,
     clienteTemCelular,
     lerCelularResponsavel,

@@ -63,6 +63,22 @@
     const header = main.querySelector('header');
     if (!header) return { erro: 'Não consegui identificar o cabeçalho da conversa atual.' };
 
+    // Não tenta adivinhar um cliente a partir dos participantes de um grupo.
+    // Os marcadores do WhatsApp variam; prioriza atributos estruturais e rótulos
+    // de ação, sem inferir a partir do nome livre do grupo.
+    const marcadorGrupo = header.querySelector(
+      '[data-testid="group-info"], [data-testid="group-info-header"], [data-testid="default-group"], [data-icon="default-group"]'
+    );
+    const rotuloGrupo = [header, ...header.querySelectorAll('[title], [aria-label]')]
+      .flatMap((elemento) => [
+        elemento.getAttribute?.('title') || '',
+        elemento.getAttribute?.('aria-label') || '',
+      ])
+      .some((rotulo) => /(?:group info|group details|view group|informações do grupo|dados do grupo|ver informações do grupo)/i.test(rotulo));
+    if (marcadorGrupo || rotuloGrupo) {
+      return { erro: 'Esta parece ser uma conversa em grupo. Abra a conversa individual do cliente e tente novamente.' };
+    }
+
     const candidatos = new Set();
     const adicionar = (texto) => {
       for (const numero of telefoneNoTexto(texto)) candidatos.add(numero);
