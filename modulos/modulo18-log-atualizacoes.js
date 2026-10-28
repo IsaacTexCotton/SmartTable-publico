@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.118.0', data: '28/10/2026',
+      mudancas: [
+        'A Busca Rápida corrige celulares com e sem o nono dígito, preserva a busca textual para números ambíguos e permite continuar a pesquisa nos responsáveis financeiros após mostrar correspondências do cadastro.',
+        'Leituras transitórias dos responsáveis podem ser repetidas uma vez; buscas antigas são canceladas ao alterar o termo e o timeout tem mensagem específica.',
+        'A ponte com WhatsApp recusa cabeçalhos reconhecidos como conversas em grupo. O instalador principal e a ponte recebem versões novas para que o Tampermonkey possa detectar as atualizações.'
+      ],
+    },
+    {
       versao: '1.117.0', data: '27/10/2026',
       mudancas: [
         'A Busca Rápida (Alt+B) pesquisa telefones tanto nos campos do cadastro quanto no celular do responsável financeiro, reutilizando a leitura de ficha do Módulo 29.',

@@ -69,7 +69,7 @@
         {
           titulo: 'Busca rápida de cliente', atalho: 'Alt+B',
           resumo: 'Abre uma busca rápida dentro do fluxo do SmartTable.',
-          detalhes: 'Pesquisa por nome e CNPJ usando o filtro do CRM, ou por celular normalizando o número com DDD e código do Brasil opcional. Compara os telefones do cadastro e o celular do responsável financeiro, lido pela ficha do cliente; consultas incompletas são sinalizadas. A ponte opcional WhatsApp Web fica em integracoes/whatsapp-crm-bridge.user.js e deve ser instalada separadamente; só lê telefone visível após clique explícito. O atalho também fecha a busca quando ela já está aberta.'
+          detalhes: 'Pesquisa por nome, CNPJ ou celular. A comparação telefônica aceita celulares com e sem o nono dígito quando aplicável; números sem formatação que também possam ser documento mantêm fallback para a busca textual do CRM. Mostra correspondências do cadastro principal imediatamente e permite continuar nos responsáveis financeiros, com até quatro leituras em paralelo e uma retentativa para falhas transitórias de rede/HTTP. Cancelamento, consulta incompleta e timeout são sinalizados. A ponte opcional WhatsApp Web fica em integracoes/whatsapp-crm-bridge.user.js e deve ser instalada separadamente; só lê telefone visível após clique explícito e recusa grupos reconhecidos. O atalho também fecha a busca quando ela já está aberta.'
         },
         {
           titulo: 'Progresso da fila', atalho: 'Automático',

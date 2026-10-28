@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte WhatsApp Web / CRM
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.0
+// @version      0.1.1
 // @description  Transfere, por clique explícito, o telefone visível da conversa atual para a busca do SmartTable no CRM.
 // @match        https://web.whatsapp.com/*
 // @match        https://texhub.texcotton.com.br/crm/*
