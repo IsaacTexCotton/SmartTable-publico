@@ -2677,6 +2677,8 @@
       } catch (erro) {
         if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
         definirDashboardPendente(false);
+        const badgeEmErro = nav.querySelector('[data-role="count-ausentes"]');
+        if (badgeEmErro) { badgeEmErro.hidden = true; badgeEmErro.textContent = ''; }
         Object.values(metricRefs).forEach((value) => { value.classList.remove('stcg-skeleton'); value.textContent = 'Erro'; value.removeAttribute('aria-label'); });
         Object.values(metricFootRefs).forEach((foot) => { foot.textContent = 'Não disponível devido à falha na leitura.'; });
         Object.values(alertasRefs).forEach((value) => { value.classList.remove('stcg-skeleton'); value.textContent = 'Erro'; value.removeAttribute('aria-label'); });
