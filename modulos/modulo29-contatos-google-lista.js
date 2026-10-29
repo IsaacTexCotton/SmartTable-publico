@@ -1584,6 +1584,13 @@
     };
     estadoDoPainel = estado;
 
+    const overviewHeader = views.overview.querySelector('.stcg-page-head');
+    const overviewActions = el('div', 'stcg-actions');
+    const atualizarBtn = botao('Atualizar conferência', 'soft', () => executarLeitura('Atualizando a conferência do CRM…'));
+    atualizarBtn.disabled = true;
+    overviewActions.append(atualizarBtn);
+    overviewHeader?.append(overviewActions);
+
     const statusOverview = el('div', 'stcg-alert warn');
     const iconOverview = el('span', '', '◷');
     const textoOverview = el('div', '', 'Consultando a lista de clientes do CRM…');
@@ -1869,6 +1876,7 @@
         textoAndamento.textContent = 'Falha ao consultar a lista do CRM. Tente novamente.';
       } finally {
         estado.lendo = false;
+        if (painelEl?.isConnected && estadoDoPainel === estado) atualizarBtn.disabled = false;
       }
     };
 
@@ -1876,6 +1884,10 @@
       const arquivo = importInput.files && importInput.files[0];
       importInput.value = '';
       if (!arquivo) return;
+      if (estado.lendo) {
+        importStatus.textContent = 'A conferência do CRM ainda está em andamento. Aguarde terminar e selecione o arquivo novamente.';
+        return;
+      }
       if (G().lerMeta() && !window.confirm('Importar este Google CSV substituirá a base guardada neste navegador. Deseja continuar?')) {
         importStatus.textContent = 'Importação cancelada; a base atual não foi alterada.';
         return;
