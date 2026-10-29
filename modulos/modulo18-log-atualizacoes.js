@@ -24,6 +24,30 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.121.1', data: '29/10/2026',
+      mudancas: [
+        'Corrige a normalização do índice global de celulares para DDI 55, prefixo nacional/operadora, ramais e rótulos junto ao número; telefones fixos continuam fora do índice.',
+        'A importação informa a quantidade de celulares únicos indexados e de valores rejeitados, com até três exemplos mascarados; a conferência mostra a chave canônica usada.',
+        'As abas Visão geral e Sem contato do Google passam a respeitar o índice global e não exportam como novos os clientes cujo celular já consta no CSV.',
+        'O upgrade do IndexedDB não fica pendurado se outra aba bloquear a troca de versão; nesse caso a importação avisa que está usando memória nesta aba.'
+      ],
+    },
+    {
+      versao: '1.121.0', data: '29/10/2026',
+      mudancas: [
+        'Inclui a conferência local dos celulares do responsável financeiro e do cadastro do cliente contra um índice global de todos os celulares válidos no Google CSV, inclusive contatos sem nome padronizado por CNPJ.',
+        'Números equivalentes com e sem o nono dígito são deduplicados; números inválidos, clientes sem leitura e telefones compartilhados não são exportados automaticamente.',
+        'O CSV de novos contatos é preparado localmente, com prévia e escapamento correto, sem consultar a People API nem gravar dados no CRM ou na agenda Google. A importação antiga precisa ser refeita para construir o índice global.'
+      ],
+    },
+    {
+      versao: '1.120.3', data: '29/10/2026',
+      mudancas: [
+        'Reorganiza a área Contatos do Google em uma central com visão geral, comparação Google CSV → CRM, ausentes, sincronização direta opcional e gestão de arquivos.',
+        'Mantém a integração direta com a API Google como fluxo separado e explícito, com prévia e confirmação; a análise local do CSV continua independente dela.'
+      ],
+    },
+    {
       versao: '1.119.0', data: '28/10/2026',
       mudancas: [
         'A ponte com o WhatsApp também identifica a conversa pelo nome: usa a raiz de oito dígitos do CNPJ no padrão Razão Social - raiz - UF - responsável e, fora dele, pesquisa pela primeira palavra.',
