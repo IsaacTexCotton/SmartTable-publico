@@ -342,8 +342,6 @@
       linhas, semLeitura, semContato, semCorrespondenciaCsv, semConfirmacaoGoogle, csvNovos, iguais,
       consultaGoogleAtual: fonteGoogleAtual,
       erroConsultaGoogle: levantamento.erroConsultaGoogle || '',
-      consultaGoogleAtual: fonteGoogleAtual,
-      erroConsultaGoogle: levantamento.erroConsultaGoogle || '',
       resumo: {
         totalNaLista: levantamento.totalNaLista,
         comContato: fonteGoogleAtual
@@ -358,6 +356,151 @@
         semLeitura: semLeitura.length,
       },
     };
+  }
+
+  /**
+   * Confere separadamente o celular do responsável e o celular cadastral contra TODOS
+   * os telefones válidos importados. Esta função é somente leitura e não usa a API Google.
+   */
+  function calcularConferenciaCelulares(levantamento, indice) {
+    const candidatos = Array.isArray(levantamento?.candidatos) ? levantamento.candidatos : [];
+    const baseResumo = {
+      totalClientes: candidatos.length,
+      clientesLidos: candidatos.filter((c) => Boolean(c?.crm)).length,
+      numerosPresentes: 0,
+      contatosAusentesExportaveis: 0,
+      contatosResponsavelExportaveis: 0,
+      contatosClienteExportaveis: 0,
+      invalidosOuAusentes: 0,
+      clientesSemLeitura: candidatos.filter((c) => !c?.crm).length,
+      numerosAmbiguos: 0,
+      clientesSemCamposTelefone: 0,
+    };
+    const indiceDisponivel = Boolean(indice?.disponivel && indice.chaves && typeof indice.chaves.has === 'function');
+    const chavesIndice = indiceDisponivel ? indice.chaves : new Set();
+    const Gc = G();
+    const resolverTelefoneCliente = window.__buscaRapida?.diagnosticarCelularDoCliente;
+    const resolverTelefonesCliente = window.__buscaRapida?.diagnosticarCelularesDoCliente;
+    const entradas = [];
+    candidatos.forEach((cand, indiceCliente) => {
+      if (!cand?.crm) return;
+      const cliente = cand.cliente || {};
+      const cnpj = String(cliente.cnpj ?? '').toLocaleUpperCase('pt-BR').replace(/[^0-9A-Z]/g, '');
+      const identidade = cnpj ? 'cnpj:' + cnpj
+        : cliente.controleCliente != null ? 'controle:' + String(cliente.controleCliente)
+          : 'linha:' + String(indiceCliente);
+      const razao = String(cliente.razaoSocial || cliente.nomeFantasia || '(empresa sem razão social)').trim();
+      const adicionar = (tipo, bruto, chave) => {
+        const numero = Gc.formatarCelularValido(bruto) || String(bruto ?? '').trim();
+        const nomeResponsavel = nomePadronizadoDoCliente(cliente, cand.crm);
+        const nomeClienteBase = nomePadronizadoDoCliente(cliente, { nome: '' });
+        const nomeCliente = (nomeClienteBase || '').trim() ? nomeClienteBase : 'Celular do cliente';
+        entradas.push({
+          identidade, cliente, razao, chave, bruto: String(bruto ?? '').trim(), numero,
+          tipo, cand, nomeResponsavel, nomeCliente,
+          nome: tipo === 'responsavel' ? nomeResponsavel : nomeCliente,
+        });
+      };
+
+      const brutoResponsavel = String(cand.crm.celular ?? '').trim();
+      const chaveResponsavel = brutoResponsavel ? Gc.chaveCelularValido(brutoResponsavel) : null;
+      if (chaveResponsavel) adicionar('responsavel', brutoResponsavel, chaveResponsavel);
+      else baseResumo.invalidosOuAusentes += 1;
+
+      let diagnostico = null;
+      try {
+        diagnostico = typeof resolverTelefonesCliente === 'function'
+          ? resolverTelefonesCliente(cliente)
+          : resolverTelefoneCliente?.(cliente) ?? null;
+      } catch { diagnostico = null; }
+      if (!diagnostico || diagnostico.camposDisponiveis === false) baseResumo.clientesSemCamposTelefone += 1;
+      const telefonesValidos = Array.isArray(diagnostico?.telefones)
+        ? diagnostico.telefones.filter((telefone) => telefone?.chave && telefone?.valor)
+        : diagnostico?.status === 'valido' && diagnostico.chave
+          ? [{ campo: diagnostico.campo, valor: diagnostico.valor, chave: diagnostico.chave }]
+          : [];
+      if (telefonesValidos.length > 0) {
+        telefonesValidos.forEach((telefone) => adicionar('cliente', telefone.valor, telefone.chave));
+      } else {
+        baseResumo.invalidosOuAusentes += 1;
+      }
+    });
+
+    const porChave = new Map();
+    const chavesPresentes = new Set();
+    entradas.forEach((entrada) => {
+      if (!porChave.has(entrada.chave)) porChave.set(entrada.chave, []);
+      porChave.get(entrada.chave).push(entrada);
+      if (chavesIndice.has(entrada.chave)) chavesPresentes.add(entrada.chave);
+    });
+
+    const linhas = [];
+    const exportaveis = [];
+    let ambiguos = 0;
+    porChave.forEach((grupo, chave) => {
+      const porCliente = new Map();
+      grupo.forEach((entrada) => {
+        if (!porCliente.has(entrada.identidade)) porCliente.set(entrada.identidade, []);
+        porCliente.get(entrada.identidade).push(entrada);
+      });
+      const linhasCliente = Array.from(porCliente.values()).map((itens) => {
+        const responsavel = itens.find((item) => item.tipo === 'responsavel');
+        const clienteTelefone = itens.find((item) => item.tipo === 'cliente');
+        const tipos = new Set(itens.map((item) => item.tipo));
+        const escolhido = responsavel || clienteTelefone || itens[0];
+        return {
+          chave,
+          identidade: escolhido.identidade,
+          cliente: escolhido.cliente,
+          empresa: escolhido.razao,
+          categoria: tipos.has('responsavel') && tipos.has('cliente')
+            ? 'Responsável financeiro + celular do cliente'
+            : tipos.has('responsavel') ? 'Responsável financeiro' : 'Celular do cliente',
+          celular: escolhido.numero,
+          status: '',
+          nome: responsavel ? responsavel.nomeResponsavel : escolhido.nomeCliente,
+          fontes: Array.from(tipos),
+          marcadorCliente: tipos.has('cliente') && !tipos.has('responsavel'),
+          telefoneExportacao: Gc.formatarCelularValido(escolhido.bruto) || escolhido.bruto,
+        };
+      });
+      const ambiguo = linhasCliente.length > 1;
+      if (ambiguo) ambiguos += 1;
+      linhasCliente.forEach((linha) => {
+        if (ambiguo) {
+          linha.status = !indiceDisponivel
+            ? 'Ambíguo/compartilhado — CSV não conferido; reimporte'
+            : chavesIndice.has(chave)
+              ? 'Ambíguo/compartilhado — número também encontrado no CSV'
+              : 'Ambíguo/compartilhado — conferência manual';
+          linha.exportavel = false;
+        } else if (!indiceDisponivel) {
+          linha.status = 'Não classificado — reimporte o CSV';
+          linha.exportavel = false;
+        } else if (chavesIndice.has(chave)) {
+          linha.status = 'Encontrado no CSV importado';
+          linha.exportavel = false;
+        } else {
+          linha.status = 'Ausente no CSV importado';
+          linha.exportavel = true;
+          exportaveis.push({
+            nome: linha.nome,
+            celular: linha.telefoneExportacao,
+            chave: linha.chave,
+            fontes: linha.fontes.slice(),
+            marcadorCliente: linha.marcadorCliente,
+          });
+        }
+        linhas.push(linha);
+      });
+    });
+
+    baseResumo.numerosPresentes = chavesPresentes.size;
+    baseResumo.numerosAmbiguos = ambiguos;
+    baseResumo.contatosAusentesExportaveis = exportaveis.length;
+    baseResumo.contatosResponsavelExportaveis = exportaveis.filter((c) => c.fontes.includes('responsavel')).length;
+    baseResumo.contatosClienteExportaveis = exportaveis.filter((c) => c.fontes.includes('cliente')).length;
+    return { disponivel: indiceDisponivel, motivo: indiceDisponivel ? null : (indice?.motivo || 'reimportar'), resumo: baseResumo, linhas, exportaveis };
   }
 
 /* ---------------------------------------------------------------------
@@ -899,15 +1042,23 @@
     }
   }
 
+  function serializarCsvNovos(contatos) {
+    const citar = (valor) => {
+      const texto = String(valor ?? '');
+      return /[",\r\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+    };
+    const linhas = [['First Name', 'Phone 1 - Value', 'Notes'], ...contatos.map((c) => [
+      c.nome,
+      c.celular,
+      c.marcadorCliente ? '[SMARTTABLE:CELULAR-CLIENTE:v1]' : '',
+    ])];
+    return '\uFEFF' + linhas.map((linha) => linha.map(citar).join(',')).join('\r\n') + '\r\n';
+  }
+
   function baixarCsvNovos(contatos, nomeArquivo = 'contatos-google-novos.csv') {
     const Gc = G();
     if (!Gc) return;
-    const citar = (valor) => {
-      const s = String(valor ?? '');
-      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const linhas = [['First Name', 'Phone 1 - Value'], ...contatos.map((c) => [c.nome, c.celular])];
-    const texto = linhas.map((l) => l.map(citar).join(',')).join('\r\n') + '\r\n';
+    const texto = serializarCsvNovos(contatos);
     const blob = new window.Blob([texto], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -919,7 +1070,6 @@
     a.remove();
     setTimeout(() => window.URL.revokeObjectURL(url), 1000);
   }
-
 
 
   function baixarBackupGoogle(linhas) {
@@ -1637,6 +1787,7 @@
       { id: 'overview', icon: '▦', label: 'Visão geral' },
       { id: 'comparacao', icon: '⇄', label: 'Google CSV → CRM' },
       { id: 'ausentes', icon: '◎', label: 'Sem contato do Google' },
+      { id: 'celulares', icon: '▣', label: 'Conferir celulares' },
       { id: 'sincronizar', icon: '↔', label: 'Google direto (API)' },
       { id: 'arquivos', icon: '▤', label: 'Importar / exportar CSV' },
     ];
@@ -1645,15 +1796,18 @@
       overview: criarView('overview', 'Central de contatos', 'Resumo da base, qualidade dos dados e ações que precisam de atenção.'),
       comparacao: criarView('comparacao', 'Google CSV → CRM', 'Compare os contatos importados com o responsável financeiro de cada cliente.'),
       ausentes: criarView('ausentes', 'Sem contato do Google', 'Revise os clientes sem correspondência e exporte somente os registros elegíveis.'),
+      celulares: criarView('celulares', 'Conferência de celulares', 'Compare os dois celulares do CRM com todos os números do CSV importado, sem gravar dados em sistemas externos.'),
       sincronizar: criarView('sincronizar', 'Sincronização direta Google', 'Consulte a agenda real e revise as diferenças antes de aplicar qualquer alteração.'),
       arquivos: criarView('arquivos', 'Importar e exportar CSV', 'Cada arquivo tem uma finalidade separada para evitar misturar novos contatos com correções.'),
     };
+    let desenharConferenciaCelulares = () => {};
     const selecionarView = (id) => {
       if (!views[id]) return;
       Object.keys(views).forEach((key) => views[key].classList.toggle('active', key === id));
       Object.keys(navBtns).forEach((key) => navBtns[key].classList.toggle('active', key === id));
       if (window.innerWidth <= 760) lateral.classList.remove('mobile-open');
       if (id === 'ausentes' && estado.levantamento) renderizarAusentes(calcularLinhas(estado.levantamento));
+      if (id === 'celulares') desenharConferenciaCelulares();
     };
     configsNav.forEach((cfg) => {
       const b = el('button', '', '');
@@ -1742,6 +1896,7 @@
     [
       ['⇄', 'Comparar Google CSV', 'Ver diferenças nos responsáveis.', 'comparacao'],
       ['◎', 'Criar contatos ausentes', 'Gerar CSV dos clientes sem correspondência.', 'ausentes'],
+      ['▣', 'Conferir celulares', 'Comparar responsável e cadastro com todos os números importados.', 'celulares'],
       ['▤', 'Gerenciar arquivos', 'Importar, exportar ou corrigir CSV.', 'arquivos'],
       ['↔', 'Sincronização direta', 'Conferir agenda e revisar antes de gravar.', 'sincronizar'],
     ].forEach(([icon, title, desc, target]) => {
@@ -1817,6 +1972,119 @@
     listaAusentes.dataset.role = 'lista-ausentes';
     cardAusentes.append(listaAusentes);
     views.ausentes.append(cardAusentes);
+
+    const avisoCelulares = el('div', 'stcg-alert');
+    avisoCelulares.append(
+      el('span', '', 'i'),
+      el('div', '', 'Esta conferência compara somente a importação local do Google CSV. Não verifica a agenda em tempo real, não altera o CRM e não cria contatos automaticamente.'),
+    );
+    views.celulares.append(avisoCelulares);
+    const cardCelulares = el('div', 'stcg-panel');
+    const cabecalhoCelulares = el('div', 'stcg-panel-head');
+    const tituloCelulares = el('div', '');
+    tituloCelulares.append(
+      el('div', 'stcg-panel-title', 'Prévia dos celulares a conferir'),
+      el('div', 'stcg-panel-sub', 'Um contato é exportado por número válido ausente; números compartilhados entre clientes são bloqueados para conferência manual.'),
+    );
+    const acoesCelulares = el('div', 'stcg-actions');
+    const baixarCelulares = botao('Baixar CSV dos celulares ausentes', 'primary', () => {
+      if (!estado.conferenciaCelulares?.disponivel) return;
+      baixarCsvNovos(estado.conferenciaCelulares.exportaveis, 'contatos-celulares-clientes-ausentes.csv');
+    });
+    baixarCelulares.disabled = true;
+    acoesCelulares.append(baixarCelulares);
+    cabecalhoCelulares.append(tituloCelulares, acoesCelulares);
+    cardCelulares.append(cabecalhoCelulares);
+    const statusCelulares = el('div', 'stcg-alert warn');
+    statusCelulares.dataset.role = 'status-conferencia-celulares';
+    statusCelulares.append(el('span', '', '◷'), el('div', '', 'Aguardando leitura do CRM…'));
+    cardCelulares.append(statusCelulares);
+    const resumoCelulares = el('div', 'stcg-panel-sub');
+    resumoCelulares.dataset.role = 'resumo-conferencia-celulares';
+    resumoCelulares.style.padding = '0 16px 12px';
+    cardCelulares.append(resumoCelulares);
+    const tabelaCelulares = el('div', 'stcg-table-wrap');
+    tabelaCelulares.dataset.role = 'tabela-conferencia-celulares';
+    cardCelulares.append(tabelaCelulares);
+    views.celulares.append(cardCelulares);
+
+    desenharConferenciaCelulares = async () => {
+      const numeroExecucao = (estado.execucaoConferenciaCelulares || 0) + 1;
+      estado.execucaoConferenciaCelulares = numeroExecucao;
+      const levantamentoAtual = estado.levantamento;
+      baixarCelulares.disabled = true;
+      tabelaCelulares.textContent = '';
+      if (!levantamentoAtual) {
+        statusCelulares.className = 'stcg-alert warn';
+        statusCelulares.replaceChildren(el('span', '', '◷'), el('div', '', 'A leitura dos clientes do CRM ainda não terminou.'));
+        resumoCelulares.textContent = '';
+        estado.conferenciaCelulares = null;
+        return;
+      }
+      let indice;
+      try {
+        indice = await G().lerIndiceGlobalTelefones();
+      } catch {
+        indice = { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+      }
+      if (numeroExecucao !== estado.execucaoConferenciaCelulares || levantamentoAtual !== estado.levantamento) return;
+      const calculo = calcularConferenciaCelulares(levantamentoAtual, indice);
+      estado.conferenciaCelulares = calculo;
+      const r = calculo.resumo;
+      resumoCelulares.textContent = [
+        'Clientes analisados: ' + r.totalClientes,
+        'Lidos corretamente: ' + r.clientesLidos,
+        'Números encontrados no CSV: ' + r.numerosPresentes,
+        'Contatos ausentes exportáveis: ' + r.contatosAusentesExportaveis,
+        'Para responsável financeiro: ' + r.contatosResponsavelExportaveis,
+        'Para celular do cliente: ' + r.contatosClienteExportaveis,
+        'Números inválidos ou ausentes no CRM: ' + r.invalidosOuAusentes,
+        'Clientes sem leitura: ' + r.clientesSemLeitura,
+        'Números ambíguos/compartilhados: ' + r.numerosAmbiguos,
+      ].join(' · ');
+
+      let textoStatus = '';
+      let classeStatus = 'stcg-alert good';
+      if (!calculo.disponivel) {
+        classeStatus = 'stcg-alert warn';
+        textoStatus = calculo.motivo === 'nao-importado'
+          ? 'Importe o CSV do Google Contatos antes de conferir. Nenhum número foi classificado como ausente.'
+          : 'A base local não tem o índice telefônico global desta versão. Reimporte o CSV do Google Contatos no Alt+J; nenhuma ausência foi concluída a partir da base antiga.';
+      } else {
+        textoStatus = 'Comparação concluída com a base local do CSV importado. Isso não confirma o estado atual da agenda Google.';
+      }
+      if (r.clientesSemCamposTelefone > 0) {
+        classeStatus = 'stcg-alert warn';
+        textoStatus += ' Os campos de telefone do cadastro não estavam disponíveis em ' + r.clientesSemCamposTelefone + ' cliente(s); nenhum número foi inventado.';
+      }
+      if (r.clientesSemLeitura > 0) {
+        classeStatus = 'stcg-alert warn';
+        textoStatus += ' Clientes sem leitura da página foram excluídos da classificação de ausência.';
+      }
+      statusCelulares.className = classeStatus;
+      statusCelulares.replaceChildren(el('span', '', classeStatus.includes('warn') ? '!' : '✓'), el('div', '', textoStatus));
+
+      if (calculo.linhas.length === 0) {
+        tabelaCelulares.append(el('div', 'stcg-empty', calculo.disponivel
+          ? 'Nenhum celular válido disponível para comparação.'
+          : 'Reimporte o CSV para habilitar a comparação global de telefones.'));
+      } else {
+        const tabela = el('table', 'stcg-table');
+        const thead = el('thead', '');
+        const trCab = el('tr', '');
+        ['Empresa', 'Categoria do telefone', 'Número formatado', 'Classificação'].forEach((rotulo) => trCab.append(el('th', '', rotulo)));
+        thead.append(trCab);
+        const tbody = el('tbody', '');
+        calculo.linhas.forEach((linha) => {
+          const tr = el('tr', '');
+          [linha.empresa, linha.categoria, linha.celular, linha.status].forEach((valor) => tr.append(el('td', '', valor)));
+          tbody.append(tr);
+        });
+        tabela.append(thead, tbody);
+        tabelaCelulares.append(tabela);
+      }
+      baixarCelulares.disabled = !calculo.disponivel || calculo.exportaveis.length === 0;
+    };
 
     const apiContainer = el('div', 'stcg-api-container');
     if (!criarSincronizacaoGoogle(apiContainer, estado)) {
@@ -2041,6 +2309,7 @@
           ? 'Conferência concluída · ' + levantamento.totalNaLista + ' cliente(s) analisado(s).' + (levantamento.consultaGoogleAtual ? ' Agenda Google verificada.' : (levantamento.erroConsultaGoogle ? ' Ausências não confirmadas pela agenda.' : ''))
           : 'A lista de clientes está vazia.';
         recalcular();
+        desenharConferenciaCelulares();
       } catch (erro) {
         if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
         statusOverview.className = 'stcg-alert error';
@@ -2181,6 +2450,8 @@
     lerPaginaDoCliente,
     levantar,
     calcularLinhas,
+    calcularConferenciaCelulares,
+    serializarCsvNovos,
     acoesDaLinha,
     planejarAcao,
     avaliarEdicao,
