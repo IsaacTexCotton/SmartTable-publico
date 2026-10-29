@@ -253,10 +253,35 @@
   }
 
   /**
+   * Verifica se algum telefone do responsável ou do cadastro já aparece no índice do CSV.
+   * A conferência é somente leitura e usa a mesma chave canônica do índice global.
+   */
+  function clienteTemCelularNoIndiceGlobal(cand, indice) {
+    if (!indice?.disponivel || !indice.chaves || typeof indice.chaves.has !== 'function') return false;
+    const Gc = G();
+    const chaves = new Set();
+    const responsavel = Gc.chaveCelularValido(cand?.crm?.celular);
+    if (responsavel) chaves.add(responsavel);
+    let diagnostico = null;
+    try {
+      diagnostico = window.__buscaRapida?.diagnosticarCelularesDoCliente?.(cand?.cliente) || null;
+    } catch { /* campo não disponível: tenta os campos usuais abaixo */ }
+    if (Array.isArray(diagnostico?.telefones)) {
+      diagnostico.telefones.forEach((telefone) => { if (telefone?.chave) chaves.add(telefone.chave); });
+    } else {
+      ['celular', 'telefoneCelular', 'telefoneContato', 'telefone'].forEach((campo) => {
+        const chave = Gc.chaveCelularValido(cand?.cliente?.[campo]);
+        if (chave) chaves.add(chave);
+      });
+    }
+    return Array.from(chaves).some((chave) => indice.chaves.has(chave));
+  }
+
+  /**
    * As linhas da tela: um par cliente x contato por diferença, conforme o modo (Nome / Celular).
    * `confere`: a razão do contato bate com a razão social ou o nome fantasia do cliente? (true / false / null = sem como dizer)
    */
-  function calcularLinhas(levantamento, modo = G().lerModo()) {
+  function calcularLinhas(levantamento, modo = G().lerModo(), indiceGlobalTelefones = null) {
     const linhas = [];
     const semLeitura = [];
     const semContato = [];
@@ -266,6 +291,7 @@
     const chavesCsv = new Set();
     const googleConectado = Boolean(window.__googleContactsApi?.status?.().conectado);
     const fonteGoogleAtual = Boolean(levantamento.consultaGoogleAtual);
+    const indiceGlobalDisponivel = Boolean(indiceGlobalTelefones?.disponivel && indiceGlobalTelefones.chaves && typeof indiceGlobalTelefones.chaves.has === 'function');
     const adicionarCsv = (nome, celular, motivo, celularExibicao = celular) => {
       const chave = String(nome) + '\u0000' + String(celular);
       if (chavesCsv.has(chave)) return;
@@ -274,14 +300,16 @@
     };
     let iguais = 0;
     levantamento.candidatos.forEach((cand) => {
-      const contatoExiste = fonteGoogleAtual ? cand.contatoGoogleAtual : cand.itens.length > 0;
-      const consultaFalhouSemBase = Boolean(levantamento.erroConsultaGoogle && cand.itens.length === 0);
+      const celularNoIndice = indiceGlobalDisponivel && clienteTemCelularNoIndiceGlobal(cand, indiceGlobalTelefones);
+      const contatoNaFonte = fonteGoogleAtual ? cand.contatoGoogleAtual : cand.itens.length > 0;
+      const contatoExiste = Boolean(celularNoIndice || contatoNaFonte);
+      const consultaFalhouSemBase = Boolean(!celularNoIndice && levantamento.erroConsultaGoogle && cand.itens.length === 0);
       if (consultaFalhouSemBase) semConfirmacaoGoogle.push(cand);
       else if (!contatoExiste) semContato.push(cand);
-      else if (fonteGoogleAtual && cand.contatoGoogleAtual && cand.itens.length === 0) semCorrespondenciaCsv.push(cand);
+      else if (!celularNoIndice && fonteGoogleAtual && cand.contatoGoogleAtual && cand.itens.length === 0) semCorrespondenciaCsv.push(cand);
 
       if (!cand.crm) { semLeitura.push(cand); return; }
-      // Se a consulta live falhou e não há CSV para fallback, não declarar ausência e nem exportar.
+      // Se a consulta live falhou e não há CSV nem telefone no índice para fallback, não declarar ausência nem exportar.
       if (consultaFalhouSemBase) return;
       if (!contatoExiste) {
         const nome = String(cand.crm.nome ?? '').trim();
@@ -325,7 +353,7 @@
           (Boolean(ufEsperada) && String(item.uf || '').toLocaleUpperCase('pt-BR') === ufEsperada)
           || (!ufEsperada && !item.uf && G().normalizarNomeParaComparacao(G().textoCanonico(item)) === G().normalizarNomeParaComparacao(nomeEsperadoSemUf))
         ));
-        if (temDadoParaContato && !jaExistePadronizado && !googleConectado) {
+        if (temDadoParaContato && !jaExistePadronizado && !googleConectado && !celularNoIndice) {
           adicionarCsv(
             nomePadronizadoDoCliente(cand.cliente, cand.crm, cand.itens.find((item) => item.uf)?.uf),
             celularPadronizadoDoCrm(cand.crm),
@@ -1806,7 +1834,7 @@
       Object.keys(views).forEach((key) => views[key].classList.toggle('active', key === id));
       Object.keys(navBtns).forEach((key) => navBtns[key].classList.toggle('active', key === id));
       if (window.innerWidth <= 760) lateral.classList.remove('mobile-open');
-      if (id === 'ausentes' && estado.levantamento) renderizarAusentes(calcularLinhas(estado.levantamento));
+      if (id === 'ausentes' && estado.levantamento) renderizarAusentes(calcularLinhas(estado.levantamento, undefined, estado.indiceGlobalTelefones));
       if (id === 'celulares') desenharConferenciaCelulares();
     };
     configsNav.forEach((cfg) => {
@@ -1956,7 +1984,7 @@
     titulosAusentes.append(el('div', 'stcg-panel-sub', 'Revise os dados do CRM e exporte apenas os registros elegíveis.'));
     const acaoAusentes = el('div', 'stcg-actions');
     const baixarAusentes = botao('Baixar CSV dos ausentes', 'primary', () => {
-      const calc = estado.levantamento ? calcularLinhas(estado.levantamento) : null;
+      const calc = estado.levantamento ? calcularLinhas(estado.levantamento, undefined, estado.indiceGlobalTelefones) : null;
       const ausentesCsv = calc ? calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE) : [];
       if (!calc?.consultaGoogleAtual && ausentesCsv.length && !window.confirm('A agenda Google não foi verificada em tempo real. O CSV é baseado apenas na última importação local e pode estar desatualizado, gerando duplicatas. Deseja exportar mesmo assim?')) return;
       baixarCsvNovos(ausentesCsv, 'contatos-google-ausentes.csv');
@@ -2031,9 +2059,12 @@
       const calculo = calcularConferenciaCelulares(levantamentoAtual, indice);
       estado.conferenciaCelulares = calculo;
       const r = calculo.resumo;
+      const metaIndice = G().lerMeta();
       resumoCelulares.textContent = [
         'Clientes analisados: ' + r.totalClientes,
         'Lidos corretamente: ' + r.clientesLidos,
+        'Celulares únicos no índice: ' + (indice.disponivel ? indice.chaves.size : 0),
+        'CSV importado em: ' + (metaIndice?.importadoEm || 'data indisponível'),
         'Números encontrados no CSV: ' + r.numerosPresentes,
         'Contatos ausentes exportáveis: ' + r.contatosAusentesExportaveis,
         'Para responsável financeiro: ' + r.contatosResponsavelExportaveis,
@@ -2052,6 +2083,10 @@
           : 'A base local não tem o índice telefônico global desta versão. Reimporte o CSV do Google Contatos no Alt+J; nenhuma ausência foi concluída a partir da base antiga.';
       } else {
         textoStatus = 'Comparação concluída com a base local do CSV importado. Isso não confirma o estado atual da agenda Google.';
+        if (Number(indice.chavesInvalidasDescartadas || 0) > 0) {
+          textoStatus += ' Foram descartadas ' + Number(indice.chavesInvalidasDescartadas) + ' chave(s) inválida(s) do índice; exemplos mascarados: ' + (indice.exemplosChavesInvalidas || []).slice(0, 3).join(', ') + '. Reimporte o CSV para reconstruir o índice.';
+          classeStatus = 'stcg-alert warn';
+        }
       }
       if (r.clientesSemCamposTelefone > 0) {
         classeStatus = 'stcg-alert warn';
@@ -2072,12 +2107,12 @@
         const tabela = el('table', 'stcg-table');
         const thead = el('thead', '');
         const trCab = el('tr', '');
-        ['Empresa', 'Categoria do telefone', 'Número formatado', 'Classificação'].forEach((rotulo) => trCab.append(el('th', '', rotulo)));
+        ['Empresa', 'Categoria do telefone', 'Número formatado', 'Chave canônica', 'Classificação'].forEach((rotulo) => trCab.append(el('th', '', rotulo)));
         thead.append(trCab);
         const tbody = el('tbody', '');
         calculo.linhas.forEach((linha) => {
           const tr = el('tr', '');
-          [linha.empresa, linha.categoria, linha.celular, linha.status].forEach((valor) => tr.append(el('td', '', valor)));
+          [linha.empresa, linha.categoria, linha.celular, linha.chave, linha.status].forEach((valor) => tr.append(el('td', '', valor)));
           tbody.append(tr);
         });
         tabela.append(thead, tbody);
@@ -2269,7 +2304,7 @@
 
     const recalcular = () => {
       if (!estado.levantamento) return;
-      const calc = calcularLinhas(estado.levantamento);
+      const calc = calcularLinhas(estado.levantamento, undefined, estado.indiceGlobalTelefones);
       desenharResultado(resultado, calc, estado);
       atualizarDashboard(calc);
       renderizarAusentes(calc);
@@ -2296,6 +2331,11 @@
         });
         if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
         estado.levantamento = levantamento;
+        try {
+          estado.indiceGlobalTelefones = await G().lerIndiceGlobalTelefones();
+        } catch {
+          estado.indiceGlobalTelefones = { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+        }
         statusOverview.className = levantamento.erroConsultaGoogle ? 'stcg-alert error' : (levantamento.semContatos && !levantamento.consultaGoogleAtual ? 'stcg-alert warn' : 'stcg-alert good');
         iconOverview.textContent = levantamento.erroConsultaGoogle || (levantamento.semContatos && !levantamento.consultaGoogleAtual) ? '!' : '✓';
         if (!levantamento.totalNaLista) textoOverview.textContent = 'A lista de clientes do CRM está vazia.';
@@ -2345,7 +2385,18 @@
           return;
         }
         const resumo = r.resumo || {};
-        importStatus.textContent = 'Importação concluída · ' + Number(resumo.lidos || 0) + ' lido(s) · ' + Number(resumo.reconhecidos || 0) + ' reconhecido(s) · ' + Number(resumo.foraDoPadrao || 0) + ' fora do padrão.';
+        const exemplosRejeitados = Array.isArray(resumo.exemplosTelefonesRejeitados) && resumo.exemplosTelefonesRejeitados.length
+          ? ' · Exemplos mascarados: ' + resumo.exemplosTelefonesRejeitados.slice(0, 3).join(', ')
+          : '';
+        const chavesInvalidas = Number(resumo.chavesInvalidasDescartadas || r.chavesInvalidasDescartadas || 0);
+        importStatus.textContent = 'Importação concluída · ' + Number(resumo.lidos || 0) + ' contato(s) lido(s) · '
+          + Number(resumo.reconhecidos || 0) + ' reconhecido(s) · '
+          + Number(resumo.foraDoPadrao || 0) + ' fora do padrão · '
+          + Number(resumo.telefonesIndexados || r.telefones || 0) + ' celular(es) único(s) indexado(s) · '
+          + Number(resumo.telefonesRejeitados || 0) + ' valor(es) de telefone rejeitado(s)'
+          + (chavesInvalidas ? ' · ' + chavesInvalidas + ' chave(s) inválida(s) descartada(s)' : '')
+          + exemplosRejeitados
+          + (r.naMemoria ? ' · ATENÇÃO: IndexedDB bloqueado/indisponível; o índice fica só nesta aba. Feche as outras abas do CRM e reimporte.' : '.');
         await executarLeitura('CSV importado. Atualizando a comparação com o CRM…');
         selecionarView('comparacao');
       } catch (erro) {
