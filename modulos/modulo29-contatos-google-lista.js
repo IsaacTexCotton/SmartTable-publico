@@ -144,13 +144,88 @@
    * @param {{aoProgresso?: (feitos: number, total: number) => void, sinal?: AbortSignal}} [opcoes]
    * @returns {Promise<{semContatos: boolean, totalNaLista: number, candidatos: Array<{cliente: object, itens: object[], crm: object|null, erro: string|null}>}>}
    */
+  /**
+   * Indexa raízes dos clientes que aparecem na agenda Google atual.
+   * Usa raiz CNPJ nos nomes como correspondência forte e, sem raiz, só aceita
+   * nome de organização que identifique uma única raiz de cliente.
+   */
+  function mapearRaizesPresentesNoGoogle(pessoas, clientes) {
+    const raizesPresentes = new Set();
+    const raizesClientes = new Set(
+      clientes.map((cliente) => G().raizDoCnpj(cliente.cnpj)).filter(Boolean)
+    );
+    for (const pessoa of pessoas) {
+      const nomes = (Array.isArray(pessoa?.names) ? pessoa.names : []).flatMap((n) => [
+        n?.displayName,
+        [n?.givenName, n?.middleName, n?.familyName].filter(Boolean).join(' '),
+      ]).filter(Boolean);
+      const organizacoes = (Array.isArray(pessoa?.organizations) ? pessoa.organizations : [])
+        .map((o) => String(o?.name || '').trim()).filter(Boolean);
+      // Uma raiz válida no nome é a chave mais confiável e não depende da base CSV importada.
+      for (const texto of [...nomes, ...organizacoes]) {
+        const parsed = G().interpretarNome(texto);
+        const raiz = parsed?.raiz ? String(parsed.raiz).replace(/[^0-9A-Z]/gi, '').toUpperCase() : '';
+        if (raiz && raizesClientes.has(raiz)) raizesPresentes.add(raiz);
+      }
+      // Alguns contatos existentes têm a empresa em "Organization Name", mas não têm CNPJ no nome.
+      // Só fazemos vínculo por razão social quando a organização aponta para uma única raiz de cliente.
+      for (const organizacao of organizacoes) {
+        const parsed = G().interpretarNome(organizacao);
+        if (parsed?.raiz) continue;
+        const raizesCompativeis = new Set();
+        clientes.forEach((cliente) => {
+          const raiz = G().raizDoCnpj(cliente.cnpj);
+          if (raiz && G().razaoConfere(organizacao, cliente.razaoSocial, cliente.nomeFantasia)) {
+            raizesCompativeis.add(raiz);
+          }
+        });
+        if (raizesCompativeis.size === 1) raizesPresentes.add([...raizesCompativeis][0]);
+      }
+    }
+    return raizesPresentes;
+  }
+
+  /**
+   * Cruza a lista com a base CSV e, se a API já estiver conectada, confirma a presença
+   * contra a agenda Google atual. Uma falha da API nunca vira ausência confirmada nem CSV exportável.
+   */
   async function levantar({ aoProgresso, sinal } = {}) {
     const lista = Array.isArray(window.CLIENTES) ? window.CLIENTES : [];
     const meta = G().lerMeta();
+    const api = window.__googleContactsApi;
+    let tentouConsultaGoogle = false;
+    let consultaGoogleAtual = false;
+    let erroConsultaGoogle = '';
+    let totalContatosGoogle = null;
+    let raizesGoogle = new Set();
+
+    if (api?.status?.().conectado && typeof api.listarContatos === 'function') {
+      tentouConsultaGoogle = true;
+      try {
+        const pessoas = await api.listarContatos();
+        if (sinal?.aborted) return {
+          semContatos: !meta, precisaReimportar: Boolean(meta && meta.formatoNomeVerificado !== 1),
+          totalNaLista: lista.length, candidatos: [], consultaGoogleAtual: false,
+          tentouConsultaGoogle, erroConsultaGoogle: 'Consulta cancelada.',
+        };
+        raizesGoogle = mapearRaizesPresentesNoGoogle(pessoas, lista);
+        totalContatosGoogle = pessoas.length;
+        consultaGoogleAtual = true;
+      } catch {
+        erroConsultaGoogle = 'Não foi possível consultar a agenda Google atual. Nenhum contato será marcado como ausente confirmado nem exportado até a leitura funcionar.';
+      }
+    }
+
     const candidatos = [];
     for (const cliente of lista) {
-      const itens = await G().buscarPorRaiz(G().raizDoCnpj(cliente.cnpj));
-      candidatos.push({ cliente, itens, crm: null, erro: null });
+      if (sinal?.aborted) break;
+      const raiz = G().raizDoCnpj(cliente.cnpj);
+      const itens = await G().buscarPorRaiz(raiz);
+      candidatos.push({
+        cliente, raiz, itens, crm: null, erro: null,
+        consultaGoogleAtual,
+        contatoGoogleAtual: Boolean(consultaGoogleAtual && raiz && raizesGoogle.has(raiz)),
+      });
     }
     aoProgresso?.(0, candidatos.length);
     let proximo = 0;
@@ -170,6 +245,10 @@
       precisaReimportar: Boolean(meta && meta.formatoNomeVerificado !== 1),
       totalNaLista: lista.length,
       candidatos,
+      consultaGoogleAtual,
+      tentouConsultaGoogle,
+      erroConsultaGoogle,
+      totalContatosGoogle,
     };
   }
 
@@ -181,20 +260,30 @@
     const linhas = [];
     const semLeitura = [];
     const semContato = [];
+    const semCorrespondenciaCsv = [];
+    const semConfirmacaoGoogle = [];
     const csvNovos = [];
     const chavesCsv = new Set();
     const googleConectado = Boolean(window.__googleContactsApi?.status?.().conectado);
+    const fonteGoogleAtual = Boolean(levantamento.consultaGoogleAtual);
     const adicionarCsv = (nome, celular, motivo, celularExibicao = celular) => {
-      const chave = `${nome}\u0000${celular}`;
+      const chave = String(nome) + '\u0000' + String(celular);
       if (chavesCsv.has(chave)) return;
       chavesCsv.add(chave);
       csvNovos.push({ nome, celular, motivo, celularExibicao });
     };
     let iguais = 0;
     levantamento.candidatos.forEach((cand) => {
-      if (cand.itens.length === 0) semContato.push(cand);
+      const contatoExiste = fonteGoogleAtual ? cand.contatoGoogleAtual : cand.itens.length > 0;
+      const consultaFalhouSemBase = Boolean(levantamento.erroConsultaGoogle && cand.itens.length === 0);
+      if (consultaFalhouSemBase) semConfirmacaoGoogle.push(cand);
+      else if (!contatoExiste) semContato.push(cand);
+      else if (fonteGoogleAtual && cand.contatoGoogleAtual && cand.itens.length === 0) semCorrespondenciaCsv.push(cand);
+
       if (!cand.crm) { semLeitura.push(cand); return; }
-      if (cand.itens.length === 0) {
+      // Se a consulta live falhou e não há CSV para fallback, não declarar ausência e nem exportar.
+      if (consultaFalhouSemBase) return;
+      if (!contatoExiste) {
         const nome = String(cand.crm.nome ?? '').trim();
         const celularValido = G().normalizarCelular(cand.crm.celular);
         if (nome || celularValido) {
@@ -207,11 +296,14 @@
         }
         return;
       }
+      // O contato existe na agenda atual, mas não faz parte da base CSV importada.
+      // Não exportar como ausente nem comparar campos que não foram importados.
+      if (cand.itens.length === 0) return;
+
       const antes = linhas.length;
       let precisaContatoPadronizado = false;
       cand.itens.forEach((item, indice) => {
         const confere = G().razaoConfere(item.razao, cand.cliente.razaoSocial, cand.cliente.nomeFantasia);
-        // Apenas registros explicitamente diagnosticados como fora do padrão entram nesse fluxo.
         if (item.formatoPadrao === false && confere !== false) precisaContatoPadronizado = true;
         const novidades = G().novidadesDoContato(item, cand.crm, modo);
         const faltandoNoGoogle = {
@@ -220,7 +312,7 @@
         };
         if (!novidades.nome && !novidades.celular && !faltandoNoGoogle.nome && !faltandoNoGoogle.celular) return;
         linhas.push({
-          chave: `${cand.cliente.cnpj}#${indice}`,
+          chave: String(cand.cliente.cnpj) + '#' + indice,
           cliente: cand.cliente, item, crm: cand.crm, novidades, faltandoNoGoogle,
           confere,
         });
@@ -247,11 +339,20 @@
     const peso = (l) => (l.confere === false ? 2 : l.confere === null ? 1 : 0);
     linhas.sort((a, b) => peso(a) - peso(b) || String(a.cliente.razaoSocial).localeCompare(String(b.cliente.razaoSocial), 'pt-BR'));
     return {
-      linhas, semLeitura, semContato, csvNovos, iguais,
+      linhas, semLeitura, semContato, semCorrespondenciaCsv, semConfirmacaoGoogle, csvNovos, iguais,
+      consultaGoogleAtual: fonteGoogleAtual,
+      erroConsultaGoogle: levantamento.erroConsultaGoogle || '',
+      consultaGoogleAtual: fonteGoogleAtual,
+      erroConsultaGoogle: levantamento.erroConsultaGoogle || '',
       resumo: {
         totalNaLista: levantamento.totalNaLista,
-        comContato: levantamento.candidatos.filter((c) => c.itens.length > 0).length,
+        comContato: fonteGoogleAtual
+          ? levantamento.candidatos.filter((c) => c.contatoGoogleAtual).length
+          : levantamento.candidatos.filter((c) => c.itens.length > 0).length,
+        comContatoCsv: levantamento.candidatos.filter((c) => c.itens.length > 0).length,
         semContato: semContato.length,
+        semCorrespondenciaCsv: semCorrespondenciaCsv.length,
+        semConfirmacaoGoogle: semConfirmacaoGoogle.length,
         comDiferenca: new Set(linhas.map((l) => l.cliente)).size,
         iguais,
         semLeitura: semLeitura.length,
@@ -259,7 +360,7 @@
     };
   }
 
-  /* ---------------------------------------------------------------------
+/* ---------------------------------------------------------------------
    * GRAVAR NO CRM (Adicionar / Trocar / Desfazer)
    * --------------------------------------------------------------------- */
 
@@ -1777,6 +1878,8 @@
       if (!calc || !estado.levantamento) return;
       metricRefs.total.textContent = Number(calc.resumo.totalNaLista || 0).toLocaleString('pt-BR');
       metricRefs.google.textContent = Number(calc.resumo.comContato || 0).toLocaleString('pt-BR');
+      const labelContato = metricRefs.google.parentElement?.querySelector('.stcg-metric-label');
+      if (labelContato) labelContato.textContent = calc.consultaGoogleAtual ? 'Encontrados no Google atual' : 'Contatos na base CSV';
       metricRefs.ausentes.textContent = Number(calc.resumo.semContato || 0).toLocaleString('pt-BR');
       metricRefs.diferencas.textContent = Number(calc.resumo.comDiferenca || 0).toLocaleString('pt-BR');
       metricRefs.leitura.textContent = Number(calc.resumo.semLeitura || 0).toLocaleString('pt-BR');
@@ -1787,7 +1890,7 @@
       alertasRefs.leitura.textContent = String(calc.resumo.semLeitura || 0);
       statusBaseValue.textContent = G().lerMeta() ? 'CSV importado' : 'Não importada';
       statusCrmValue.textContent = calc.resumo.semLeitura ? 'Parcial' : 'Concluída';
-      estadoGoogle.textContent = G().lerMeta() ? 'Base CSV importada' : 'Base CSV não importada';
+      estadoGoogle.textContent = calc.consultaGoogleAtual ? 'Agenda Google verificada' : (G().lerMeta() ? 'Base CSV importada' : 'Base CSV não importada');
       const badge = nav.querySelector('[data-role="count-ausentes"]');
       if (badge) badge.textContent = String(calc.resumo.semContato || 0);
     };
@@ -1795,14 +1898,42 @@
     function renderizarAusentes(calc) {
       listaAusentes.textContent = '';
       const candidatas = Array.isArray(calc.semContato) ? calc.semContato : [];
+      const foraDaBase = Array.isArray(calc.semCorrespondenciaCsv) ? calc.semCorrespondenciaCsv : [];
+      const semConfirmacao = Array.isArray(calc.semConfirmacaoGoogle) ? calc.semConfirmacaoGoogle : [];
       const exportaveis = calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE);
-      resumoAusentes.textContent = candidatas.length + ' cliente(s) sem contato · ' + exportaveis.length + ' elegível(is) para CSV · ' + Math.max(0, candidatas.length - exportaveis.length) + ' para revisão.';
+      resumoAusentes.textContent = candidatas.length + ' ausência(s) confirmada(s) · ' +
+        foraDaBase.length + ' contato(s) encontrados na agenda atual, mas fora do CSV · ' +
+        exportaveis.length + ' elegível(is) para CSV · ' +
+        Math.max(0, candidatas.length - exportaveis.length) + ' para revisão' +
+        (semConfirmacao.length ? ' · ' + semConfirmacao.length + ' sem confirmação da agenda' : '') + '.';
       baixarAusentes.disabled = exportaveis.length === 0;
-      if (candidatas.length === 0) {
+
+      if (!calc.consultaGoogleAtual && !calc.erroConsultaGoogle && !G().lerMeta()) {
+        const alerta = el('div', 'stcg-alert warn');
+        alerta.append(el('span', '', '!'), el('div', '', 'A agenda Google não está conectada e não há CSV importado. A lista não pode confirmar quais contatos já existem no Google. Conecte a agenda ou importe um CSV atualizado antes de criar contatos.'));
+        listaAusentes.append(alerta);
+      } else if (!calc.consultaGoogleAtual && !calc.erroConsultaGoogle) {
+        const alerta = el('div', 'stcg-alert warn');
+        alerta.append(el('span', '', '!'), el('div', '', 'Esta lista usa a última base CSV importada, não uma consulta ao Google em tempo real. Se você criou contatos depois da importação, atualize o CSV antes de exportar para evitar duplicatas.'));
+        listaAusentes.append(alerta);
+      }
+      if (calc.erroConsultaGoogle) {
+        const alerta = el('div', 'stcg-alert error');
+        alerta.append(el('span', '', '!'), el('div', '', calc.erroConsultaGoogle));
+        listaAusentes.append(alerta);
+      }
+
+      if (candidatas.length === 0 && foraDaBase.length === 0 && semConfirmacao.length === 0) {
         const vazio = el('div', 'stcg-empty');
-        vazio.append(el('b', '', 'Nenhum cliente sem contato encontrado'), el('span', '', 'A base atual não tem ausências ou a conferência ainda não terminou.'));
+        vazio.append(el('b', '', 'Nenhum cliente confirmado como ausente'), el('span', '', calc.consultaGoogleAtual
+          ? 'A agenda atual foi consultada. Revise abaixo os contatos localizados que ainda não estão na base CSV.'
+          : 'Não há ausências na base atual, ou a agenda ainda precisa ser atualizada.'));
         listaAusentes.append(vazio);
-        return;
+      }
+      if (candidatas.length > 0) {
+        const titulo = el('div', 'stcg-panel-head');
+        titulo.append(el('div', 'stcg-panel-title', calc.consultaGoogleAtual ? 'Não encontrados na agenda Google atual' : 'Não encontrados na base CSV importada'));
+        listaAusentes.append(titulo);
       }
       candidatas.forEach((cand) => {
         const nome = String(cand.crm?.nome || '').trim();
@@ -1815,17 +1946,56 @@
         info.append(el('div', 'stcg-item-title', cand.cliente.razaoSocial || cand.cliente.nomeFantasia || '(sem razão social)'));
         info.append(el('div', 'stcg-cnpj', 'CNPJ: ' + String(cand.cliente.cnpj || 'não informado')));
         const detalhe = !cand.crm
-          ? 'Não foi possível ler o responsável no CRM. Corrija a leitura antes de exportar.'
+          ? 'Não foi possível ler o responsável no CRM; este cliente não será exportado até a consulta ser corrigida.'
           : 'Responsável: ' + (nome || 'não informado') + ' · Celular: ' + (celular ? G().formatarCelular(celular) : (bruto || 'não informado / inválido'));
         info.append(el('div', 'stcg-item-desc', detalhe));
         item.append(info);
-        const estadoItem = el('div', 'stcg-item-side');
-        estadoItem.append(el('span', 'stcg-status ' + (elegivel ? 'ready' : 'review'), elegivel ? 'Elegível' : 'Revisar CRM'));
-        if (!elegivel) estadoItem.append(el('span', 'stcg-item-desc', 'Fora do CSV'));
-        item.append(estadoItem);
+        const lado = el('div', 'stcg-item-side');
+        lado.append(el('span', 'stcg-status ' + (elegivel ? 'ready' : 'review'), elegivel ? 'Elegível' : 'Revisar CRM'));
+        if (!elegivel) lado.append(el('span', 'stcg-item-desc', 'Fora do CSV'));
+        item.append(lado);
         listaAusentes.append(item);
       });
+
+      if (foraDaBase.length > 0) {
+        const titulo = el('div', 'stcg-panel-head');
+        titulo.style.borderTop = '1px solid #edf1f5';
+        titulo.append(el('div', 'stcg-panel-title', 'Encontrados no Google, mas fora da base CSV'));
+        listaAusentes.append(titulo);
+        foraDaBase.forEach((cand) => {
+          const item = el('div', 'stcg-item');
+          item.append(el('span', 'stcg-shortcut-icon', '✓'));
+          const info = el('div', 'stcg-item-main');
+          info.append(el('div', 'stcg-item-title', cand.cliente.razaoSocial || cand.cliente.nomeFantasia || '(sem razão social)'));
+          info.append(el('div', 'stcg-cnpj', 'CNPJ: ' + String(cand.cliente.cnpj || 'não informado')));
+          info.append(el('div', 'stcg-item-desc', 'Um contato foi localizado na agenda Google atual pela raiz do CNPJ ou pelo nome inequívoco da organização. Não será exportado como novo. Importe um CSV atualizado para habilitar a comparação detalhada.'));
+          item.append(info);
+          const lado = el('div', 'stcg-item-side');
+          lado.append(el('span', 'stcg-status ready', 'Contato localizado'));
+          item.append(lado);
+          listaAusentes.append(item);
+        });
+      }
+      if (semConfirmacao.length > 0) {
+        const titulo = el('div', 'stcg-panel-head');
+        titulo.style.borderTop = '1px solid #edf1f5';
+        titulo.append(el('div', 'stcg-panel-title', 'Aguardando confirmação da agenda'));
+        listaAusentes.append(titulo);
+        semConfirmacao.forEach((cand) => {
+          const item = el('div', 'stcg-item');
+          item.append(el('span', 'stcg-shortcut-icon', '!'));
+          const info = el('div', 'stcg-item-main');
+          info.append(el('div', 'stcg-item-title', cand.cliente.razaoSocial || cand.cliente.nomeFantasia || '(sem razão social)'));
+          info.append(el('div', 'stcg-item-desc', 'A consulta ao Google não confirmou se já existe um contato. Este cliente foi bloqueado da exportação para evitar duplicatas.'));
+          item.append(info);
+          const lado = el('div', 'stcg-item-side');
+          lado.append(el('span', 'stcg-status review', 'Não confirmado'));
+          item.append(lado);
+          listaAusentes.append(item);
+        });
+      }
     }
+
 
     const recalcular = () => {
       if (!estado.levantamento) return;
@@ -1856,15 +2026,17 @@
         });
         if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
         estado.levantamento = levantamento;
-        statusOverview.className = levantamento.semContatos ? 'stcg-alert warn' : 'stcg-alert good';
-        iconOverview.textContent = levantamento.semContatos ? '!' : '✓';
+        statusOverview.className = levantamento.erroConsultaGoogle ? 'stcg-alert error' : (levantamento.semContatos && !levantamento.consultaGoogleAtual ? 'stcg-alert warn' : 'stcg-alert good');
+        iconOverview.textContent = levantamento.erroConsultaGoogle || (levantamento.semContatos && !levantamento.consultaGoogleAtual) ? '!' : '✓';
         if (!levantamento.totalNaLista) textoOverview.textContent = 'A lista de clientes do CRM está vazia.';
-        else if (levantamento.semContatos) textoOverview.textContent = 'Nenhuma base CSV foi importada neste navegador. Importe o Google CSV para comparar os contatos existentes; os clientes ausentes já podem ser revisados.';
-        else if (levantamento.precisaReimportar) textoOverview.textContent = 'A importação guardada é antiga. Reimporte o Google CSV para detectar também os nomes fora do padrão.';
-        else textoOverview.textContent = 'Conferência concluída. Escolha uma seção para revisar divergências, ausentes ou sincronização direta.';
+        else if (levantamento.erroConsultaGoogle) textoOverview.textContent = levantamento.erroConsultaGoogle;
+        else if (levantamento.consultaGoogleAtual) textoOverview.textContent = 'Agenda Google atual consultada: ' + Number(levantamento.totalContatosGoogle || 0) + ' contato(s). A lista de ausentes foi validada contra a agenda atual; contatos não incluídos no CSV aparecem para revisão, não para exportação.';
+        else if (levantamento.semContatos) textoOverview.textContent = 'Nenhuma base CSV foi importada neste navegador. Para confirmar quais clientes já têm contato no Google, conecte a agenda atual ou importe um CSV atualizado antes de exportar.';
+        else if (levantamento.precisaReimportar) textoOverview.textContent = 'A importação guardada é antiga. Reimporte o Google CSV para atualizar a comparação.';
+        else textoOverview.textContent = 'Conferência concluída a partir da base CSV importada. Para confirmar a agenda atual, conecte o Google na seção de sincronização.';
         andamento.className = levantamento.totalNaLista ? 'stcg-alert good' : 'stcg-alert warn';
         textoAndamento.textContent = levantamento.totalNaLista
-          ? 'Conferência concluída · ' + levantamento.totalNaLista + ' cliente(s) analisado(s).'
+          ? 'Conferência concluída · ' + levantamento.totalNaLista + ' cliente(s) analisado(s).' + (levantamento.consultaGoogleAtual ? ' Agenda Google verificada.' : (levantamento.erroConsultaGoogle ? ' Ausências não confirmadas pela agenda.' : ''))
           : 'A lista de clientes está vazia.';
         recalcular();
       } catch (erro) {
