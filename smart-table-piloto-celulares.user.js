@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Piloto de conferência de celulares
 // @namespace    https://github.com/IsaacTexCotton/SmartTable/piloto-celulares
-// @version      1.121.1
+// @version      1.121.2
 // @description  Piloto isolado da conferência de celulares do CRM TexCotton.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
