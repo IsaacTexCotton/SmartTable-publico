@@ -1803,6 +1803,7 @@
     const baixarAusentes = botao('Baixar CSV dos ausentes', 'primary', () => {
       const calc = estado.levantamento ? calcularLinhas(estado.levantamento) : null;
       const ausentesCsv = calc ? calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE) : [];
+      if (!calc?.consultaGoogleAtual && ausentesCsv.length && !window.confirm('A agenda Google não foi verificada em tempo real. O CSV é baseado apenas na última importação local e pode estar desatualizado, gerando duplicatas. Deseja exportar mesmo assim?')) return;
       baixarCsvNovos(ausentesCsv, 'contatos-google-ausentes.csv');
     });
     baixarAusentes.disabled = true;
@@ -1901,7 +1902,8 @@
       const foraDaBase = Array.isArray(calc.semCorrespondenciaCsv) ? calc.semCorrespondenciaCsv : [];
       const semConfirmacao = Array.isArray(calc.semConfirmacaoGoogle) ? calc.semConfirmacaoGoogle : [];
       const exportaveis = calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE);
-      resumoAusentes.textContent = candidatas.length + ' ausência(s) confirmada(s) · ' +
+      const textoAusencia = calc.consultaGoogleAtual ? ' ausência(s) confirmada(s) na agenda Google' : ' cliente(s) não encontrados na base CSV';
+      resumoAusentes.textContent = candidatas.length + textoAusencia + ' · ' +
         foraDaBase.length + ' contato(s) encontrados na agenda atual, mas fora do CSV · ' +
         exportaveis.length + ' elegível(is) para CSV · ' +
         Math.max(0, candidatas.length - exportaveis.length) + ' para revisão' +
