@@ -916,7 +916,7 @@
     try {
       const { raizes, telefones, naMemoria, chavesInvalidasDescartadas = 0 } = await guardarContatos(lido.contatos, lido.chavesTelefones);
       lido.resumo.telefonesIndexados = telefones;
-      lido.resumo.chavesInvalidasDescartadas = chavesInvalidasDescartadas;
+      lido.resumo.chavesInvalidasDescartadas += chavesInvalidasDescartadas;
       const meta = {
         importadoEm: util().dataIso(util().normalizarData(new Date())),
         contatos: lido.contatos.length,
