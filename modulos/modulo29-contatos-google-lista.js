@@ -1820,6 +1820,13 @@
       .stcg-app .stcg-shortcut b,
       .stcg-app .stcg-status,
       .stcg-app .stcg-table td { color: var(--stcg-text-secondary); font-size: 13px; }
+      .stcg-app .stcg-count.warn { color: var(--stcg-warning-text); background: var(--stcg-warning-bg); }
+      .stcg-app .stcg-metric.good .stcg-metric-value { color: var(--stcg-success-text); }
+      .stcg-app .stcg-metric.warn .stcg-metric-value { color: var(--stcg-warning-text); }
+      .stcg-app .stcg-metric.danger .stcg-metric-value { color: var(--stcg-danger-text); }
+      .stcg-app .stcg-status.ready { color: var(--stcg-success-text); background: var(--stcg-success-bg); }
+      .stcg-app .stcg-status.review { color: var(--stcg-warning-text); background: var(--stcg-warning-bg); }
+      .stcg-app .stcg-status.blocked { color: var(--stcg-danger-text); background: var(--stcg-danger-bg); }
       .stcg-app .stcg-alert.warn { background: var(--stcg-warning-bg); border-color: #e4c88b; color: var(--stcg-warning-text); }
       .stcg-app .stcg-alert.good { background: var(--stcg-success-bg); border-color: #b9dec6; color: var(--stcg-success-text); }
       .stcg-app .stcg-alert.error { background: var(--stcg-danger-bg); border-color: #e7b8b4; color: var(--stcg-danger-text); }
