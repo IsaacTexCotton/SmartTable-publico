@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.121.1', data: '29/10/2026',
+      mudancas: [
+        'Corrige a normalização do índice global de celulares para DDI 55, prefixo nacional/operadora, ramais e rótulos junto ao número; telefones fixos continuam fora do índice.',
+        'A importação informa a quantidade de celulares únicos indexados e de valores rejeitados, com até três exemplos mascarados; a conferência mostra a chave canônica usada.',
+        'As abas Visão geral e Sem contato do Google passam a respeitar o índice global e não exportam como novos os clientes cujo celular já consta no CSV.',
+        'O upgrade do IndexedDB não fica pendurado se outra aba bloquear a troca de versão; nesse caso a importação avisa que está usando memória nesta aba.'
+      ],
+    },
+    {
       versao: '1.121.0', data: '29/10/2026',
       mudancas: [
         'Inclui a conferência local dos celulares do responsável financeiro e do cadastro do cliente contra um índice global de todos os celulares válidos no Google CSV, inclusive contatos sem nome padronizado por CNPJ.',
