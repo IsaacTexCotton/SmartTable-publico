@@ -760,43 +760,7 @@
     if (estado.editando && !estado.editorVisivel) encerrarEditor(estado);
     destino.appendChild(lista);
 
-    if (calculo.csvNovos.length > 0) {
-      const exportar = criarBotao(`Baixar CSV · ${calculo.csvNovos.length} novo(s) contato(s)`, 'baixar-csv-novos', true);
-      exportar.addEventListener('click', () => baixarCsvNovos(calculo.csvNovos));
-      destino.appendChild(exportar);
-      const ausentes = calculo.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE).length;
-      const corrigidos = calculo.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_PADRONIZACAO).length;
-      const partes = [];
-      if (ausentes) partes.push(`${ausentes} sem contato no Google`);
-      if (corrigidos) partes.push(`${corrigidos} com nome fora do padrão`);
-      destino.appendChild(criarDiv(
-        `O CSV cria contatos novos: ${partes.join(' · ')}. Os contatos originais do Google não são alterados.`,
-        { color: CORES.apagado, fontSize: '11px', marginTop: '4px' },
-      ));
-      const celularesInvalidos = calculo.csvNovos.filter((contato) => !contato.celular && contato.celularExibicao);
-      if (celularesInvalidos.length) {
-        const amostraInvalidos = celularesInvalidos.slice(0, 3).map((contato) => contato.nome + ': ' + contato.celularExibicao).join(' · ');
-        const maisInvalidos = celularesInvalidos.length > 3 ? ' · +' + (celularesInvalidos.length - 3) + ' contato(s)' : '';
-        destino.appendChild(criarDiv(
-          'Celulares inválidos mantidos apenas para referência visual; não serão exportados: ' + amostraInvalidos + maisInvalidos,
-          { color: CORES.aviso, fontSize: '11px', marginTop: '4px' },
-        ));
-      }
-    }
-
-    if (calculo.semContato.length > 0) {
-      const caixa = criarDiv('', { marginTop: '10px' });
-      caixa.dataset.papel = 'sem-contato';
-      caixa.appendChild(criarDiv(`Sem contato do Google (${calculo.semContato.length}):`, { color: CORES.aviso, fontSize: '12px', fontWeight: '600', marginBottom: '4px' }));
-      calculo.semContato.forEach((c) => {
-        const linha = criarDiv('', { display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px', borderBottom: `1px solid ${CORES.linha}` });
-        const dados = c.crm ? `${c.crm.nome || 'sem nome do responsável'} · ${c.crm.celular || 'sem celular do responsável'}` : 'informações insuficientes';
-        linha.appendChild(criarDiv(`${c.cliente.razaoSocial || '(sem razão social)'}: ${dados}`, { color: CORES.texto, fontSize: '12px' }));
-        linha.appendChild(criarLinkAbrir(c.cliente));
-        caixa.appendChild(linha);
-      });
-      destino.appendChild(caixa);
-    }
+    // Exportação de ausentes e padronização ficam em telas separadas da central.
 
     if (estado.feitos.length > 0) {
       const caixa = criarDiv('', { marginTop: '12px' });
@@ -834,7 +798,7 @@
     }
   }
 
-  function baixarCsvNovos(contatos) {
+  function baixarCsvNovos(contatos, nomeArquivo = 'contatos-google-novos.csv') {
     const Gc = G();
     if (!Gc) return;
     const citar = (valor) => {
@@ -847,7 +811,7 @@
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'contatos-google-novos.csv';
+    a.download = nomeArquivo;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
@@ -1485,9 +1449,10 @@
   }
 
   function fecharPainel() {
-    // Cancela os pedidos em andamento. O que ainda chegar só mexe nos elementos do painel antigo, já fora da tela.
+    // Aborta leituras e remove o CSS isolado da central de página inteira.
     controlador?.abort();
     controlador = null;
+    document.getElementById(CONFIG_LISTA.ID_PAINEL + '-styles')?.remove();
     if (!painelEl) return;
     painelEl.remove();
     painelEl = null;
@@ -1503,71 +1468,472 @@
     fecharPainel();
     controlador = new window.AbortController();
 
+    const estiloId = CONFIG_LISTA.ID_PAINEL + '-styles';
+    document.getElementById(estiloId)?.remove();
+    const estilo = document.createElement('style');
+    estilo.id = estiloId;
+    estilo.textContent = '.stcg-app{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;overflow:hidden;background:#f4f7fb;color:#1c3046;font:13px/1.45 system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif}.stcg-app *{box-sizing:border-box}.stcg-top{height:60px;flex:0 0 60px;background:#fff;border-bottom:1px solid #e3eaf1;display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:12px}.stcg-brand{display:flex;align-items:center;gap:10px}.stcg-logo{width:36px;height:36px;display:grid;place-items:center;background:#194b7d;border-radius:10px;color:#fff;font-weight:800;font-size:18px}.stcg-brand b{display:block;font-size:14px;color:#1b3047}.stcg-brand small{display:block;color:#8391a2;font-size:10px;margin-top:1px}.stcg-top-right{display:flex;align-items:center;gap:12px}.stcg-top-status{border:1px solid #e2e9f1;border-radius:6px;background:#f8fafc;color:#6d7f93;padding:5px 9px;font-size:10px;font-weight:700}.stcg-close,.stcg-menu{height:33px;width:33px;display:grid;place-items:center;border:1px solid #e0e7ee;background:#fff;border-radius:7px;color:#667a90;font-size:19px;cursor:pointer}.stcg-menu{display:none}.stcg-body{display:grid;grid-template-columns:235px minmax(0,1fr);flex:1;min-height:0}.stcg-sidebar{display:flex;flex-direction:column;background:#fff;border-right:1px solid #e3eaf1;min-height:0;padding:16px 12px;overflow:auto}.stcg-nav-caption{font-size:9px;font-weight:800;letter-spacing:1px;color:#9aa5b2;padding:8px 10px 10px}.stcg-nav{display:flex;flex-direction:column;gap:4px}.stcg-nav button{width:100%;display:flex;align-items:center;gap:10px;min-height:41px;border:0;background:transparent;border-radius:7px;padding:0 10px;color:#697b8e;text-align:left;font:500 11.5px system-ui,sans-serif;cursor:pointer}.stcg-nav button:hover{background:#f5f8fc;color:#245783}.stcg-nav button.active{background:#edf4fd;color:#1e5287;font-weight:750}.stcg-nav-icon{width:20px;text-align:center;font-size:16px}.stcg-nav-label{flex:1}.stcg-count{background:#eef2f6;color:#718197;border-radius:5px;padding:2px 6px;font-size:9px;font-weight:800}.stcg-count.warn{background:#fff0dc;color:#af7022}.stcg-sidebar-space{flex:1;min-height:24px}.stcg-private-note{border:1px solid #e8edf3;background:#f8fafc;border-radius:8px;padding:11px;margin:14px 2px 10px;color:#8291a1;font-size:10px;line-height:1.55}.stcg-private-note b{display:block;color:#41566e;font-size:10.5px;margin-bottom:4px}.stcg-side-foot{border-top:1px solid #edf1f5;padding:10px 8px 0;color:#9aa5b2;font-size:9px;line-height:1.5}.stcg-stage{min-height:0;min-width:0;overflow:auto;padding:24px 27px 18px}.stcg-view{display:none;max-width:1500px;margin:0 auto}.stcg-view.active{display:block}.stcg-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;margin-bottom:17px}.stcg-eyebrow{color:#7d8da0;font-size:9px;font-weight:800;letter-spacing:1px;margin-bottom:7px}.stcg-page-title{font-size:25px;line-height:1.2;font-weight:800;letter-spacing:-.7px;color:#1b3046;margin:0}.stcg-page-desc{font-size:11px;color:#8592a1;margin:7px 0 0;line-height:1.55}.stcg-actions{display:flex;align-items:center;gap:7px}.stcg-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;border:1px solid #dce4ed;border-radius:7px;padding:8px 12px;background:#fff;color:#455970;font:650 10.5px system-ui,sans-serif;cursor:pointer;white-space:nowrap}.stcg-btn:hover{background:#f8fafc;border-color:#c5d3e1}.stcg-btn.primary{background:#1d4f82;color:#fff;border-color:#1d4f82}.stcg-btn.primary:hover{background:#173f6b}.stcg-btn.soft{background:#f2f7fd;border-color:#dae7f5;color:#2e6395}.stcg-btn:disabled{opacity:.45;cursor:not-allowed}.stcg-alert{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;border:1px solid #e4eaf1;background:#fff;border-radius:8px;color:#718297;font-size:10.5px;line-height:1.55;margin-bottom:14px}.stcg-alert.warn{background:#fff9ef;border-color:#f0e2c9;color:#916b35}.stcg-alert.good{background:#f2faf5;border-color:#dcefe3;color:#43815e}.stcg-alert.error{background:#fff3f2;border-color:#f1d9d6;color:#a54f49}.stcg-panel{background:#fff;border:1px solid #e4eaf1;border-radius:10px;box-shadow:0 2px 5px #1b304506;min-width:0;overflow:hidden}.stcg-panel-head{padding:15px 16px 12px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.stcg-panel-title{font-size:12px;font-weight:800;color:#30475f}.stcg-panel-sub{font-size:10px;color:#8794a3;margin-top:4px;line-height:1.55}.stcg-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin-bottom:15px}.stcg-metric{padding:13px 13px 11px;border:1px solid #e4eaf1;background:#fff;border-radius:9px;min-width:0}.stcg-metric-label{font-size:10px;font-weight:650;color:#75869a;line-height:1.35;min-height:27px}.stcg-metric-value{font-size:25px;font-weight:800;line-height:1.2;letter-spacing:-.6px;color:#223950;margin-top:5px}.stcg-metric-foot{color:#929eac;font-size:9px;margin-top:6px;line-height:1.45}.stcg-metric.warn .stcg-metric-value{color:#b47927}.stcg-metric.danger .stcg-metric-value{color:#ad5e58}.stcg-metric.good .stcg-metric-value{color:#39815b}.stcg-dash-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(250px,.8fr);gap:14px;align-items:start}.stcg-dash-card{padding:16px}.stcg-dash-desc{color:#8794a3;font-size:10px;line-height:1.55;margin-top:5px}.stcg-progress-head{display:flex;justify-content:space-between;gap:9px;margin:15px 0 7px;color:#8090a0;font-size:10px}.stcg-progress-head b{color:#3d566e}.stcg-progress{height:6px;background:#edf1f5;border-radius:8px;overflow:hidden}.stcg-progress span{display:block;height:100%;width:0;background:#4b986d;border-radius:8px}.stcg-detail-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #edf1f5;margin-top:10px;font-size:10px;color:#7f8d9d}.stcg-detail-line b{color:#40576e;font-size:10px}.stcg-shortcuts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}.stcg-shortcut{display:flex;align-items:flex-start;gap:10px;text-align:left;min-width:0;padding:12px;border:1px solid #e5ebf2;background:#fff;border-radius:8px;cursor:pointer}.stcg-shortcut:hover{background:#f9fbfe;border-color:#bfd0e3}.stcg-shortcut-icon{flex-shrink:0;display:grid;place-items:center;width:30px;height:30px;background:#edf4fd;color:#356da5;border-radius:8px;font-size:16px}.stcg-shortcut b{display:block;color:#344c65;font-size:10.5px;margin:1px 0 4px}.stcg-shortcut small{display:block;color:#8b98a6;font-size:9.5px;line-height:1.45}.stcg-status{display:inline-flex;align-items:center;gap:6px;padding:5px 7px;border-radius:5px;font-size:9px;font-weight:750;white-space:nowrap}.stcg-status:before{content:\"\";width:5px;height:5px;border-radius:50%;background:currentColor}.stcg-status.ready{color:#39815b;background:#edf8f1}.stcg-status.review{color:#ad7527;background:#fff5e5}.stcg-status.blocked{color:#ad5b57;background:#fff0ef}.stcg-status.neutral{color:#718197;background:#f0f3f7}.stcg-toolbar{display:flex;align-items:center;gap:8px;padding:0 15px 12px;flex-wrap:wrap}.stcg-search{display:flex;align-items:center;flex:1;min-width:190px;gap:8px;min-height:35px;border:1px solid #dfe6ee;border-radius:7px;padding:0 10px}.stcg-search input{min-width:0;flex:1;border:0;outline:none;background:transparent;color:#314a63;font:10.5px system-ui,sans-serif}.stcg-tabs{display:flex;gap:16px;padding:0 16px;overflow:auto;border-bottom:1px solid #e9edf2}.stcg-tabs button{position:relative;background:transparent;border:0;padding:10px 0;color:#8592a1;font:650 10px system-ui,sans-serif;white-space:nowrap;cursor:pointer}.stcg-tabs button.active{color:#235c93}.stcg-tabs button.active:after{content:\"\";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:#2a68a4}.stcg-table-wrap{overflow:auto;width:100%}.stcg-table{width:100%;min-width:720px;border-collapse:collapse;text-align:left}.stcg-table th{padding:10px 9px;background:#fafbfd;border-bottom:1px solid #edf0f4;color:#98a3b1;font-size:8px;letter-spacing:.4px;white-space:nowrap}.stcg-table td{padding:12px 9px;border-bottom:1px solid #eff2f5;color:#5d6e82;font-size:10px;vertical-align:middle}.stcg-table tbody tr:hover{background:#fbfdff}.stcg-table input[type=checkbox]{width:14px;height:14px;accent-color:#245f99}.stcg-company{font-size:10.5px;font-weight:750;color:#2f465d}.stcg-cnpj{font-size:9px;color:#98a4b1;margin-top:3px}.stcg-person{display:flex;align-items:center;gap:7px;white-space:nowrap}.stcg-avatar{width:24px;height:24px;border-radius:7px;background:#edf3f9;color:#456888;display:grid;place-items:center;font-size:8px;font-weight:800;flex-shrink:0}.stcg-row-action{border:0;background:transparent;color:#2d679f;font-size:9.5px;font-weight:750;cursor:pointer}.stcg-list{display:flex;flex-direction:column}.stcg-item{display:flex;align-items:flex-start;gap:11px;padding:13px 16px;border-top:1px solid #edf1f5}.stcg-item-main{flex:1;min-width:0}.stcg-item-title{font-size:10.5px;font-weight:750;color:#30465d}.stcg-item-desc{font-size:10px;line-height:1.55;color:#8290a0;margin-top:4px;overflow-wrap:anywhere}.stcg-item-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}.stcg-empty{padding:34px 15px;text-align:center;color:#8d9aa8;font-size:10.5px;line-height:1.6}.stcg-empty b{display:block;color:#485d73;font-size:12px;margin-bottom:5px}.stcg-csv-card{display:flex;align-items:flex-start;gap:13px;padding:16px;border-bottom:1px solid #edf1f5}.stcg-csv-card:last-child{border-bottom:0}.stcg-csv-icon{display:grid;place-items:center;flex-shrink:0;width:39px;height:39px;border-radius:9px;background:#edf5ff;color:#477cb8;font-size:18px}.stcg-csv-icon.amber{background:#fff4e3;color:#b77b29}.stcg-csv-icon.green{background:#ebf8f0;color:#428e63}.stcg-csv-main{flex:1;min-width:0}.stcg-csv-main b{color:#344c63;font-size:11.5px}.stcg-csv-main p{color:#8491a0;font-size:10.5px;line-height:1.6;margin:5px 0 10px;max-width:680px}.stcg-csv-status{color:#658b71;font-size:10px;margin-top:8px;min-height:15px;line-height:1.5}.stcg-csv-status.error{color:#ad5d56}.stcg-file-input{display:none}.stcg-api-container{padding:0 0 12px;overflow-x:auto}.stcg-api-container>div{max-width:none!important}.stcg-footer{padding-top:14px;text-align:center;color:#99a4b1;font-size:9px}@media(max-width:1200px){.stcg-stage{padding:20px}.stcg-body{grid-template-columns:220px minmax(0,1fr)}.stcg-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.stcg-dash-grid{grid-template-columns:1fr}.stcg-metric:nth-child(4),.stcg-metric:nth-child(5){min-height:94px}}@media(max-width:760px){.stcg-top{height:55px;flex-basis:55px;padding:0 11px}.stcg-brand small,.stcg-top-status{display:none}.stcg-menu{display:grid}.stcg-body{display:block;position:relative}.stcg-sidebar{position:absolute;inset:0 auto 0 0;z-index:10;width:255px;max-width:85vw;transform:translateX(-105%);transition:transform .18s;box-shadow:none}.stcg-sidebar.mobile-open{transform:translateX(0);box-shadow:10px 0 30px #18304730}.stcg-stage{height:100%;padding:16px 12px}.stcg-page-head{align-items:flex-start;flex-direction:column;gap:12px}.stcg-page-title{font-size:22px}.stcg-actions{width:100%;flex-wrap:wrap}.stcg-actions .stcg-btn{flex:1}.stcg-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stcg-metric{padding:11px}.stcg-metric-value{font-size:22px}.stcg-shortcuts{grid-template-columns:1fr}.stcg-toolbar{padding:0 11px 11px}.stcg-search{flex-basis:100%}.stcg-csv-card{padding:13px}.stcg-csv-main{flex-basis:calc(100% - 55px)}.stcg-item{padding:12px;gap:8px}.stcg-item-side{max-width:105px}.stcg-tabs{gap:13px}.stcg-footer{text-align:left;line-height:1.5}}';
+    document.head.appendChild(estilo);
+
     painelEl = document.createElement('div');
     painelEl.id = CONFIG_LISTA.ID_PAINEL;
-    Object.assign(painelEl.style, {
-      position: 'fixed', bottom: '112px', left: '16px', background: CORES.fundo, border: `1px solid ${CORES.borda}`,
-      borderRadius: '10px', padding: '14px 16px', boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
-      fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: '13px', zIndex: CONFIG_LISTA.Z_INDEX_POPUP,
-      width: '920px', maxWidth: '92vw', maxHeight: '75vh', overflowY: 'auto', boxSizing: 'border-box',
-    });
-    painelEl.appendChild(criarDiv('Checkup dos Contatos do Google', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
-    painelEl.appendChild(criarDiv('A sincronização direta pode corrigir nomes e celulares no Google após conexão, prévia e confirmação. O fluxo de CSV abaixo continua disponível para preparar novos contatos e para conferir dados do Google no CRM.', {
-      color: CORES.apagado, fontSize: '11.5px', margin: '2px 0 8px',
-    }));
+    painelEl.className = 'stcg-app';
 
-    const estado = { painel: painelEl, signal: controlador.signal, levantamento: null, feitos: [], mensagens: new Map(), escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, editando: null, textosDigitados: new Map(), editorVisivel: false, redesenhar: () => {} };
-    estadoDoPainel = estado;
-    const temSincronizacaoDireta = criarSincronizacaoGoogle(painelEl, estado);
-    if (temSincronizacaoDireta) {
-      painelEl.appendChild(criarDiv('Comparação pelo CSV importado — Google → CRM', { color: CORES.tinta, fontWeight: '700', fontSize: '12.5px', marginTop: '12px' }));
-    }
-    const resultado = criarDiv('');
-    resultado.dataset.papel = 'resultado';
-    const recalcular = () => { if (estado.levantamento) desenharResultado(resultado, calcularLinhas(estado.levantamento), estado); };
-    estado.redesenhar = recalcular;
-    painelEl.appendChild(G().criarInterruptoresDoModo(recalcular));
-    const andamento = criarDiv('Lendo...', { color: CORES.texto, fontSize: '12px', margin: '4px 0' });
-    andamento.dataset.papel = 'andamento';
-    painelEl.appendChild(andamento);
-    painelEl.appendChild(resultado);
-    const rodape = criarDiv('', { display: 'flex', justifyContent: 'flex-end', marginTop: '10px' });
-    const fechar = criarBotao('Fechar', 'fechar', true);
+    const el = (tag, classe, texto) => {
+      const n = document.createElement(tag);
+      if (classe) n.className = classe;
+      if (texto !== undefined && texto !== null) n.textContent = String(texto);
+      return n;
+    };
+    const botao = (texto, classe, acao) => {
+      const b = el('button', 'stcg-btn ' + (classe || ''), texto);
+      b.type = 'button';
+      if (acao) b.addEventListener('click', acao);
+      return b;
+    };
+    const cabecalhoPagina = (secao, titulo, descricao) => {
+      const cab = el('div', 'stcg-page-head');
+      const texto = el('div', '');
+      texto.append(el('div', 'stcg-eyebrow', 'SMARTTABLE  /  CONTATOS GOOGLE'));
+      texto.append(el('h1', 'stcg-page-title', titulo));
+      texto.append(el('p', 'stcg-page-desc', descricao));
+      cab.append(texto);
+      secao.append(cab);
+    };
+    const criarView = (id, titulo, descricao) => {
+      const secao = el('section', 'stcg-view');
+      secao.dataset.view = id;
+      cabecalhoPagina(secao, titulo, descricao);
+      return secao;
+    };
+
+    const topo = el('header', 'stcg-top');
+    const marca = el('div', 'stcg-brand');
+    const menuMobile = el('button', 'stcg-menu', '☰');
+    menuMobile.type = 'button';
+    menuMobile.setAttribute('aria-label', 'Abrir menu');
+    const logo = el('div', 'stcg-logo', 'S');
+    const marcaTexto = el('div', '');
+    marcaTexto.append(el('b', '', 'SmartTable · Contatos'));
+    marcaTexto.append(el('small', '', 'Central de conferência e sincronização'));
+    marca.append(menuMobile, logo, marcaTexto);
+    const topDireita = el('div', 'stcg-top-right');
+    const estadoGoogle = el('span', 'stcg-top-status', 'Base local não importada');
+    const fechar = el('button', 'stcg-close', '×');
+    fechar.type = 'button';
+    fechar.title = 'Fechar (Esc)';
+    fechar.setAttribute('aria-label', 'Fechar Contatos do Google');
     fechar.addEventListener('click', fecharPainel);
-    rodape.appendChild(fechar);
-    painelEl.appendChild(rodape);
-    painelEl.appendChild(criarDiv('Esc para fechar', { color: CORES.apagado, fontSize: '11px', textAlign: 'center', marginTop: '6px' }));
-    document.body.appendChild(painelEl);
-    util()?.acompanharMenuLateral?.(painelEl);
+    topDireita.append(estadoGoogle, fechar);
+    topo.append(marca, topDireita);
 
-    let levantamento = null;
-    try {
-      levantamento = await levantar({
-        sinal: controlador.signal,
-        aoProgresso: (feitos, total) => {
-          andamento.textContent = `Conferindo clientes: ${feitos} de ${total}...`;
-        },
+    const corpo = el('div', 'stcg-body');
+    const lateral = el('aside', 'stcg-sidebar');
+    lateral.append(el('div', 'stcg-nav-caption', 'ÁREA DE TRABALHO'));
+    const nav = el('nav', 'stcg-nav');
+    nav.setAttribute('aria-label', 'Seções de Contatos do Google');
+    const configsNav = [
+      { id: 'overview', icon: '▦', label: 'Visão geral' },
+      { id: 'comparacao', icon: '⇄', label: 'Google CSV → CRM' },
+      { id: 'ausentes', icon: '◎', label: 'Sem contato do Google' },
+      { id: 'sincronizar', icon: '↔', label: 'Google direto (API)' },
+      { id: 'arquivos', icon: '▤', label: 'Importar / exportar CSV' },
+    ];
+    const navBtns = {};
+    const views = {
+      overview: criarView('overview', 'Central de contatos', 'Resumo da base, qualidade dos dados e ações que precisam de atenção.'),
+      comparacao: criarView('comparacao', 'Google CSV → CRM', 'Compare os contatos importados com o responsável financeiro de cada cliente.'),
+      ausentes: criarView('ausentes', 'Sem contato do Google', 'Revise os clientes sem correspondência e exporte somente os registros elegíveis.'),
+      sincronizar: criarView('sincronizar', 'Sincronização direta Google', 'Consulte a agenda real e revise as diferenças antes de aplicar qualquer alteração.'),
+      arquivos: criarView('arquivos', 'Importar e exportar CSV', 'Cada arquivo tem uma finalidade separada para evitar misturar novos contatos com correções.'),
+    };
+    const selecionarView = (id) => {
+      if (!views[id]) return;
+      Object.keys(views).forEach((key) => views[key].classList.toggle('active', key === id));
+      Object.keys(navBtns).forEach((key) => navBtns[key].classList.toggle('active', key === id));
+      if (window.innerWidth <= 760) lateral.classList.remove('mobile-open');
+      if (id === 'ausentes' && estado.levantamento) renderizarAusentes(calcularLinhas(estado.levantamento));
+    };
+    configsNav.forEach((cfg) => {
+      const b = el('button', '', '');
+      b.type = 'button';
+      b.dataset.viewTarget = cfg.id;
+      b.append(el('span', 'stcg-nav-icon', cfg.icon), el('span', 'stcg-nav-label', cfg.label));
+      if (cfg.id === 'ausentes') {
+        const count = el('span', 'stcg-count warn', '0');
+        count.dataset.role = 'count-ausentes';
+        b.append(count);
+      }
+      b.addEventListener('click', () => selecionarView(cfg.id));
+      navBtns[cfg.id] = b;
+      nav.append(b);
+    });
+    lateral.append(nav);
+    const lateralSpace = el('div', 'stcg-sidebar-space');
+    const notaPrivacidade = el('div', 'stcg-private-note', '');
+    notaPrivacidade.append(el('b', '', 'Dados protegidos'));
+    notaPrivacidade.append(el('span', '', 'CSV lido no navegador. A API só grava no Google após prévia, confirmação e backup.'));
+    lateral.append(lateralSpace, notaPrivacidade, el('div', 'stcg-side-foot', 'Módulos 28 · 29 · 33 · 36'));
+    const palco = el('main', 'stcg-stage');
+    Object.values(views).forEach((v) => palco.append(v));
+
+    const estado = {
+      painel: painelEl, signal: controlador.signal, levantamento: null, feitos: [], mensagens: new Map(),
+      escolhidos: new Map(), armado: null, relogioDaConfirmacao: null, editando: null,
+      textosDigitados: new Map(), editorVisivel: false, redesenhar: () => {}, lendo: false,
+    };
+    estadoDoPainel = estado;
+
+    const statusOverview = el('div', 'stcg-alert warn');
+    const iconOverview = el('span', '', '◷');
+    const textoOverview = el('div', '', 'Consultando a lista de clientes do CRM…');
+    statusOverview.append(iconOverview, textoOverview);
+    views.overview.append(statusOverview);
+
+    const metricas = el('div', 'stcg-metrics');
+    const metricRefs = {};
+    [
+      ['total', 'Clientes na lista', 'Lista atual do CRM', ''],
+      ['google', 'Com contato na base', 'Raiz encontrada no CSV', 'good'],
+      ['ausentes', 'Sem contato Google', 'Requerem revisão / exportação', 'warn'],
+      ['diferencas', 'Com divergências', 'Nome ou celular diferente', 'danger'],
+      ['leitura', 'Sem leitura do CRM', 'Consulta não concluída', ''],
+    ].forEach(([key, label, foot, style]) => {
+      const card = el('div', 'stcg-metric ' + style);
+      card.append(el('div', 'stcg-metric-label', label));
+      const value = el('div', 'stcg-metric-value', '—');
+      value.dataset.metric = key;
+      card.append(value, el('div', 'stcg-metric-foot', foot));
+      metricRefs[key] = value;
+      metricas.append(card);
+    });
+    views.overview.append(metricas);
+
+    const gridResumo = el('div', 'stcg-dash-grid');
+    const cardBase = el('div', 'stcg-panel stcg-dash-card');
+    cardBase.append(el('div', 'stcg-panel-title', 'Estado da conferência'));
+    cardBase.append(el('div', 'stcg-dash-desc', 'Resumo atualizado conforme a leitura do CRM termina.'));
+    const linhaProgresso = el('div', 'stcg-progress-head');
+    const progressLabel = el('span', '', 'Clientes com contato na base CSV');
+    const progressValue = el('b', '', '—');
+    linhaProgresso.append(progressLabel, progressValue);
+    const progress = el('div', 'stcg-progress');
+    const progressFill = el('span', '');
+    progress.append(progressFill);
+    cardBase.append(linhaProgresso, progress);
+    const statusBaseLine = el('div', 'stcg-detail-line');
+    statusBaseLine.append(el('span', '', 'Base CSV'));
+    const statusBaseValue = el('b', '', 'Verificando…');
+    statusBaseLine.append(statusBaseValue);
+    const statusCrmLine = el('div', 'stcg-detail-line');
+    statusCrmLine.append(el('span', '', 'Consulta CRM'));
+    const statusCrmValue = el('b', '', 'Em andamento');
+    statusCrmLine.append(statusCrmValue);
+    cardBase.append(statusBaseLine, statusCrmLine);
+    const shortcuts = el('div', 'stcg-shortcuts');
+    [
+      ['⇄', 'Comparar Google CSV', 'Ver diferenças nos responsáveis.', 'comparacao'],
+      ['◎', 'Criar contatos ausentes', 'Gerar CSV dos clientes sem correspondência.', 'ausentes'],
+      ['▤', 'Gerenciar arquivos', 'Importar, exportar ou corrigir CSV.', 'arquivos'],
+      ['↔', 'Sincronização direta', 'Conferir agenda e revisar antes de gravar.', 'sincronizar'],
+    ].forEach(([icon, title, desc, target]) => {
+      const b = el('button', 'stcg-shortcut');
+      b.type = 'button';
+      b.append(el('span', 'stcg-shortcut-icon', icon));
+      const t = el('div', '');
+      t.append(el('b', '', title), el('small', '', desc));
+      b.append(t);
+      b.addEventListener('click', () => selecionarView(target));
+      shortcuts.append(b);
+    });
+    cardBase.append(shortcuts);
+
+    const cardAlertas = el('div', 'stcg-panel stcg-dash-card');
+    cardAlertas.append(el('div', 'stcg-panel-title', 'Pontos de atenção'));
+    cardAlertas.append(el('div', 'stcg-dash-desc', 'As tarefas estão separadas por objetivo.'));
+    const alertasRefs = {};
+    [['ausentes', 'Clientes sem contato'], ['diferencas', 'Contatos divergentes'], ['leitura', 'Clientes sem leitura']].forEach(([key, label]) => {
+      const row = el('div', 'stcg-detail-line');
+      row.append(el('span', '', label));
+      const value = el('b', '', '—');
+      row.append(value);
+      alertasRefs[key] = value;
+      cardAlertas.append(row);
+    });
+    const notaSeguranca = el('div', 'stcg-alert');
+    notaSeguranca.style.marginTop = '13px';
+    notaSeguranca.append(el('span', '', '◈'), el('div', '', 'O CSV apenas prepara um arquivo para importação manual. A sincronização direta exige revisão, backup e confirmação.'));
+    cardAlertas.append(notaSeguranca);
+    gridResumo.append(cardBase, cardAlertas);
+    views.overview.append(gridResumo);
+
+    const avisoComparacao = el('div', 'stcg-alert');
+    avisoComparacao.append(el('span', '', 'i'), el('div', '', 'Esta tela compara a base CSV importada com o responsável financeiro do CRM. Clientes sem correspondência ficam na seção “Sem contato do Google”.'));
+    views.comparacao.append(avisoComparacao);
+    const caixaModo = el('div', 'stcg-panel');
+    const cabModo = el('div', 'stcg-panel-head');
+    cabModo.append(el('div', 'stcg-panel-title', 'Campos comparados: nome e celular'));
+    caixaModo.append(cabModo);
+    views.comparacao.append(caixaModo);
+    const resultado = el('div', '');
+    resultado.dataset.papel = 'resultado';
+    const andamento = el('div', 'stcg-alert warn');
+    andamento.append(el('span', '', '◷'));
+    const textoAndamento = el('div', '', 'Consultando os responsáveis no CRM…');
+    andamento.append(textoAndamento);
+    views.comparacao.append(andamento, resultado);
+
+    const avisoAusentes = el('div', 'stcg-alert warn');
+    avisoAusentes.append(el('span', '', '!'), el('div', '', 'Só entram no CSV clientes cujo CRM foi lido e tem dados úteis. Sem telefone válido, o contato pode sair apenas com nome; números não são inventados.'));
+    views.ausentes.append(avisoAusentes);
+    const cardAusentes = el('div', 'stcg-panel');
+    const headAusentes = el('div', 'stcg-panel-head');
+    const titulosAusentes = el('div', '');
+    titulosAusentes.append(el('div', 'stcg-panel-title', 'Clientes identificados como ausentes'));
+    titulosAusentes.append(el('div', 'stcg-panel-sub', 'Revise os dados do CRM e exporte apenas os registros elegíveis.'));
+    const acaoAusentes = el('div', 'stcg-actions');
+    const baixarAusentes = botao('Baixar CSV dos ausentes', 'primary', () => {
+      const calc = estado.levantamento ? calcularLinhas(estado.levantamento) : null;
+      const ausentesCsv = calc ? calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE) : [];
+      baixarCsvNovos(ausentesCsv, 'contatos-google-ausentes.csv');
+    });
+    baixarAusentes.disabled = true;
+    acaoAusentes.append(baixarAusentes);
+    headAusentes.append(titulosAusentes, acaoAusentes);
+    cardAusentes.append(headAusentes);
+    const resumoAusentes = el('div', 'stcg-alert');
+    resumoAusentes.dataset.role = 'resumo-ausentes';
+    cardAusentes.append(resumoAusentes);
+    const listaAusentes = el('div', 'stcg-list');
+    listaAusentes.dataset.role = 'lista-ausentes';
+    cardAusentes.append(listaAusentes);
+    views.ausentes.append(cardAusentes);
+
+    const apiContainer = el('div', 'stcg-api-container');
+    if (!criarSincronizacaoGoogle(apiContainer, estado)) {
+      const falhaApi = el('div', 'stcg-alert warn');
+      falhaApi.append(el('span', '', '!'), el('div', '', 'O Módulo 36 (Google Contacts API) não está carregado nesta página.'));
+      apiContainer.append(falhaApi);
+    }
+    views.sincronizar.append(apiContainer);
+
+    const csvImportPanel = el('div', 'stcg-panel');
+    const csvImportHead = el('div', 'stcg-panel-head');
+    csvImportHead.append(el('div', 'stcg-panel-title', '1. Importar Google CSV'), el('span', 'stcg-status neutral', 'Atualiza a base local'));
+    csvImportPanel.append(csvImportHead);
+    const importRow = el('div', 'stcg-csv-card');
+    importRow.append(el('div', 'stcg-csv-icon green', '⇧'));
+    const importMain = el('div', 'stcg-csv-main');
+    importMain.append(el('b', '', 'Carregar arquivo exportado do Google Contatos'));
+    importMain.append(el('p', '', 'O arquivo é validado e lido no navegador. Importar substitui a base anterior armazenada neste navegador, mas não altera contatos no Google.'));
+    const importInput = el('input', 'stcg-file-input');
+    importInput.type = 'file';
+    importInput.accept = '.csv,text/csv';
+    importInput.setAttribute('aria-label', 'Arquivo Google CSV');
+    const importStatus = el('div', 'stcg-csv-status', '');
+    const importBtn = botao('Selecionar arquivo CSV', 'primary', () => importInput.click());
+    importMain.append(importBtn, importInput, importStatus);
+    importRow.append(importMain);
+    csvImportPanel.append(importRow);
+    views.arquivos.append(csvImportPanel);
+
+    const csvAbsentPanel = el('div', 'stcg-panel');
+    csvAbsentPanel.style.marginTop = '14px';
+    const absentRow = el('div', 'stcg-csv-card');
+    absentRow.append(el('div', 'stcg-csv-icon amber', '↓'));
+    const absentMain = el('div', 'stcg-csv-main');
+    absentMain.append(el('b', '', '2. Exportar contatos de clientes ausentes'));
+    absentMain.append(el('p', '', 'Cria um CSV separado dos contatos ausentes no Google. Contatos que só precisam de padronização não entram neste arquivo.'));
+    absentMain.append(botao('Revisar clientes ausentes', 'soft', () => selecionarView('ausentes')));
+    absentRow.append(absentMain);
+    csvAbsentPanel.append(absentRow);
+    views.arquivos.append(csvAbsentPanel);
+
+    const csvFixPanel = el('div', 'stcg-panel');
+    csvFixPanel.style.marginTop = '14px';
+    const fixRow = el('div', 'stcg-csv-card');
+    fixRow.append(el('div', 'stcg-csv-icon', '✎'));
+    const fixMain = el('div', 'stcg-csv-main');
+    fixMain.append(el('b', '', '3. Corrigir CSV existente'));
+    fixMain.append(el('p', '', 'Reorganiza somente nomes reconhecidos sem inventar nem remover letras ou números. Contatos pessoais não entram no arquivo de correção.'));
+    const fixInput = el('input', 'stcg-file-input');
+    fixInput.type = 'file';
+    fixInput.accept = '.csv,text/csv';
+    fixInput.setAttribute('aria-label', 'CSV a corrigir');
+    const fixStatus = el('div', 'stcg-csv-status', '');
+    fixMain.append(botao('Selecionar CSV para corrigir', '', () => fixInput.click()), fixInput, fixStatus);
+    fixRow.append(fixMain);
+    csvFixPanel.append(fixRow);
+    views.arquivos.append(csvFixPanel);
+
+    const atualizarDashboard = (calc) => {
+      if (!calc || !estado.levantamento) return;
+      metricRefs.total.textContent = Number(calc.resumo.totalNaLista || 0).toLocaleString('pt-BR');
+      metricRefs.google.textContent = Number(calc.resumo.comContato || 0).toLocaleString('pt-BR');
+      metricRefs.ausentes.textContent = Number(calc.resumo.semContato || 0).toLocaleString('pt-BR');
+      metricRefs.diferencas.textContent = Number(calc.resumo.comDiferenca || 0).toLocaleString('pt-BR');
+      metricRefs.leitura.textContent = Number(calc.resumo.semLeitura || 0).toLocaleString('pt-BR');
+      progressValue.textContent = (calc.resumo.comContato || 0) + ' de ' + (calc.resumo.totalNaLista || 0);
+      progressFill.style.width = (calc.resumo.totalNaLista ? Math.min(100, calc.resumo.comContato / calc.resumo.totalNaLista * 100) : 0) + '%';
+      alertasRefs.ausentes.textContent = String(calc.resumo.semContato || 0);
+      alertasRefs.diferencas.textContent = String(calc.resumo.comDiferenca || 0);
+      alertasRefs.leitura.textContent = String(calc.resumo.semLeitura || 0);
+      statusBaseValue.textContent = G().lerMeta() ? 'CSV importado' : 'Não importada';
+      statusCrmValue.textContent = calc.resumo.semLeitura ? 'Parcial' : 'Concluída';
+      estadoGoogle.textContent = G().lerMeta() ? 'Base CSV importada' : 'Base CSV não importada';
+      const badge = nav.querySelector('[data-role="count-ausentes"]');
+      if (badge) badge.textContent = String(calc.resumo.semContato || 0);
+    };
+
+    function renderizarAusentes(calc) {
+      listaAusentes.textContent = '';
+      const candidatas = Array.isArray(calc.semContato) ? calc.semContato : [];
+      const exportaveis = calc.csvNovos.filter((c) => c.motivo === CSV_MOTIVO_AUSENTE);
+      resumoAusentes.textContent = candidatas.length + ' cliente(s) sem contato · ' + exportaveis.length + ' elegível(is) para CSV · ' + Math.max(0, candidatas.length - exportaveis.length) + ' para revisão.';
+      baixarAusentes.disabled = exportaveis.length === 0;
+      if (candidatas.length === 0) {
+        const vazio = el('div', 'stcg-empty');
+        vazio.append(el('b', '', 'Nenhum cliente sem contato encontrado'), el('span', '', 'A base atual não tem ausências ou a conferência ainda não terminou.'));
+        listaAusentes.append(vazio);
+        return;
+      }
+      candidatas.forEach((cand) => {
+        const nome = String(cand.crm?.nome || '').trim();
+        const bruto = String(cand.crm?.celular || '').trim();
+        const celular = G().normalizarCelular(bruto);
+        const elegivel = Boolean(cand.crm && (nome || celular));
+        const item = el('div', 'stcg-item');
+        item.append(el('span', 'stcg-shortcut-icon', '◎'));
+        const info = el('div', 'stcg-item-main');
+        info.append(el('div', 'stcg-item-title', cand.cliente.razaoSocial || cand.cliente.nomeFantasia || '(sem razão social)'));
+        info.append(el('div', 'stcg-cnpj', 'CNPJ: ' + String(cand.cliente.cnpj || 'não informado')));
+        const detalhe = !cand.crm
+          ? 'Não foi possível ler o responsável no CRM. Corrija a leitura antes de exportar.'
+          : 'Responsável: ' + (nome || 'não informado') + ' · Celular: ' + (celular ? G().formatarCelular(celular) : (bruto || 'não informado / inválido'));
+        info.append(el('div', 'stcg-item-desc', detalhe));
+        item.append(info);
+        const estadoItem = el('div', 'stcg-item-side');
+        estadoItem.append(el('span', 'stcg-status ' + (elegivel ? 'ready' : 'review'), elegivel ? 'Elegível' : 'Revisar CRM'));
+        if (!elegivel) estadoItem.append(el('span', 'stcg-item-desc', 'Fora do CSV'));
+        item.append(estadoItem);
+        listaAusentes.append(item);
       });
-    } catch {
-      andamento.style.color = CORES.erro;
-      andamento.textContent = 'Não consegui ler os contatos guardados neste navegador (abra o Alt+J e importe de novo).';
-      return;
     }
-    if (levantamento.totalNaLista === 0) {
-      andamento.style.color = CORES.aviso;
-      andamento.textContent = 'A lista de clientes está vazia.';
-      return;
-    }
-    andamento.textContent = '';
-    if (levantamento.semContatos) {
-      andamento.style.color = CORES.aviso;
-      andamento.textContent = 'Nenhum CSV do Google foi importado; o checkup ainda verificou quem está sem contato e montou o CSV dos novos contatos possíveis.';
-    } else if (levantamento.precisaReimportar) {
-      andamento.style.color = CORES.aviso;
-      andamento.textContent = 'A importação guardada é antiga. Reimporte o CSV do Google Contacts para detectar também nomes cuja formatação original estava fora do padrão.';
-    }
-    estado.levantamento = levantamento;
-    recalcular();
+
+    const recalcular = () => {
+      if (!estado.levantamento) return;
+      const calc = calcularLinhas(estado.levantamento);
+      desenharResultado(resultado, calc, estado);
+      atualizarDashboard(calc);
+      renderizarAusentes(calc);
+    };
+    estado.redesenhar = recalcular;
+    caixaModo.append(G().criarInterruptoresDoModo(recalcular));
+
+    const executarLeitura = async (mensagem) => {
+      if (estado.lendo) return;
+      estado.lendo = true;
+      textoOverview.textContent = mensagem || 'Consultando as páginas dos clientes no CRM…';
+      statusOverview.className = 'stcg-alert warn';
+      textoAndamento.textContent = 'Consultando responsáveis no CRM…';
+      andamento.className = 'stcg-alert warn';
+      statusCrmValue.textContent = 'Em andamento';
+      try {
+        const levantamento = await levantar({
+          sinal: controlador.signal,
+          aoProgresso: (feitos, total) => {
+            const texto = 'Conferindo clientes: ' + feitos + ' de ' + total + '…';
+            textoOverview.textContent = texto;
+            textoAndamento.textContent = texto;
+          },
+        });
+        if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
+        estado.levantamento = levantamento;
+        statusOverview.className = levantamento.semContatos ? 'stcg-alert warn' : 'stcg-alert good';
+        iconOverview.textContent = levantamento.semContatos ? '!' : '✓';
+        if (!levantamento.totalNaLista) textoOverview.textContent = 'A lista de clientes do CRM está vazia.';
+        else if (levantamento.semContatos) textoOverview.textContent = 'Nenhuma base CSV foi importada neste navegador. Importe o Google CSV para comparar os contatos existentes; os clientes ausentes já podem ser revisados.';
+        else if (levantamento.precisaReimportar) textoOverview.textContent = 'A importação guardada é antiga. Reimporte o Google CSV para detectar também os nomes fora do padrão.';
+        else textoOverview.textContent = 'Conferência concluída. Escolha uma seção para revisar divergências, ausentes ou sincronização direta.';
+        andamento.className = levantamento.totalNaLista ? 'stcg-alert good' : 'stcg-alert warn';
+        textoAndamento.textContent = levantamento.totalNaLista
+          ? 'Conferência concluída · ' + levantamento.totalNaLista + ' cliente(s) analisado(s).'
+          : 'A lista de clientes está vazia.';
+        recalcular();
+      } catch (erro) {
+        if (!painelEl?.isConnected || estadoDoPainel !== estado) return;
+        statusOverview.className = 'stcg-alert error';
+        iconOverview.textContent = '!';
+        textoOverview.textContent = 'Não foi possível concluir a leitura. Confira a sessão do CRM e tente atualizar a visão.';
+        andamento.className = 'stcg-alert error';
+        textoAndamento.textContent = 'Falha ao consultar a lista do CRM. Tente novamente.';
+      } finally {
+        estado.lendo = false;
+      }
+    };
+
+    importInput.addEventListener('change', async () => {
+      const arquivo = importInput.files && importInput.files[0];
+      importInput.value = '';
+      if (!arquivo) return;
+      if (G().lerMeta() && !window.confirm('Importar este Google CSV substituirá a base guardada neste navegador. Deseja continuar?')) {
+        importStatus.textContent = 'Importação cancelada; a base atual não foi alterada.';
+        return;
+      }
+      importStatus.className = 'stcg-csv-status';
+      importStatus.textContent = 'Validando e importando o arquivo…';
+      try {
+        const r = await G().importarCsv(await arquivo.text());
+        if (r.erro) {
+          importStatus.className = 'stcg-csv-status error';
+          importStatus.textContent = r.erro;
+          return;
+        }
+        const resumo = r.resumo || {};
+        importStatus.textContent = 'Importação concluída · ' + Number(resumo.lidos || 0) + ' lido(s) · ' + Number(resumo.reconhecidos || 0) + ' reconhecido(s) · ' + Number(resumo.foraDoPadrao || 0) + ' fora do padrão.';
+        await executarLeitura('CSV importado. Atualizando a comparação com o CRM…');
+        selecionarView('comparacao');
+      } catch (erro) {
+        importStatus.className = 'stcg-csv-status error';
+        importStatus.textContent = 'Não foi possível ler/importar o arquivo. Verifique se é um Google CSV válido.';
+      }
+    });
+
+    fixInput.addEventListener('change', async () => {
+      const arquivo = fixInput.files && fixInput.files[0];
+      fixInput.value = '';
+      if (!arquivo) return;
+      fixStatus.className = 'stcg-csv-status';
+      fixStatus.textContent = 'Analisando o arquivo…';
+      try {
+        if (!window.__corretorCsv?.corrigirCsv || !window.__corretorCsv?.baixar) {
+          fixStatus.className = 'stcg-csv-status error';
+          fixStatus.textContent = 'O corretor CSV (Módulo 33) não está carregado.';
+          return;
+        }
+        const r = window.__corretorCsv.corrigirCsv(await arquivo.text());
+        if (r.erro) {
+          fixStatus.className = 'stcg-csv-status error';
+          fixStatus.textContent = r.erro;
+        } else if (!r.csv) {
+          fixStatus.textContent = 'Nenhum contato precisa de correção; nada foi baixado.';
+        } else {
+          window.__corretorCsv.baixar(window.__corretorCsv.NOME_ARQUIVO, r.csv);
+          fixStatus.textContent = Number(r.resumo.corrigidos || 0) + ' corrigido(s) · ' + Number(r.resumo.jaNoPadrao || 0) + ' já no padrão · ' + Number(r.resumo.semComoCorrigir || 0) + ' para revisão. Arquivo baixado.';
+        }
+      } catch (erro) {
+        fixStatus.className = 'stcg-csv-status error';
+        fixStatus.textContent = 'Não foi possível processar o arquivo.';
+      }
+    });
+
+    menuMobile.addEventListener('click', () => lateral.classList.toggle('mobile-open'));
+    corpo.append(lateral, palco);
+    painelEl.append(topo, corpo);
+    document.body.append(painelEl);
+    navBtns.overview.classList.add('active');
+    views.overview.classList.add('active');
+    await executarLeitura('Consultando a lista de clientes do CRM…');
   }
 
   function alternarPainel() {
