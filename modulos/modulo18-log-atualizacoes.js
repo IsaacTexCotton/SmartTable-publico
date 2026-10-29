@@ -24,6 +24,21 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.121.0', data: '29/10/2026',
+      mudancas: [
+        'Inclui a conferência local dos celulares do responsável financeiro e do cadastro do cliente contra um índice global de todos os celulares válidos no Google CSV, inclusive contatos sem nome padronizado por CNPJ.',
+        'Números equivalentes com e sem o nono dígito são deduplicados; números inválidos, clientes sem leitura e telefones compartilhados não são exportados automaticamente.',
+        'O CSV de novos contatos é preparado localmente, com prévia e escapamento correto, sem consultar a People API nem gravar dados no CRM ou na agenda Google. A importação antiga precisa ser refeita para construir o índice global.'
+      ],
+    },
+    {
+      versao: '1.120.3', data: '29/10/2026',
+      mudancas: [
+        'Reorganiza a área Contatos do Google em uma central com visão geral, comparação Google CSV → CRM, ausentes, sincronização direta opcional e gestão de arquivos.',
+        'Mantém a integração direta com a API Google como fluxo separado e explícito, com prévia e confirmação; a análise local do CSV continua independente dela.'
+      ],
+    },
+    {
       versao: '1.119.0', data: '28/10/2026',
       mudancas: [
         'A ponte com o WhatsApp também identifica a conversa pelo nome: usa a raiz de oito dígitos do CNPJ no padrão Razão Social - raiz - UF - responsável e, fora dele, pesquisa pela primeira palavra.',
