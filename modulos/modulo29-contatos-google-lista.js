@@ -2396,7 +2396,7 @@
           + Number(resumo.telefonesRejeitados || 0) + ' valor(es) de telefone rejeitado(s)'
           + (chavesInvalidas ? ' · ' + chavesInvalidas + ' chave(s) inválida(s) descartada(s)' : '')
           + exemplosRejeitados
-          + (r.naMemoria ? ' · ATENÇÃO: IndexedDB bloqueado/indisponível; o índice fica só nesta aba. Feche as outras abas do CRM e reimporte.' : '.');
+          + (r.naMemoria ? ' · ATENÇÃO: IndexedDB bloqueado/indisponível; o índice fica só nesta aba. Feche as outras abas do CRM, recarregue esta aba e reimporte.' : '.');
         await executarLeitura('CSV importado. Atualizando a comparação com o CRM…');
         selecionarView('comparacao');
       } catch (erro) {
