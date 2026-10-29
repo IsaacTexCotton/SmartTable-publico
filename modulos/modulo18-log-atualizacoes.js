@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.121.2', data: '29/10/2026',
+      mudancas: [
+        'Melhora a hierarquia da Central de Contatos com uma ação principal para importar o CSV e atalhos contextuais desabilitados enquanto seus dados não estão prontos.',
+        'Uniformiza os estados do CSV, CRM e agenda Google, esconde contagens durante a leitura, mostra progresso determinado e usa skeletons no lugar de traços.',
+        'Aumenta a legibilidade e o contraste, adiciona foco por teclado, anúncios de status acessíveis, números tabulares e respeito à preferência por movimento reduzido.'
+      ],
+    },
+    {
       versao: '1.121.1', data: '29/10/2026',
       mudancas: [
         'Corrige a normalização do índice global de celulares para DDI 55, prefixo nacional/operadora, ramais e rótulos junto ao número; telefones fixos continuam fora do índice.',
