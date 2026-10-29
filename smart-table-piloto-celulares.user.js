@@ -28,7 +28,7 @@
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo11-progresso-fila.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo5-alerta-grupo.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo17-promessa-rapida.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo18-log-atualizacoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/piloto-celulares/modulos/modulo18-log-atualizacoes.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo30-catalogo-mensagens.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo19-mensagens-cobranca.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo20-dom-atalhos.js
@@ -42,7 +42,7 @@
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo31-editor-mensagens.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo38-guia-implementacoes.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo4-atalhos-teclado.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo6-contexto-adicional.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/piloto-celulares/modulos/modulo6-contexto-adicional.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo34-retorno.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo35-nome-contato.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/modulos/modulo37-checagem-retornos.js
