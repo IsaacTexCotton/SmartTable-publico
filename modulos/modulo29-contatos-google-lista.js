@@ -2682,7 +2682,7 @@
         Object.values(alertasRefs).forEach((value) => { value.classList.remove('stcg-skeleton'); value.textContent = 'Erro'; value.removeAttribute('aria-label'); });
         statusBaseValue.textContent = G().lerMeta() ? 'Importada' : 'Não importada';
         statusCrmValue.textContent = 'Com erro';
-        statusGoogleValue.textContent = 'Não confirmada';
+        statusGoogleValue.textContent = 'Não consultada';
         estadoGoogle.textContent = 'Conferência com erro';
         estadoGoogle.dataset.state = 'error';
         statusOverview.className = 'stcg-alert error';
