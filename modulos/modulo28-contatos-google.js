@@ -44,8 +44,9 @@
 
   const CONFIG_CONTATOS = {
     BANCO: 'smarttable_contatos_google',
-    VERSAO_BANCO: 1,
+    VERSAO_BANCO: 2,
     TABELA: 'raizes',
+    TABELA_TELEFONES: 'telefones',
     CHAVE_META: 'smarttable_contatos_google_meta_v1',
     // Interruptores Nome / Celular (o que comparar e preencher); só preferência, nenhum dado de contato.
     CHAVE_MODO: 'smarttable_contatos_google_modo_v1',
@@ -199,6 +200,10 @@
     return { indice: m.index, raiz: m[1].replace(/\./g, '') };
   }
 
+  function ehContatoCelularCliente(texto) {
+    return /\[\s*(?:CELULAR\s+CLIENTE|SMARTTABLE:CELULAR-CLIENTE(?::V?\d+)?)\s*\]/i.test(String(texto ?? ''));
+  }
+
   /**
    * "EMPRESA - 12345678 - SP - GP 3 - Maria" -> { raiz, uf, grupo, nome, razao }.
    * Raiz = 8 caracteres (com ou sem pontos, "12.345.678"), logo seguida de uma UF válida; a
@@ -212,6 +217,8 @@
    */
   function interpretarNome(texto) {
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
+    // O contato é uma linha de celular do cadastro, não uma pessoa responsável.
+    if (ehContatoCelularCliente(t)) return null;
     const estrito = interpretarEstrito(t);
     if (estrito) return estrito;
     const achado = acharRaizEUf(t);
@@ -322,6 +329,7 @@
         first: idx('First Name'),
         fileAs: idx('File As'),
         org: idx('Organization Name'),
+        notas: idx('Notes'),
         telefones,
       },
     };
@@ -352,31 +360,65 @@
     const { linhas, colunas } = preparado;
     const { telefones: colunasDeTelefone } = colunas;
 
-    const resumo = { lidos: 0, reconhecidos: 0, foraDoPadrao: 0, foraVazio: 0, foraSemRaiz: 0, foraRaizSemUf: 0, semNome: 0, semCelular: 0, nomeLongo: 0 };
-    const vistos = new Map(); // chave sem a UF -> posições em `contatos`
+    const resumo = {
+      lidos: 0, reconhecidos: 0, foraDoPadrao: 0, foraVazio: 0, foraSemRaiz: 0, foraRaizSemUf: 0,
+      marcadosCelularCliente: 0, semNome: 0, semCelular: 0, nomeLongo: 0,
+      telefonesValidosLidos: 0, telefonesIndexados: 0, telefonesRejeitados: 0,
+      exemplosTelefonesRejeitados: [], chavesInvalidasDescartadas: 0,
+    };
+    const vistos = new Map();
     const contatos = [];
+    // Índice global independente do padrão de nome: só mantém chaves canônicas de celulares válidos.
+    const chavesTelefones = new Set();
+    const registrarRejeicaoTelefone = (valor, chaveInvalida = false) => {
+      resumo.telefonesRejeitados += 1;
+      if (chaveInvalida) resumo.chavesInvalidasDescartadas += 1;
+      const exemplo = mascararTelefone(valor);
+      if (resumo.exemplosTelefonesRejeitados.length < 3 && !resumo.exemplosTelefonesRejeitados.includes(exemplo)) {
+        resumo.exemplosTelefonesRejeitados.push(exemplo);
+      }
+    };
     linhas.slice(1).forEach((linha) => {
       if (linha.every((c) => c.trim() === '')) return;
       resumo.lidos += 1;
       const { celula, textos } = textosDoContato(linha, colunas);
+
+      colunasDeTelefone.forEach((i) => celula(i).split(/\s*:::\s*/).forEach((valor) => {
+        const telefone = String(valor ?? '').trim();
+        if (!telefone) return;
+        const chave = chaveCelularValido(telefone);
+        if (typeof chave === 'string' && /^\d{10}$/.test(chave)) {
+          resumo.telefonesValidosLidos += 1;
+          chavesTelefones.add(chave);
+        } else {
+          registrarRejeicaoTelefone(telefone, chave !== null && chave !== undefined);
+        }
+      }));
+
+      // A linha continua compondo o índice telefônico, mas não pode sugerir responsável financeiro.
+      if (textos.some(ehContatoCelularCliente) || ehContatoCelularCliente(celula(colunas.notas))) {
+        resumo.foraDoPadrao += 1;
+        resumo.marcadosCelularCliente += 1;
+        return;
+      }
+
       const achados = textos.map(interpretarNome);
       const achado = achados.find((a) => a && a.uf) || achados.find(Boolean);
-      // Diagnóstico da forma do nome principal original, sem confiar apenas em File As/Organization.
       const nomePrincipal = String(textos[0] ?? '').replace(/\s+/g, ' ').trim();
       const interpretadoPrincipal = interpretarNome(nomePrincipal);
       const formatoPadrao = Boolean(interpretadoPrincipal
         && normalizarNomeParaComparacao(textoCanonico(interpretadoPrincipal)) === normalizarNomeParaComparacao(nomePrincipal));
       if (!achado) {
         resumo.foraDoPadrao += 1;
-        // O motivo é o do texto "mais promissor": vazio só se NENHUMA fonte tem texto; raiz-sem-uf se alguma tem a raiz.
         const motivos = textos.filter((x) => x.trim()).map(motivoForaDoPadrao);
         if (motivos.length === 0) resumo.foraVazio += 1;
         else if (motivos.includes('raiz-sem-uf')) resumo.foraRaizSemUf += 1;
         else resumo.foraSemRaiz += 1;
         return;
       }
+
       const celulares = [];
-      colunasDeTelefone.forEach((i) => celula(i).split(':::').forEach((v) => {
+      colunasDeTelefone.forEach((i) => celula(i).split(/\s*:::\s*/).forEach((v) => {
         const c = normalizarCelular(v);
         if (c && !celulares.includes(c)) celulares.push(c);
       }));
@@ -390,12 +432,10 @@
       const novo = { raiz: achado.raiz, uf: achado.uf, grupo: achado.grupo, razao: achado.razao, nome, celulares, formatoPadrao, temVersaoPadronizada: formatoPadrao === true };
       const mesmaUf = iguais.find((k) => contatos[k].uf === achado.uf);
       if (mesmaUf !== undefined) {
-        // formatoPadrao preserva o alerta (AND); a outra flag registra que uma duplicata canônica já existe.
         contatos[mesmaUf].temVersaoPadronizada = contatos[mesmaUf].temVersaoPadronizada === true || formatoPadrao === true;
         contatos[mesmaUf].formatoPadrao = contatos[mesmaUf].formatoPadrao !== false && formatoPadrao;
         return;
       }
-      // Uma versão com UF substitui a mesma entrada sem UF, mantendo o diagnóstico das duas.
       const semUf = iguais.find((k) => contatos[k].uf === null);
       if (achado.uf === null && iguais.length > 0) return;
       if (semUf !== undefined) {
@@ -411,7 +451,8 @@
       iguais.push(contatos.length - 1);
       vistos.set(chave, iguais);
     });
-    return { contatos, resumo };
+    resumo.telefonesIndexados = chavesTelefones.size;
+    return { contatos, resumo, chavesTelefones: Array.from(chavesTelefones).sort() };
   }
 
   /** Raiz do CNPJ (8 primeiros caracteres) de um CNPJ com ou sem máscara; '' se não tiver 14. */
@@ -424,9 +465,30 @@
 
   /** Dígitos do celular como o CRM mostra ("+55 (DD) 9XXXX-XXXX" -> "DD9XXXXXXXX"). */
   const digitosDoCelular = (v) => {
-    const d = String(v ?? '').replace(/\D/g, '');
-    return d.length >= 12 && d.startsWith('55') ? d.slice(2) : d;
+    let texto = String(v ?? '').normalize('NFKC').trim();
+    // Remove um ramal/extensão explícito no final; não mistura seus dígitos ao celular.
+    texto = texto.replace(/\s*(?:[,;]?\s*(?:ramal|rml|ext(?:\.?|ensão|ensao|ension)?|x|#)\s*[:=.]?\s*\d+)\s*$/iu, '');
+    // Alguns CSVs/relatórios misturam um rótulo ao número (ex.: "Celular 1: +55 ...").
+    texto = texto.replace(/^\s*(?:(?:telefone|tel\.?|celular|whatsapp|whats|m[oó]vel|mobile|phone)\s*(?:n[ºo.]?\s*)?\d*\s*[:=\-]\s*)+/iu, '');
+    let d = texto.replace(/\D/g, '');
+    // DDI 55 antes do telefone nacional (8 ou 9 dígitos do assinante).
+    if (d.length >= 12 && d.startsWith('55')) d = d.slice(2);
+    // Prefixo de discagem nacional: 0 + DDD, ou 0 + código de operadora + DDD.
+    if (d.startsWith('0')) {
+      if (d.length === 13 || d.length === 14) d = d.slice(3);
+      else if (d.length === 11 || d.length === 12) d = d.slice(1);
+    }
+    return d;
   };
+
+  /** Mascara exemplos de rejeição para diagnóstico sem expor o telefone completo. */
+  function mascararTelefone(valor) {
+    const d = digitosDoCelular(valor);
+    if (d.length === 11 && d[2] === '9') return '(' + d.slice(0, 2) + ') 9****-' + d.slice(-4);
+    if (d.length === 10) return '(' + d.slice(0, 2) + ') ****-' + d.slice(-4);
+    const brutos = String(valor ?? '').replace(/\D/g, '');
+    return brutos.length >= 4 ? '(**) ****-' + brutos.slice(-4) : '(formato inválido)';
+  }
   /** Mesmo responsável = mesmo PRIMEIRO nome (sem acento nem maiúscula): "Ana", "ANA" e "Ana Paula" são o mesmo. */
   const mesmoNome = (a, b) => {
     const primeiro = semAcento(primeiroNome(a));
@@ -445,6 +507,22 @@
     return null;
   }
   const mesmoCelular = (a, b) => chaveDoCelular(a) !== null && chaveDoCelular(a) === chaveDoCelular(b);
+
+  // Validação estrita para a conferência global: celular com 9 dígitos começando em 9,
+  // ou formato legado de 10 dígitos cuja primeira posição móvel seja 6–9. Fixo não entra.
+  function chaveCelularValido(valor) {
+    const d = digitosDoCelular(valor);
+    if (d.length === 11 && d[2] === '9') return chaveDoCelular(d);
+    if (d.length === 10 && /[6-9]/.test(d[2] || '')) return chaveDoCelular(d);
+    return null;
+  }
+
+  function formatarCelularValido(valor) {
+    const d = digitosDoCelular(valor);
+    if (!chaveCelularValido(valor)) return '';
+    if (d.length === 11) return formatarCelular(d);
+    return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  }
 
   /* ---------------------------------------------------------------------
    * RAZÃO SOCIAL (confirma ou desconfia da raiz do CNPJ)
@@ -623,6 +701,7 @@
 
   let bancoPromessa = null;
   const memoria = new Map();
+  const memoriaTelefones = new Set();
   let usandoMemoria = false;
 
   function pedido(req) {
@@ -658,16 +737,33 @@
         resolve(null);
         return;
       }
+      // Um upgrade da v1 para a v2 pode ficar bloqueado enquanto outra aba mantém a conexão antiga.
+      // Não deixa a importação pendurada: usa memória nesta aba e fecha qualquer conexão que abra depois.
+      let resolvidaPorBloqueio = false;
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(CONFIG_CONTATOS.TABELA)) db.createObjectStore(CONFIG_CONTATOS.TABELA, { keyPath: 'raiz' });
+        if (!db.objectStoreNames.contains(CONFIG_CONTATOS.TABELA_TELEFONES)) db.createObjectStore(CONFIG_CONTATOS.TABELA_TELEFONES, { keyPath: 'chave' });
+      };
+      req.onblocked = () => {
+        resolvidaPorBloqueio = true;
+        usandoMemoria = true;
+        resolve(null);
       };
       req.onsuccess = () => {
         const db = req.result;
+        if (resolvidaPorBloqueio) {
+          db.close();
+          return;
+        }
+        // A conexão antiga fecha quando outra aba pede uma versão nova do banco.
         db.onversionchange = () => { db.close(); bancoPromessa = null; };
         resolve(db);
       };
-      req.onerror = () => { usandoMemoria = true; resolve(null); };
+      req.onerror = () => {
+        usandoMemoria = true;
+        resolve(null);
+      };
     });
     return bancoPromessa;
   }
@@ -682,37 +778,60 @@
   };
 
   /** Substitui TUDO pelo que veio do CSV (numa transação só: ou troca tudo, ou nada). */
-  async function guardarContatos(contatos) {
+  async function guardarContatos(contatos, chavesTelefones = null) {
     const mapa = agruparPorRaiz(contatos);
+    const temIndiceTelefones = Array.isArray(chavesTelefones);
+    const chaves = new Set();
+    let chavesInvalidasDescartadas = 0;
+    (chavesTelefones || []).forEach((chave) => {
+      if (typeof chave === 'string' && /^\d{10}$/.test(chave)) chaves.add(chave);
+      else chavesInvalidasDescartadas += 1;
+    });
     const db = await abrirBanco();
     if (!db) {
       memoria.clear();
       mapa.forEach((itens, raiz) => memoria.set(raiz, itens));
-      return { raizes: mapa.size, naMemoria: true };
+      memoriaTelefones.clear();
+      if (temIndiceTelefones) {
+        chaves.forEach((chave) => memoriaTelefones.add(chave));
+        memoriaTelefones.add('__smarttable_phone_index_v1__');
+      }
+      return { raizes: mapa.size, telefones: chaves.size, naMemoria: true, chavesInvalidasDescartadas };
     }
-    const tx = db.transaction(CONFIG_CONTATOS.TABELA, 'readwrite');
+    const tx = db.transaction([CONFIG_CONTATOS.TABELA, CONFIG_CONTATOS.TABELA_TELEFONES], 'readwrite');
     const loja = tx.objectStore(CONFIG_CONTATOS.TABELA);
+    const lojaTelefones = tx.objectStore(CONFIG_CONTATOS.TABELA_TELEFONES);
     loja.clear();
+    lojaTelefones.clear();
     mapa.forEach((itens, raiz) => loja.put({ raiz, itens }));
+    if (temIndiceTelefones) {
+      chaves.forEach((chave) => lojaTelefones.put({ chave }));
+      lojaTelefones.put({ chave: '__smarttable_phone_index_v1__', versao: 1 });
+    }
     await fimDaTransacao(tx);
-    return { raizes: mapa.size, naMemoria: false };
+    return { raizes: mapa.size, telefones: chaves.size, naMemoria: false, chavesInvalidasDescartadas };
   }
 
   async function buscarPorRaiz(raiz) {
     if (!raiz) return [];
     const db = await abrirBanco();
-    if (!db) return memoria.get(raiz) ?? []; // a memória só recebe contatos importados agora, já com o primeiro nome
-    const registro = await pedido(db.transaction(CONFIG_CONTATOS.TABELA).objectStore(CONFIG_CONTATOS.TABELA).get(raiz));
-    // Contatos importados ANTES da regra do primeiro nome têm o nome inteiro no banco.
-    return (registro?.itens ?? []).map((i) => ({ ...i, nome: primeiroNome(i.nome) }));
+    const itens = db
+      ? ((await pedido(db.transaction(CONFIG_CONTATOS.TABELA).objectStore(CONFIG_CONTATOS.TABELA).get(raiz)))?.itens ?? [])
+      : (memoria.get(raiz) ?? []);
+    // A regra também protege registros antigos guardados antes da convenção [CELULAR CLIENTE].
+    return itens
+      .filter((item) => !ehContatoCelularCliente(item.nome))
+      .map((item) => ({ ...item, nome: primeiroNome(item.nome) }));
   }
 
   async function apagarTudo() {
     const db = await abrirBanco();
     memoria.clear();
+    memoriaTelefones.clear();
     if (db) {
-      const tx = db.transaction(CONFIG_CONTATOS.TABELA, 'readwrite');
+      const tx = db.transaction([CONFIG_CONTATOS.TABELA, CONFIG_CONTATOS.TABELA_TELEFONES], 'readwrite');
       tx.objectStore(CONFIG_CONTATOS.TABELA).clear();
+      tx.objectStore(CONFIG_CONTATOS.TABELA_TELEFONES).clear();
       await fimDaTransacao(tx);
     }
     metaNaMemoria = null;
@@ -721,6 +840,51 @@
 
   // Plano B (sem IndexedDB): os contatos somem ao recarregar, então a data também NÃO pode sobreviver.
   let metaNaMemoria = null;
+
+  /**
+   * Retorna o conjunto de chaves canônicas de celular criado a partir de TODAS as linhas do CSV.
+   * Sem metadado e sentinela de índice, uma base antiga nunca é tratada como se fosse completa.
+   */
+  async function lerIndiceGlobalTelefones() {
+    const meta = lerMeta();
+    if (!meta) return { disponivel: false, motivo: 'nao-importado', chaves: new Set(), chavesInvalidasDescartadas: 0, exemplosChavesInvalidas: [] };
+    if (meta.indiceTelefonesVersao !== 1) return { disponivel: false, motivo: 'reimportar', chaves: new Set(), chavesInvalidasDescartadas: 0, exemplosChavesInvalidas: [] };
+    const db = await abrirBanco();
+    if (!db) {
+      const possuiSentinela = memoriaTelefones.has('__smarttable_phone_index_v1__');
+      if (!possuiSentinela) return { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+      const chavesInvalidas = [...memoriaTelefones].filter((chave) => chave !== '__smarttable_phone_index_v1__' && !(typeof chave === 'string' && /^\d{10}$/.test(chave)));
+      return {
+        disponivel: true,
+        motivo: null,
+        chaves: new Set([...memoriaTelefones].filter((chave) => typeof chave === 'string' && /^\d{10}$/.test(chave))),
+        chavesInvalidasDescartadas: chavesInvalidas.length,
+        exemplosChavesInvalidas: chavesInvalidas.slice(0, 3).map(mascararTelefone),
+      };
+    }
+    if (!db.objectStoreNames.contains(CONFIG_CONTATOS.TABELA_TELEFONES)) {
+      return { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+    }
+    try {
+      const registros = await pedido(db.transaction(CONFIG_CONTATOS.TABELA_TELEFONES).objectStore(CONFIG_CONTATOS.TABELA_TELEFONES).getAll());
+      if (!registros.some((registro) => registro?.chave === '__smarttable_phone_index_v1__' && registro.versao === 1)) {
+        return { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+      }
+      const chavesInvalidas = registros
+        .map((registro) => registro?.chave)
+        .filter((chave) => chave !== '__smarttable_phone_index_v1__' && !(typeof chave === 'string' && /^\d{10}$/.test(chave)));
+      const chaves = new Set(registros.map((registro) => registro?.chave).filter((chave) => typeof chave === 'string' && /^\d{10}$/.test(chave)));
+      return {
+        disponivel: true,
+        motivo: null,
+        chaves,
+        chavesInvalidasDescartadas: chavesInvalidas.length,
+        exemplosChavesInvalidas: chavesInvalidas.slice(0, 3).map(mascararTelefone),
+      };
+    } catch {
+      return { disponivel: false, motivo: 'reimportar', chaves: new Set() };
+    }
+  }
 
   function lerMeta() {
     if (usandoMemoria) return metaNaMemoria;
@@ -740,21 +904,32 @@
   }
 
   /**
-   * Lê o texto do CSV, guarda e devolve o resumo. Nunca guarda nada se o CSV for inválido.
-   * @returns {Promise<{erro: string} | {resumo: object, raizes: number, naMemoria: boolean}>}
+   * Lê o CSV inteiro, mantendo os contatos por raiz e um índice telefônico global sem nomes ou linhas brutas.
+   * Um CSV válido sem contatos reconhecíveis por CNPJ ainda é suficiente para construir o índice global.
    */
   async function importarCsv(texto) {
     const lido = contatosDoCsv(texto);
     if (lido.erro) return lido;
-    if (lido.contatos.length === 0) {
-      return { erro: 'Nenhum contato no padrão "RAZÃO - RAIZ DO CNPJ - UF" foi encontrado. Nada foi alterado.', resumo: lido.resumo };
+    if (lido.resumo.lidos === 0) {
+      return { erro: 'O CSV não contém contatos. Nada foi alterado.', resumo: lido.resumo };
     }
     try {
-      const { raizes, naMemoria } = await guardarContatos(lido.contatos);
-      const meta = { importadoEm: util().dataIso(util().normalizarData(new Date())), contatos: lido.contatos.length, raizes, comRazao: true, formatoNomeVerificado: 1 };
+      const { raizes, telefones, naMemoria, chavesInvalidasDescartadas = 0 } = await guardarContatos(lido.contatos, lido.chavesTelefones);
+      lido.resumo.telefonesIndexados = telefones;
+      lido.resumo.chavesInvalidasDescartadas += chavesInvalidasDescartadas;
+      const meta = {
+        importadoEm: util().dataIso(util().normalizarData(new Date())),
+        contatos: lido.contatos.length,
+        raizes,
+        telefonesIndexados: telefones,
+        telefonesRejeitados: lido.resumo.telefonesRejeitados,
+        indiceTelefonesVersao: 1,
+        comRazao: true,
+        formatoNomeVerificado: 1,
+      };
       if (naMemoria) metaNaMemoria = { versao: 1, ...meta };
       else gravarMeta(meta);
-      return { resumo: lido.resumo, raizes, naMemoria };
+      return { resumo: lido.resumo, raizes, telefones, naMemoria, chavesInvalidasDescartadas };
     } catch (erro) {
       return { erro: 'O navegador recusou a gravação dos contatos (' + (erro?.name || 'erro') + '). Nada foi alterado.' };
     }
@@ -1037,14 +1212,19 @@
   }
 
   function textoDoResumo(r) {
+    const resumo = r.resumo || {};
     const partes = [
-      `${r.resumo.lidos} contato(s) lido(s)`,
-      `${r.resumo.reconhecidos} no padrão`,
-      `${r.resumo.foraDoPadrao} fora do padrão, ignorados (${r.resumo.foraSemRaiz} sem raiz de CNPJ, ${r.resumo.foraRaizSemUf} com raiz mas sem UF válida, ${r.resumo.foraVazio} sem nome)`,
-      `${r.resumo.semNome} sem o nome do responsável (não há nome depois da UF no Google: preencha lá)`,
-      `${r.resumo.semCelular} sem celular`,
+      `${resumo.lidos || 0} contato(s) lido(s)`,
+      `${resumo.reconhecidos || 0} no padrão`,
+      `${resumo.foraDoPadrao || 0} fora do padrão, ignorados (${resumo.foraSemRaiz || 0} sem raiz de CNPJ, ${resumo.foraRaizSemUf || 0} com raiz mas sem UF válida, ${resumo.foraVazio || 0} sem nome, ${resumo.marcadosCelularCliente || 0} celulares cadastrais marcados)`,
+      `${resumo.semNome || 0} sem o nome do responsável (não há nome depois da UF no Google: preencha lá)`,
+      `${resumo.semCelular || 0} sem celular reconhecido por CNPJ`,
+      `${Number(resumo.telefonesIndexados ?? r.telefones ?? 0)} celular(es) único(s) indexado(s)`,
+      `${Number(resumo.telefonesRejeitados || 0)} valor(es) de telefone rejeitado(s)`,
     ];
-    if (r.resumo.nomeLongo > 0) partes.push(`${r.resumo.nomeLongo} com nome longo demais (sem o nome)`);
+    if (resumo.exemplosTelefonesRejeitados?.length) partes.push('Exemplos mascarados: ' + resumo.exemplosTelefonesRejeitados.join(', '));
+    if (resumo.chavesInvalidasDescartadas > 0) partes.push(`${resumo.chavesInvalidasDescartadas} chave(s) canônica(s) inválida(s) descartada(s)`);
+    if (resumo.nomeLongo > 0) partes.push(`${resumo.nomeLongo} com nome longo demais (sem o nome)`);
     return partes.join(' · ');
   }
 
@@ -1326,6 +1506,9 @@
     novidadesDoContato,
     decidirPreenchimento,
     chaveDoCelular,
+    chaveCelularValido,
+    formatarCelularValido,
+    ehContatoCelularCliente,
     mesmoCelular,
     mesmoNome,
     razaoConfere,
@@ -1339,6 +1522,7 @@
     buscarPorRaiz,
     apagarTudo,
     lerMeta,
+    lerIndiceGlobalTelefones,
     avaliarPagina,
     mostrarAviso,
     fecharAviso,

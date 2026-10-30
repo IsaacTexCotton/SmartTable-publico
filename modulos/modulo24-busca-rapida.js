@@ -142,6 +142,61 @@
     );
   }
 
+  /**
+   * Diagnóstico dos telefones do cadastro preservando a prioridade dos campos desta busca.
+   * A validação estrita reutiliza o Módulo 28; não duplica regras de celular.
+   */
+  function diagnosticarCelularDoCliente(cliente) {
+    if (!cliente || typeof cliente !== 'object') {
+      return { camposDisponiveis: false, status: 'indisponivel', campo: null, valor: '', chave: null };
+    }
+    const camposDisponiveis = CAMPOS_TELEFONE_CLIENTE.filter((campo) => campo in cliente);
+    let primeiroInvalido = null;
+    for (const campo of CAMPOS_TELEFONE_CLIENTE) {
+      const valor = cliente[campo];
+      if (valor === null || valor === undefined || String(valor).trim() === '') continue;
+      const bruto = String(valor).trim();
+      const chave = window.__contatosGoogle?.chaveCelularValido?.(bruto) ?? null;
+      if (chave) return { camposDisponiveis: camposDisponiveis.length > 0, status: 'valido', campo, valor: bruto, chave };
+      if (!primeiroInvalido) primeiroInvalido = { campo, valor: bruto };
+    }
+    if (primeiroInvalido) {
+      return { camposDisponiveis: camposDisponiveis.length > 0, status: 'invalido', campo: primeiroInvalido.campo, valor: primeiroInvalido.valor, chave: null };
+    }
+    return { camposDisponiveis: camposDisponiveis.length > 0, status: camposDisponiveis.length ? 'vazio' : 'indisponivel', campo: null, valor: '', chave: null };
+  }
+
+  /**
+   * Diagnostica TODOS os campos telefônicos presentes no cadastro.
+   * Distingue campos ausentes, valores inválidos e números utilizáveis; deduplica
+   * formatos equivalentes (com/sem nono dígito) sem alterar o comportamento da busca rápida.
+   */
+  function diagnosticarCelularesDoCliente(cliente) {
+    if (!cliente || typeof cliente !== 'object') {
+      return { camposDisponiveis: false, status: 'indisponivel', telefones: [], invalidos: [] };
+    }
+    const camposDisponiveis = CAMPOS_TELEFONE_CLIENTE.filter((campo) => campo in cliente);
+    const porChave = new Map();
+    const invalidos = [];
+    CAMPOS_TELEFONE_CLIENTE.forEach((campo) => {
+      const valor = cliente[campo];
+      if (valor === null || valor === undefined || String(valor).trim() === '') return;
+      const bruto = String(valor).trim();
+      const chave = window.__contatosGoogle?.chaveCelularValido?.(bruto) ?? null;
+      if (!chave) {
+        invalidos.push({ campo, valor: bruto });
+        return;
+      }
+      if (!porChave.has(chave)) porChave.set(chave, { campo, valor: bruto, chave });
+    });
+    const telefones = Array.from(porChave.values());
+    const status = telefones.length
+      ? 'valido'
+      : invalidos.length ? 'invalido'
+        : camposDisponiveis.length ? 'vazio' : 'indisponivel';
+    return { camposDisponiveis: camposDisponiveis.length > 0, status, telefones, invalidos };
+  }
+
   /** Lista nativa do CRM (o comportamento de sempre). */
   function buscarCliente(termo) {
     const alvo = (termo || '').trim();
@@ -741,6 +796,8 @@
     termoNumericoAmbiguo,
     telefoneDoCliente,
     clienteTemCelular,
+    diagnosticarCelularDoCliente,
+    diagnosticarCelularesDoCliente,
     lerCelularResponsavel,
     contarClientesPorCelular,
     buscarCelularExterno,
