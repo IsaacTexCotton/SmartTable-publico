@@ -115,11 +115,7 @@
     TIMEOUT_AGUARDAR_CAIXA_OBSERVACOES_MS: 5000,
     // Espera pelo Módulo 5 ler a aba "Grupo" (ele desiste em 2,5s).
     TIMEOUT_AGUARDAR_GRUPO_MS: 3000,
-    // As abas de outras razões são aguardadas em paralelo antes da geração.
-    TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
-    // Teto total da etapa das outras razões; não multiplica o timeout por aba.
-    TIMEOUT_TOTAL_OUTRAS_RAZOES_MS: 30000,
     // Espera o estado terminal explícito do Módulo 1 (sucesso ou erro), não
     // apenas o botão reabilitado. Os dois CDNs podem consumir até 10 s.
     TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS: 20000,
@@ -141,7 +137,7 @@
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
     { tecla: 'Shift+Alt+R', descricao: 'Checagem de Retornos: iniciar, navegar e registrar os contatos de hoje' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
-    { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório(s) de outra(s) razão(ões) do grupo, se houver, + relatório + contato + mensagem personalizada)' },
+    { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório único consolidado do grupo, quando houver saldo vencido em outras razões + contato + mensagem personalizada)' },
     // Texto aprovado pelo usuário.
     { tecla: 'Alt+S', descricao: 'Registrar e Enviar. Logo depois do Alt+A, espera a mensagem e o relatório irem para a área de transferência e envia sozinho; se a cópia falhar, não envia até "Copiar de novo" dar certo. Com "Números diferentes" marcado: cada Alt+S abre o próximo número' },
     { tecla: 'Alt+N', descricao: 'Registrar promessa: marque o(s) título(s) (1 a 9), escolha a data (H hoje, A amanhã) e Enter -- o SmartTable preenche o contato do CRM, salva e confere' },
@@ -192,119 +188,8 @@
     }
   }
 
-  // Alt+A com outras razões do grupo vencidas: visita cada uma em aba de
-  // fundo, gera o relatório e fecha a aba, antes de seguir na razão original
-  // (que nunca sai do lugar).
-  //
-  // Todas as abas abrem DE UMA VEZ, síncronas, dentro do gesto do usuário:
-  // com await entre elas o navegador bloqueia como popup. A espera pelos
-  // botões é paralela; a geração é sequencial para proteger a área de transferência.
-  async function gerarRelatoriosDasOutrasRazoes() {
-    const grupo = window.__alertaGrupo;
-    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) {
-      return;
-    }
-
-    const tentativas = grupo.empresasComVencido
-      .filter((empresa) => {
-        if (!empresa.url) {
-          console.warn(`[Atalhos] Não consegui montar a URL de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- pulando.`);
-          return false;
-        }
-        // Outra razão com "Não cobrar" no Alerta não ganha relatório.
-        try {
-          if (window.__alertaCliente?.estaSuprimidoDaPrioridade?.(empresa.cnpj)) {
-            console.warn(`[Atalhos] ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} está com "Não cobrar" no Alerta -- sem relatório dessa razão.`);
-            window.__smartTableUtil?.toast?.('Uma das outras razões do grupo está marcada "Não cobrar": o relatório dela não foi gerado.', 7000);
-            return false;
-          }
-        } catch (erro) {
-          console.warn('[Atalhos] Não consegui ler o Alerta da outra razão:', erro?.name || 'erro');
-        }
-        return true;
-      })
-      .map((empresa) => ({ empresa, aba: window.open(empresa.url, '_blank') }));
-
-    // O orçamento total começa antes da espera do DOM. Assim, a carga
-    // paralela das abas e a geração em sequência compartilham o mesmo teto:
-    // falha ou aba desatualizada não soma um timeout completo por empresa.
-    const prazoFinalGrupo = Date.now() + CONFIG_ATALHOS.TIMEOUT_TOTAL_OUTRAS_RAZOES_MS;
-
-    // Todas as abas são abertas sincronicamente no gesto do usuário para não
-    // ativar o bloqueador de pop-ups. A espera pelo DOM ocorre EM PARALELO:
-    // uma empresa lenta não consome o teto de espera de todas as anteriores.
-    const abasPreparadas = await Promise.all(tentativas.map(async ({ empresa, aba }) => {
-      if (!aba) return { empresa, aba, botao: null };
-      try {
-        // Usa o ID próprio do Módulo 1, não um botão homônimo do CRM. Lê
-        // aba.document a cada polling porque a navegação substitui o about:blank.
-        let botao = null;
-        const localizado = await esperarCondicaoNaJanela(() => {
-          try {
-            botao = aba.document.getElementById(CONFIG_ATALHOS.ID_BOTAO_RELATORIO);
-            return !!botao;
-          } catch (erro) {
-            return false;
-          }
-        }, aba, CONFIG_ATALHOS.TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS,
-        CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS);
-        return { empresa, aba, botao: localizado ? botao : null };
-      } catch (erro) {
-        return { empresa, aba, botao: null, erro };
-      }
-    }));
-
-    // A geração segue sequencial para evitar que capturas simultâneas disputem
-    // o foco e a área de transferência do navegador.
-    for (const { empresa, aba, botao, erro } of abasPreparadas) {
-      if (!aba) {
-        console.warn(`[Atalhos] Não consegui abrir aba para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} -- popup bloqueado?`);
-        continue;
-      }
-      try {
-        if (erro) {
-          console.warn(`[Atalhos] Erro procurando o botão de relatório para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}:`, erro);
-        }
-        const restanteMs = prazoFinalGrupo - Date.now();
-        if (restanteMs <= 0) {
-          console.warn(
-            `[Atalhos] Teto total de ${CONFIG_ATALHOS.TIMEOUT_TOTAL_OUTRAS_RAZOES_MS} ms atingido ao gerar relatórios do grupo; não vou prolongar a espera por ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}.`
-          );
-        } else if (botao) {
-          if (!botao.disabled) simularCliqueCompleto(botao);
-          const terminou = await esperarRelatorioProntoNaJanela(
-            botao,
-            aba,
-            Math.min(CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS, restanteMs),
-            CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
-          );
-          if (terminou) {
-            console.log(`[Atalhos] Relatório gerado em aba de fundo para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}.`);
-          } else {
-            const status = botao.dataset?.relatorioStatus;
-            const motivo = status === 'erro'
-              ? (botao.dataset.relatorioErro || 'a geração falhou')
-              : 'o estado final não foi confirmado a tempo';
-            console.warn(
-              `[Atalhos] Não confirmei o relatório de ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} (${motivo}) -- fechando a aba.`
-            );
-          }
-        } else {
-          console.warn(
-            `[Atalhos] Não encontrei o botão de relatório em ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)} a tempo (aba fechada ou demorou demais) -- fechando mesmo assim.`
-          );
-        }
-      } catch (erro) {
-        console.warn(`[Atalhos] Erro gerando relatório em aba de fundo para ${window.__smartTableUtil.apelidoParaLog(empresa.cnpj)}:`, erro);
-      } finally {
-        try {
-          if (!aba.closed) aba.close();
-        } catch (erro) {
-          // aba pode já ter sido fechada manualmente -- ignora.
-        }
-      }
-    }
-  }
+  // Os títulos das outras razões são lidos pelo Módulo 5 e consolidados
+  // automaticamente pelo Módulo 1 quando o botão único gera o relatório.
 
   /**
    * Acha o botão de gerar relatório. Busca primeiro por ID (o Módulo 1 troca
@@ -452,7 +337,12 @@
   }
 
   async function executarAtendimentoRapido() {
-    await aguardarLeituraDoGrupo();
+    const grupoPronto = await aguardarLeituraDoGrupo();
+    if (window.__alertaGrupoCarregado === true && (!grupoPronto || !window.__alertaGrupo || window.__alertaGrupo.leituraIncompleta)) {
+      console.warn('[Atalhos] Alt+A interrompido: a leitura do grupo não foi concluída.');
+      window.__smartTableUtil?.toast?.('Não consegui confirmar a leitura do grupo econômico. Confira a aba Grupo antes de iniciar a cobrança.');
+      return;
+    }
     // Acordos (Módulo 16): sem saber o que está em acordo, relatório e mensagem
     // poderiam cobrar título negociado. Espera com teto.
     if (window.__negociacoes?.aguardar) await window.__negociacoes.aguardar();
@@ -463,9 +353,8 @@
     const avisoAcordos = window.__negociacoes?.avisoPendente?.();
     if (avisoAcordos && !window.confirm(`${avisoAcordos}\n\nSeguir com o Alt+A mesmo assim?`)) return;
 
-    // Passo 0: relatório das outras razões vencidas, em aba de fundo (resolve
-    // na hora sem outra razão).
-    await gerarRelatoriosDasOutrasRazoes();
+    // O Módulo 1 detecta outras razões com vencido e reúne os títulos
+    // no mesmo relatório, sem abrir abas auxiliares.
 
     const ctx = window.__contextoAdicional;
     // Tudo em acordo: só a parcela, sem relatório (decisão do usuário).
@@ -477,6 +366,8 @@
       soAcordo = false;
     }
     const semRelatorio = !!(ctx && ctx.semContatoAnterior) || soAcordo;
+    const temOutraRazaoComVencido = Array.isArray(window.__alertaGrupo?.empresasComVencido) &&
+      window.__alertaGrupo.empresasComVencido.length > 0;
 
     // Espera a caixa de observações existir de verdade (não um tempo fixo: o
     // modal pode demorar e a escrita desistiria em silêncio) e avisa na tela
@@ -506,8 +397,8 @@
       liberarFocoInvoluntario();
     }
 
-    if (semRelatorio) {
-      // Primeiro contato / só acordo não citam relatório: pula pro passo 2.
+    if (semRelatorio && !temOutraRazaoComVencido) {
+      // Primeiro contato / só acordo sem outra razão vencida não citam relatório.
       await abrirContatoEEscrever();
       return;
     }
@@ -1129,7 +1020,6 @@
     aguardarFoco,
     MARCADOR_IMAGEM_RELATORIO,
     deveOmitirRelatorio,
-    gerarRelatoriosDasOutrasRazoes,
     esperarRelatorioProntoNaJanela,
     esperarCondicaoNaJanela,
     encontrarCaixaDeObservacoes,

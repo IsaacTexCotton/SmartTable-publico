@@ -748,6 +748,91 @@
         return { registros, fluxo, scpc, ignorados, divergentes, naoCobrar, emAcordo, foraDoRelatorio };
     }
 
+    async function aguardarGrupoParaRelatorio() {
+        if (window.__alertaGrupo) return window.__alertaGrupo;
+        if (window.__alertaGrupoCarregado !== true) return null;
+
+        const prazoFinal = Date.now() + 3500;
+        while (!window.__alertaGrupo && Date.now() < prazoFinal) {
+            await new Promise((resolver) => setTimeout(resolver, 100));
+        }
+        if (!window.__alertaGrupo) {
+            throw new Error('A leitura do grupo econômico não terminou. Confira a aba Grupo e tente gerar o relatório novamente.');
+        }
+        return window.__alertaGrupo;
+    }
+
+    function consolidarDadosDoGrupo(dadosPagina, fontesGrupo) {
+        if (!Array.isArray(fontesGrupo) || fontesGrupo.length === 0) return dadosPagina;
+        if (!Array.isArray(dadosPagina?.registros)) throw new Error('Dados da razão atual inválidos para consolidação.');
+        if (dadosPagina.ignorados?.length) {
+            throw new Error('Há títulos da razão atual que não puderam ser lidos. O relatório consolidado foi bloqueado para evitar uma imagem incompleta.');
+        }
+
+        const fontes = [{ cnpj: new URL(window.location.href).searchParams.get('cnpj') || '', dados: dadosPagina }, ...fontesGrupo];
+        const registros = [];
+        const chaves = new Set();
+        let duplicados = 0;
+
+        for (const fonte of fontes) {
+            if (!fonte?.dados || !Array.isArray(fonte.dados.registros)) {
+                throw new Error('Uma das fontes do grupo retornou dados inválidos.');
+            }
+            const cnpj = String(fonte.cnpj || '').replace(/\D/g, '');
+            for (const registro of fonte.dados.registros) {
+                const chave = cnpj + '|' + String(registro.tituloCompleto || '').trim();
+                if (chaves.has(chave)) {
+                    duplicados += 1;
+                    continue;
+                }
+                chaves.add(chave);
+                registros.push({
+                    ...registro,
+                    razaoSocial: String(fonte.razaoSocial || registro.razaoSocial || '').trim(),
+                    fluxo: registro.fluxo || fonte.dados.fluxo,
+                });
+            }
+        }
+
+        if (duplicados) {
+            console.warn('[aviso-cobranca] Títulos repetidos entre as fontes do grupo foram deduplicados:', duplicados);
+        }
+
+        const fluxos = new Set(registros.map((r) => r.fluxo).filter((f) => f === 'SCPC' || f === 'CARTORIO'));
+        const fluxo = fluxos.size > 1 ? 'MISTO' : (fluxos.values().next().value || dadosPagina.fluxo);
+        const juntar = (campo) => fontes.flatMap((f) => Array.isArray(f.dados[campo]) ? f.dados[campo] : []);
+        return {
+            ...dadosPagina,
+            registros,
+            fluxo,
+            scpc: fluxo === 'MISTO' ? null : (fluxo === 'SCPC' ? 's' : 'n'),
+            divergentes: registros.filter((r) => r.divergenciaDias),
+            naoCobrar: juntar('naoCobrar'),
+            emAcordo: juntar('emAcordo'),
+            foraDoRelatorio: juntar('foraDoRelatorio'),
+            ignorados: juntar('ignorados'),
+        };
+    }
+
+    async function obterDadosDoRelatorio(hoje, dadosPagina) {
+        const grupo = await aguardarGrupoParaRelatorio();
+        if (!grupo) return dadosPagina;
+        if (grupo.leituraIncompleta) {
+            throw new Error('Não consegui ler a tabela do grupo econômico. O relatório foi bloqueado para evitar omitir uma razão social.');
+        }
+        if (!Array.isArray(grupo.empresasComVencido)) {
+            throw new Error('A lista de empresas com saldo vencido do grupo está inválida.');
+        }
+        if (grupo.empresasComVencido.length === 0) return dadosPagina;
+        if (typeof window.__grupoEconomico?.buscarDadosParaRelatorio !== 'function') {
+            throw new Error('O leitor consolidado do grupo não está disponível. Atualize o SmartTable e tente novamente.');
+        }
+
+        const fontesGrupo = await window.__grupoEconomico.buscarDadosParaRelatorio(hoje);
+        if (!Array.isArray(fontesGrupo)) throw new Error('A leitura das outras razões retornou um formato inválido.');
+        return consolidarDadosDoGrupo(dadosPagina, fontesGrupo);
+    }
+
     // ============================================================
     // DESTAQUE NA TELA
     // ============================================================
@@ -921,27 +1006,39 @@
     }
 
     function montarAvisos(registros, fluxo, hoje, tamanho) {
-        // O aviso so aparece quando hoje e de fato o ultimo dia de algum titulo.
-        const temUltimoDia = registros.some(r =>
-            r.situacaoKey === 'ULTIMO_DIA' && mesmaData(r.prazos.dataLimitePagamento, hoje)
-        );
-        if (!temUltimoDia) return '';
+        // Em relatório consolidado, cada título mantém seu próprio fluxo:
+        // pode haver aviso de Cartório e de SCPC na mesma imagem.
+        const fluxos = fluxo === 'MISTO'
+            ? [...new Set(registros
+                .filter((r) => r.situacaoKey === 'ULTIMO_DIA' && mesmaData(r.prazos.dataLimitePagamento, hoje))
+                .map((r) => r.fluxo)
+                .filter((f) => f === 'SCPC' || f === 'CARTORIO'))]
+            : [fluxo];
+        return fluxos.map((fluxoDoAviso) => {
+            const registrosDoFluxo = fluxo === 'MISTO'
+                ? registros.filter((r) => r.fluxo === fluxoDoAviso)
+                : registros;
+            const temUltimoDia = registrosDoFluxo.some((r) =>
+                r.situacaoKey === 'ULTIMO_DIA' && mesmaData(r.prazos.dataLimitePagamento, hoje)
+            );
+            if (!temUltimoDia) return '';
 
-        const cfg = fluxo === 'SCPC' ? SITUACOES.ULTIMO_DIA.avisoScpc : SITUACOES.ULTIMO_DIA.aviso;
-        const corBarra = fluxo === 'SCPC'
-            ? SITUACOES.NEGATIVADO_SCPC.rail
-            : SITUACOES.ULTIMO_DIA.rail;
+            const cfg = fluxoDoAviso === 'SCPC' ? SITUACOES.ULTIMO_DIA.avisoScpc : SITUACOES.ULTIMO_DIA.aviso;
+            const corBarra = fluxoDoAviso === 'SCPC'
+                ? SITUACOES.NEGATIVADO_SCPC.rail
+                : SITUACOES.ULTIMO_DIA.rail;
 
-        return '<div style="display:flex; gap:10px; margin-top:16px; width:100%; ' +
-            'flex-wrap:wrap; box-sizing:border-box;">' +
-            '<div style="flex:1; min-width:280px; padding:11px 13px; border:1px solid ' + cfg.borda +
-            '; border-left:3px solid ' + corBarra + '; background:' + cfg.fundo +
-            '; border-radius:4px; box-sizing:border-box;">' +
-                '<div style="font-size:' + (tamanho || '11.5px') + '; font-weight:700; color:' + corBarra +
-                '; margin-bottom:4px;">' + esc(cfg.titulo) + '</div>' +
-                '<div style="font-size:' + (tamanho || '10.5px') + '; line-height:1.45; color:' + TOKENS.tinta2 + ';">' +
-                    esc(cfg.texto) + '</div>' +
-            '</div></div>';
+            return '<div style="display:flex; gap:10px; margin-top:16px; width:100%; ' +
+                'flex-wrap:wrap; box-sizing:border-box;">' +
+                '<div style="flex:1; min-width:280px; padding:11px 13px; border:1px solid ' + cfg.borda +
+                '; border-left:3px solid ' + corBarra + '; background:' + cfg.fundo +
+                '; border-radius:4px; box-sizing:border-box;">' +
+                    '<div style="font-size:' + (tamanho || '11.5px') + '; font-weight:700; color:' + corBarra +
+                    '; margin-bottom:4px;">' + esc(cfg.titulo) + '</div>' +
+                    '<div style="font-size:' + (tamanho || '10.5px') + '; line-height:1.45; color:' + TOKENS.tinta2 + ';">' +
+                        esc(cfg.texto) + '</div>' +
+                '</div></div>';
+        }).join('');
     }
 
     function montarRodape(divergentes, tamanho) {
@@ -1055,7 +1152,11 @@
     };
     function ordenarParaCelular(registros, fluxo) {
         const posicao = new Map(registros.map((r, i) => [r, i]));
-        const grupo = (r) => (fluxo === 'SCPC' ? 0 : (URGENCIA_CELULAR[r.situacaoKey] ?? 2));
+        const grupo = (r) => {
+            const fluxoDoRegistro = fluxo === 'MISTO' ? r.fluxo : fluxo;
+            if (fluxoDoRegistro === 'SCPC') return fluxo === 'MISTO' ? -1 : 0;
+            return URGENCIA_CELULAR[r.situacaoKey] ?? 2;
+        };
         return registros.slice().sort((a, b) =>
             (grupo(a) - grupo(b)) ||
             (b.diasAtrasoReal - a.diasAtrasoReal) ||
@@ -1609,7 +1710,8 @@
         const avisoAcordos = window.__negociacoes?.avisoPendente?.() || null;
 
         const hoje = normalizarData(new Date());
-        const dados = coletarRegistros(hoje);
+        const dadosPagina = coletarRegistros(hoje);
+        const dados = await obterDadosDoRelatorio(hoje, dadosPagina);
 
         if (dados.registros.length === 0) {
             // Linha com vencimento ilegível não é "nenhum título": diz quantas.
@@ -1969,6 +2071,8 @@
         // v1.45.0: a mesma classificação a partir da lista de títulos de
         // outra página (Alt+U sem abrir aba). Ver coletarRegistros.
         simularTitulos: (fonte, hoje) => coletarRegistros(normalizarData(hoje || new Date()), fonte),
+        consolidarDadosDoGrupo,
+        obterDadosDoRelatorio,
         prazosDe: (dataBr) => calcularPrazos(converterDataBrasileira(dataBr)),
         feriados: (ano) => Array.from(feriadosDoAno(ano)).sort(),
         tokens: TOKENS,

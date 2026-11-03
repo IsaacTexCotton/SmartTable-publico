@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.122.0', data: '03/11/2026',
+      mudancas: [
+        'O botão Gerar Relatório passa a identificar automaticamente outras razões do mesmo grupo com saldo vencido e reúne os títulos em uma única imagem.',
+        'Cada razão mantém seu próprio fluxo Cartório/SCPC, razão social, acordos e exclusões; falha ou leitura incompleta bloqueia a imagem parcial.',
+        'Celular e Desktop usam o mesmo relatório consolidado. O Alt+A reutiliza o botão atual e deixa de abrir abas auxiliares para as outras razões.'
+      ],
+    },
+    {
       versao: '1.121.3', data: '30/10/2026',
       mudancas: [
         'A Central de Contatos passa a respeitar a camada compartilhada de popups do CRM, ficando abaixo de diálogos e notificações nativos.',

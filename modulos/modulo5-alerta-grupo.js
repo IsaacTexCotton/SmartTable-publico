@@ -8,16 +8,17 @@
  *   window.__alertaGrupo = { empresasComVencido: [{cnpj, razaoSocial,
  *                            vencido, url}, ...] }   (sempre presente)
  *   window.__grupoEconomico.buscarOutrasEmpresasComVencido(cnpj, grupoId)
+ *   window.__grupoEconomico.buscarDadosParaRelatorio(hoje)
  *   window.__numerosDiferentes (seção 4)
  *
- * A detecção não desenha nada: o CRM já avisa "N CNPJ do grupo vencido".
- * Quem e quanto o Alt+A mostra no relatório. A única coisa desenhada é o checkbox
- * "Números diferentes" (seção 4), ao lado do aviso do CRM.
+ * O Módulo 1 usa os CNPJs detectados para buscar os títulos estruturados das
+ * outras razões e consolidá-los no relatório aberto. A detecção e a coleta
+ * falham fechadas: resposta incompleta não gera imagem parcial.
  *
  * Quem depende deste módulo:
- *   - Módulo 4: Alt+A (gera o relatório das outras razões com vencido);
- *     temOutraRazaoComVencido() (muda a frase da MENSAGEM QUE O CLIENTE
- *     RECEBE, "de cada razão social"); Alt+S (envia aos números diferentes).
+ *   - Módulo 1: relatório consolidado das razões com saldo vencido.
+ *   - Módulo 4: Alt+A (usa o mesmo botão/fluxo de relatório) e a mensagem
+ *     "de cada razão social"; Alt+S (envia aos números diferentes).
  *   - Módulo 7: só a razão mais urgente do grupo entra na fila; sem isso o
  *     mesmo grupo seria cobrado em duplicidade.
  *   - Módulo 8, conferir().
@@ -532,9 +533,8 @@
   /* ---------------------------------------------------------------------
    * 3. EXPOSIÇÃO E INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
-  // Exposto ao Módulo 4 (linha extra do Alt+A). Decisão do usuário:
-  // com outra razão vencida a mensagem muda e cada razão gera seu próprio
-  // relatório (um por página, sem combinar numa imagem só).
+  // Exposto ao Módulo 1: com outra razão vencida, ela será incluída na
+  // MESMA imagem gerada pelo botão da página atual.
   function expor(empresas, leituraIncompleta = false) {
     window.__alertaGrupo = { empresasComVencido: empresas, leituraIncompleta };
     // O checkbox só faz sentido depois de saber se há vencido: desenha aqui.
@@ -591,7 +591,155 @@
     }
   }
 
-  window.__grupoEconomico = { buscarOutrasEmpresasComVencido };
+  const TIMEOUT_PAGINA_GRUPO_MS = 8000;
+  const TIMEOUT_TOTAL_RELATORIO_GRUPO_MS = 30000;
+
+  function digitosCnpj(valor) {
+    return String(valor ?? '').replace(/\D/g, '');
+  }
+
+  function validarUrlDaEmpresa(empresa, cnpj) {
+    if (typeof empresa?.url !== 'string' || !empresa.url.trim()) {
+      throw new Error('Uma empresa com vencido não possui endereço de consulta.');
+    }
+    const url = new URL(empresa.url, window.location.origin);
+    if (url.origin !== window.location.origin || !/^\/crm\/clientes\/grupo\/\d+\/?$/.test(url.pathname)) {
+      throw new Error('O endereço de uma razão do grupo não pertence à rota esperada do CRM.');
+    }
+    if (digitosCnpj(url.searchParams.get('cnpj')) !== cnpj) {
+      throw new Error('O CNPJ do endereço não corresponde à empresa detectada no grupo.');
+    }
+    return url.href;
+  }
+
+  function lerScpcDaPagina(raiz) {
+    for (const p of raiz.querySelectorAll('p.text-sm.text-gray-700.mt-1')) {
+      const spans = p.querySelectorAll('span');
+      for (let i = 0; i < spans.length; i += 1) {
+        if ((spans[i].textContent || '').trim().toUpperCase() === 'SCPC:' && spans[i + 1]) {
+          const valor = (spans[i + 1].textContent || '').trim().toLowerCase();
+          return valor === 's' || valor === 'n' ? valor : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function buscarDadosDaEmpresaParaRelatorio(empresa, cnpj, url, hoje, prazoFinal) {
+    if (Date.now() >= prazoFinal) throw new Error('O tempo máximo de leitura do grupo foi atingido.');
+    const controle = typeof window.AbortController === 'function' ? new window.AbortController() : null;
+    const restante = Math.max(1, Math.min(TIMEOUT_PAGINA_GRUPO_MS, prazoFinal - Date.now()));
+    const limite = setTimeout(() => controle?.abort(), restante);
+    let html;
+    try {
+      const resposta = await window.fetch(url, {
+        headers: { Accept: 'text/html' },
+        credentials: 'same-origin',
+        signal: controle?.signal,
+      });
+      if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+      html = await resposta.text();
+    } finally {
+      clearTimeout(limite);
+    }
+
+    const doc = new window.DOMParser().parseFromString(html, 'text/html');
+    const util = window.__smartTableUtil;
+    const titulos = util?.lerVariavelDoScript?.(doc, '__TITULOS_ABERTOS__');
+    if (!Array.isArray(titulos)) {
+      throw new Error('A página de uma razão do grupo não trouxe a lista de títulos esperada.');
+    }
+
+    const scpc = lerScpcDaPagina(doc);
+    if (scpc !== 's' && scpc !== 'n') {
+      throw new Error('Não foi possível confirmar o fluxo SCPC/Cartório de uma razão do grupo.');
+    }
+
+    if (typeof window.__negociacoes?.acordosDaPaginaBaixada !== 'function') {
+      throw new Error('O leitor de acordos não está disponível para a outra razão do grupo.');
+    }
+    const acordos = await window.__negociacoes.acordosDaPaginaBaixada(doc);
+    if (!acordos || (acordos.erros || []).length || (acordos.statusDesconhecidos || []).length ||
+        (acordos.negociacoesDesconhecidas || []).length) {
+      throw new Error('Não foi possível validar todos os acordos de uma razão do grupo.');
+    }
+
+    if (typeof window.__avisoCobranca?.simularTitulos !== 'function') {
+      throw new Error('O classificador de títulos não está disponível.');
+    }
+    const tituloForaDoRelatorio = window.__alertaCliente?.predicadoForaDoRelatorio?.(empresa.cnpj);
+    const dados = window.__avisoCobranca.simularTitulos({
+      titulos,
+      scpc,
+      tituloEmAcordo: acordos.tituloEmAcordo,
+      tituloForaDoRelatorio,
+    }, hoje);
+
+    if (dados.ignorados?.length) {
+      throw new Error('Há títulos que não puderam ser lidos em uma razão do grupo; o relatório parcial foi bloqueado.');
+    }
+    if (dados.registros.length === 0 &&
+        (dados.emAcordo?.length || 0) + (dados.naoCobrar?.length || 0) + (dados.foraDoRelatorio?.length || 0) === 0) {
+      throw new Error('O CRM sinalizou saldo vencido, mas a página da razão não trouxe títulos elegíveis nem uma exclusão explicável.');
+    }
+
+    return {
+      cnpj,
+      razaoSocial: empresa.razaoSocial.trim(),
+      dados,
+    };
+  }
+
+  /**
+   * Busca os títulos das outras razões detectadas no grupo. A rotina é
+   * sequencial, autenticada pela sessão atual, com timeout por página e teto
+   * total. Qualquer falha interrompe a consolidação (sem relatório parcial).
+   *
+   * @param {Date} hoje data de referência do classificador
+   * @returns {Promise<{cnpj: string, razaoSocial: string, dados: object}[]>}
+   */
+  async function buscarDadosParaRelatorio(hoje) {
+    const grupo = window.__alertaGrupo;
+    if (!grupo || !Array.isArray(grupo.empresasComVencido)) {
+      throw new Error('A leitura do grupo econômico ainda não foi concluída.');
+    }
+    if (grupo.leituraIncompleta) {
+      throw new Error('Não foi possível ler a tabela do grupo. O relatório consolidado foi bloqueado.');
+    }
+
+    const cnpjAtual = digitosCnpj(new URL(window.location.href).searchParams.get('cnpj'));
+    const empresasUnicas = new Map();
+    for (const empresa of grupo.empresasComVencido) {
+      const cnpj = digitosCnpj(empresa?.cnpj);
+      if (cnpj.length !== 14) throw new Error('A lista de empresas do grupo contém um CNPJ inválido.');
+      if (cnpj === cnpjAtual) continue;
+      const razaoSocial = typeof empresa.razaoSocial === 'string' ? empresa.razaoSocial.trim() : '';
+      if (!razaoSocial) throw new Error('Uma empresa com vencido está sem razão social identificável.');
+      const anterior = empresasUnicas.get(cnpj);
+      if (anterior && anterior.razaoSocial !== razaoSocial) {
+        throw new Error('A mesma empresa apareceu com razões sociais divergentes na leitura do grupo.');
+      }
+      if (!anterior) empresasUnicas.set(cnpj, { ...empresa, cnpj, razaoSocial });
+    }
+
+    const prazoFinal = Date.now() + TIMEOUT_TOTAL_RELATORIO_GRUPO_MS;
+    const resultado = [];
+    for (const empresa of empresasUnicas.values()) {
+      let suprimida = false;
+      try {
+        suprimida = window.__alertaCliente?.estaSuprimidoDaPrioridade?.(empresa.cnpj) === true;
+      } catch (erro) {
+        throw new Error('Não foi possível verificar a regra "Não cobrar" de uma razão do grupo.');
+      }
+      if (suprimida) continue;
+
+      const url = validarUrlDaEmpresa(empresa, empresa.cnpj);
+      resultado.push(await buscarDadosDaEmpresaParaRelatorio(empresa, empresa.cnpj, url, hoje, prazoFinal));
+    }
+    return resultado;
+  }
+
+  window.__grupoEconomico = { buscarOutrasEmpresasComVencido, buscarDadosParaRelatorio };
 
   function obterNomeAbaAtiva() {
     // O botão INATIVO tem o padrão confirmado ("text-gray-500" +
