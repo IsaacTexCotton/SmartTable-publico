@@ -1142,20 +1142,22 @@
     // Selo cheio so nas situacoes de acao que o cliente ve como tal.
     const SELO_CHEIO = ['ULTIMO_DIA', 'EM_CARTORIO', 'NEGATIVADO_SCPC'];
 
-    // Ordem do Celular (AUTORIZADA em 08/10/2026). Cliente fora do SCPC:
-    // ultimo dia, prazo final, em atraso (e "vencido"), em cartorio; dentro de
-    // cada grupo, mais dias de atraso primeiro. Cliente SCPC: so mais dias
-    // primeiro. Ordena uma COPIA: `registros` alimenta total, mensagem e avisos.
-    const URGENCIA_CELULAR = {
+    // Ordem de prioridade do relatório (regra aprovada para Celular em
+    // 08/10/2026 e agora aplicada também ao Desktop). No fluxo Cartório:
+    // último dia, prazo final, em atraso (e "vencido"), em cartório; dentro de
+    // cada grupo, maior atraso primeiro. No SCPC: maior atraso primeiro. Em
+    // grupos mistos, todo o SCPC vem antes do Cartório. Ordena uma cópia:
+    // os registros originais continuam intactos para os cálculos e avisos.
+    const URGENCIA_RELATORIO = {
         ULTIMO_DIA: 0, PRAZO_FINAL: 1, EM_ATRASO: 2, SEM_PROTESTO: 2,
         VERIFICAR_POSICAO: 2, EM_CARTORIO: 3, NEGATIVADO_SCPC: 3
     };
-    function ordenarParaCelular(registros, fluxo) {
+    function ordenarPorPrioridade(registros, fluxo) {
         const posicao = new Map(registros.map((r, i) => [r, i]));
         const grupo = (r) => {
             const fluxoDoRegistro = fluxo === 'MISTO' ? r.fluxo : fluxo;
             if (fluxoDoRegistro === 'SCPC') return fluxo === 'MISTO' ? -1 : 0;
-            return URGENCIA_CELULAR[r.situacaoKey] ?? 2;
+            return URGENCIA_RELATORIO[r.situacaoKey] ?? 2;
         };
         return registros.slice().sort((a, b) =>
             (grupo(a) - grupo(b)) ||
@@ -1231,8 +1233,7 @@
     }
 
     function montarRelatorioCelular(dados, hoje) {
-        const { fluxo, divergentes } = dados;
-        const registros = ordenarParaCelular(dados.registros, fluxo);
+        const { fluxo, divergentes, registros } = dados;
         const nome = nomeDoCabecalho(registros);
 
         const dataHora = new Date().toLocaleString('pt-BR', {
@@ -1270,8 +1271,14 @@
     }
 
     function montarRelatorio(dados, hoje, formato) {
-        if (formato === 'celular') return montarRelatorioCelular(dados, hoje);
-        const { registros, fluxo, divergentes } = dados;
+        // A prioridade deve ser idêntica em qualquer apresentação. O helper
+        // ordena uma cópia; dados.registros mantém a ordem original da coleta.
+        const dadosOrdenados = {
+            ...dados,
+            registros: ordenarPorPrioridade(dados.registros, dados.fluxo)
+        };
+        if (formato === 'celular') return montarRelatorioCelular(dadosOrdenados, hoje);
+        const { registros, fluxo, divergentes } = dadosOrdenados;
 
         const dataHora = new Date().toLocaleString('pt-BR', {
             day: '2-digit', month: '2-digit', year: 'numeric',

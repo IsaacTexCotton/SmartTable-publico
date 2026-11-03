@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.122.1', data: '03/11/2026',
+      mudancas: [
+        'A ordenação por prioridade dos títulos passa a ser aplicada também ao relatório Desktop, mantendo a mesma sequência do Celular.',
+        'Em relatórios com fluxos mistos, os títulos SCPC ficam agrupados primeiro, ordenados pelo maior atraso; em seguida vêm os títulos do fluxo Cartório por prioridade.'
+      ],
+    },
+    {
       versao: '1.122.0', data: '03/11/2026',
       mudancas: [
         'O botão Gerar Relatório passa a identificar automaticamente outras razões do mesmo grupo com saldo vencido e reúne os títulos em uma única imagem.',
