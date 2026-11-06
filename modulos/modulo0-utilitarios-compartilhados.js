@@ -689,6 +689,7 @@
     'Retorno Rápido',
     'Nome Padronizado do Contato',
     'Guia de Implementações',
+    'Ponte CRM → Systextil',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

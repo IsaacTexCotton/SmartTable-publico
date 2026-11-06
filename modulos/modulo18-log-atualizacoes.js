@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.123.0', data: '06/11/2026',
+      mudancas: [
+        'Permite selecionar um título elegível no CRM e transferir número, parcela e referências da empresa para o painel de segunda via do Systextil.',
+        'A transferência reutiliza a classificação do CRM, inclui empresas do grupo econômico com CNPJ próprio e mantém F7, emissão e download sob ação manual.'
+      ],
+    },
+    {
       versao: '1.122.1', data: '03/11/2026',
       mudancas: [
         'A ordenação por prioridade dos títulos passa a ser aplicada também ao relatório Desktop, mantendo a mesma sequência do Celular.',
