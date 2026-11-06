@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.124.0', data: '06/11/2026',
+      mudancas: [
+        'Agrupa Formato e Gerar Relatório no menu Ferramentas, mantendo o mesmo botão e os atalhos existentes.',
+        'Reúne Negociação e Tarefa em + Novo, acionando os controles originais do CRM; o contato continua no Registro Rápido.',
+        'Move Preparar 2ª via para a área de títulos vencidos e desabilita a ação quando não há títulos elegíveis ou a leitura está incompleta.',
+        'Compacta a fila em um único chip com setas de navegação e deixa Encerrar fila dentro do menu de ações.'
+      ],
+    },
+    {
       versao: '1.123.0', data: '06/11/2026',
       mudancas: [
         'Permite selecionar um título elegível no CRM e transferir número, parcela e referências da empresa para o painel de segunda via do Systextil.',

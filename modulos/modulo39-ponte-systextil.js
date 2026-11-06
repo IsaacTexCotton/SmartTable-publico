@@ -25,6 +25,8 @@
   const pendentes = new Map();
   let observerInstalacao = null;
   let modalAtual = null;
+  let timerDisponibilidade = null;
+  let sondagemInicial = null;
 
   function cnpjAtual() {
     let valor = '';
@@ -338,7 +340,7 @@
     });
     detalhes.append(titulo, linhaCliente, info);
 
-    const botao = estilizar(elemento('button', 'Enviar ao Systextil'), {
+    const botao = estilizar(elemento('button', 'Preparar no Systextil'), {
       border: '0',
       borderRadius: '6px',
       padding: '8px 11px',
@@ -355,6 +357,7 @@
   }
 
   async function abrirModal() {
+    if (document.getElementById(ID_BOTAO)?.disabled) return;
     if (modalAtual) {
       fecharModal();
       return;
@@ -389,7 +392,7 @@
       gap: '12px',
       marginBottom: '8px',
     });
-    const titulo = estilizar(elemento('strong', 'Enviar título para o Systextil'), {
+    const titulo = estilizar(elemento('strong', 'Preparar 2ª via no Systextil'), {
       fontSize: '16px',
     });
     const fechar = estilizar(elemento('button', 'Fechar'), {
@@ -403,7 +406,7 @@
     fechar.addEventListener('click', fecharModal);
     cabecalho.append(titulo, fechar);
 
-    const descricao = estilizar(elemento('p', 'Selecione um título elegível da cobrança. A transferência prepara somente o número e a parcela; a consulta e as demais ações continuam manuais.'), {
+    const descricao = estilizar(elemento('p', 'Selecione um título vencido elegível. O SmartTable prepara somente o número e a parcela no painel do Systextil; a conferência e a emissão continuam manuais.'), {
       margin: '0 0 12px',
       color: '#475467',
       fontSize: '13px',
@@ -444,44 +447,172 @@
     }
   }
 
-  function instalarBotao() {
-    if (!document.body || document.getElementById(ID_BOTAO)) return;
-    const ancora = document.getElementById('aviso-cobranca-botao');
-    if (!ancora || !ancora.parentElement) return;
+  function avaliarDisponibilidade() {
+    const api = window.__avisoCobranca;
+    if (typeof api?.simular !== 'function') {
+      return { estado: 'verificando', disponivel: false, mensagem: 'Aguardando a leitura dos títulos vencidos pelo SmartTable.' };
+    }
 
-    const botao = estilizar(elemento('button', 'Enviar título ao Systextil'), {
-      marginLeft: '8px',
-      padding: '6px 12px',
-      background: '#0F766E',
-      color: '#FFFFFF',
-      border: '0',
-      borderRadius: '8px',
-      fontSize: '13px',
-      fontWeight: '600',
-      cursor: 'pointer',
-      fontFamily: '-apple-system, Segoe UI, Arial, sans-serif',
-    });
-    botao.id = ID_BOTAO;
-    botao.type = 'button';
-    botao.addEventListener('click', abrirModal);
-    ancora.insertAdjacentElement('afterend', botao);
+    let dados;
+    try {
+      dados = api.simular();
+    } catch (_) {
+      return { estado: 'erro', disponivel: false, mensagem: 'Não foi possível ler os títulos. Atualize a página e tente novamente.' };
+    }
+
+    if (!dados || !Array.isArray(dados.registros) || !Array.isArray(dados.ignorados)) {
+      return { estado: 'verificando', disponivel: false, mensagem: 'Verificando a leitura dos títulos vencidos...' };
+    }
+    if (dados.ignorados.length > 0) {
+      return {
+        estado: 'bloqueado',
+        disponivel: false,
+        mensagem: 'Há título(s) que não puderam ser lidos. A preparação está bloqueada para evitar dados incompletos.',
+      };
+    }
+
+    const grupo = window.__alertaGrupo;
+    if (!grupo) {
+      return { estado: 'verificando', disponivel: false, mensagem: 'Aguardando a conferência do grupo econômico...' };
+    }
+    if (grupo.leituraIncompleta) {
+      return {
+        estado: 'bloqueado',
+        disponivel: false,
+        mensagem: 'A leitura do grupo econômico ficou incompleta. A preparação está bloqueada.',
+      };
+    }
+    if (!Array.isArray(grupo.empresasComVencido)) {
+      return { estado: 'verificando', disponivel: false, mensagem: 'Aguardando a conferência do grupo econômico...' };
+    }
+
+    const existemTitulos = dados.registros.length > 0 || grupo.empresasComVencido.length > 0;
+    if (!existemTitulos) {
+      return {
+        estado: 'sem-titulos',
+        disponivel: false,
+        mensagem: 'Não há títulos vencidos elegíveis nesta empresa ou grupo econômico.',
+      };
+    }
+    return { estado: 'disponivel', disponivel: true, mensagem: 'Preparar número e parcela no Systextil.' };
+  }
+
+  function atualizarDisponibilidade() {
+    const botao = document.getElementById(ID_BOTAO);
+    const status = document.getElementById('smarttable-systextil-status');
+    if (!botao || !status) return;
+    const estado = avaliarDisponibilidade();
+    botao.disabled = !estado.disponivel;
+    botao.dataset.estado = estado.estado;
+    botao.title = estado.mensagem;
+    botao.setAttribute('aria-label', 'Preparar 2ª via no Systextil. ' + estado.mensagem);
+    botao.style.opacity = estado.disponivel ? '1' : '0.52';
+    botao.style.cursor = estado.disponivel ? 'pointer' : 'not-allowed';
+    const mensagemStatus = estado.disponivel ? '' : estado.mensagem;
+    if (status.textContent !== mensagemStatus) status.textContent = mensagemStatus;
+    status.hidden = estado.disponivel;
+  }
+
+  function agendarAtualizacaoDisponibilidade() {
+    if (timerDisponibilidade) window.clearTimeout(timerDisponibilidade);
+    timerDisponibilidade = window.setTimeout(() => {
+      timerDisponibilidade = null;
+      atualizarDisponibilidade();
+    }, 120);
+  }
+
+  function instalarBotao() {
+    if (!document.body) return false;
+    const raizTabela = document.getElementById('tabela-titulos-ds');
+    if (!raizTabela) return false;
+    // No CRM, #tabela-titulos-ds pode ser o contêiner da SmartTable, não a
+    // <table> em si. Ancorar no primeiro elemento interno mantém a ação
+    // dentro do card de títulos vencidos, inclusive quando a tabela é criada
+    // depois do contêiner.
+    const referencia = raizTabela.matches('table')
+      ? raizTabela
+      : raizTabela.querySelector('table') || raizTabela.firstElementChild || raizTabela;
+    if (!referencia.parentElement) return false;
+
+    let barra = document.getElementById('smarttable-systextil-acoes');
+    if (!barra) {
+      barra = estilizar(elemento('div'), {
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '8px',
+        padding: '8px 0',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
+      });
+      barra.id = 'smarttable-systextil-acoes';
+
+      const botao = estilizar(elemento('button', 'Preparar 2ª via'), {
+        padding: '7px 11px',
+        background: '#0F766E',
+        color: '#FFFFFF',
+        border: '0',
+        borderRadius: '7px',
+        fontSize: '12px',
+        fontWeight: '600',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+      });
+      botao.id = ID_BOTAO;
+      botao.type = 'button';
+      botao.addEventListener('click', abrirModal);
+
+      const status = estilizar(elemento('span'), {
+        color: '#667085',
+        fontSize: '12px',
+        lineHeight: '1.4',
+      });
+      status.id = 'smarttable-systextil-status';
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+
+      barra.append(botao, status);
+    }
+
+    if (!barra.isConnected || barra.nextElementSibling !== referencia) {
+      referencia.insertAdjacentElement('beforebegin', barra);
+    }
+    atualizarDisponibilidade();
+    return true;
   }
 
   function observarInstalacao() {
     instalarBotao();
-    if (document.getElementById(ID_BOTAO) || observerInstalacao || !document.body) return;
+    if (observerInstalacao || !document.body) return;
+
     observerInstalacao = new MutationObserver(() => {
-      instalarBotao();
-      if (document.getElementById(ID_BOTAO) && observerInstalacao) {
-        observerInstalacao.disconnect();
-        observerInstalacao = null;
-      }
+      const raizTabela = document.getElementById('tabela-titulos-ds');
+      if (!raizTabela) return;
+      const referencia = raizTabela.matches('table')
+        ? raizTabela
+        : raizTabela.querySelector('table') || raizTabela.firstElementChild || raizTabela;
+      const barra = document.getElementById('smarttable-systextil-acoes');
+      // Só reconstrói/reancora a barra quando o nó de referência mudou ou
+      // o CRM removeu a interface. A disponibilidade é recalculada com debounce.
+      if (!barra?.isConnected || barra.nextElementSibling !== referencia) instalarBotao();
+      agendarAtualizacaoDisponibilidade();
     });
-    observerInstalacao.observe(document.body, { childList: true, subtree: true });
-    window.setTimeout(() => {
-      observerInstalacao?.disconnect();
-      observerInstalacao = null;
-    }, 20000);
+    observerInstalacao.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    if (!sondagemInicial) {
+      let tentativas = 0;
+      sondagemInicial = window.setInterval(() => {
+        tentativas += 1;
+        instalarBotao();
+        const estado = avaliarDisponibilidade();
+        if (estado.estado !== 'verificando' || tentativas >= 30) {
+          window.clearInterval(sondagemInicial);
+          sondagemInicial = null;
+        }
+      }, 400);
+    }
   }
 
   window.__smartTableSystextilDebug = Object.freeze({
@@ -489,6 +620,8 @@
     validarCodigo,
     validarCnpj,
     coletarTitulos,
+    avaliarDisponibilidade,
+    atualizarDisponibilidade,
     receberResultado,
     ID_BOTAO,
     ID_MODAL,

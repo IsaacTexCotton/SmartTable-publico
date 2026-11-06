@@ -690,6 +690,7 @@
     'Nome Padronizado do Contato',
     'Guia de Implementações',
     'Ponte CRM → Systextil',
+    'Menu Novo',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

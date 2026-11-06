@@ -217,6 +217,15 @@
     }
   }
 
+  function fecharMenuEncerrar() {
+    const menu = painelEl?.querySelector('[data-papel="menu-encerrar"]');
+    const gatilho = painelEl?.querySelector('[data-papel="gatilho-encerrar"]');
+    if (!menu || !gatilho) return;
+    menu.hidden = true;
+    menu.style.display = 'none';
+    gatilho.setAttribute('aria-expanded', 'false');
+  }
+
   function atualizarPainel() {
     const fila = obterFila();
     if (!fila || !paginaNaFila) {
@@ -226,38 +235,37 @@
 
     if (!painelEl) {
       painelEl = document.createElement('div');
+      painelEl.id = 'smarttable-fila-chip';
       const ancora = ancoraAcoesCliente();
       if (ancora) {
         Object.assign(painelEl.style, {
           display: 'inline-flex',
           alignItems: 'center',
-          gap: '10px',
+          gap: '6px',
           background: '#ffffff',
           border: '1px solid #d0d5dd',
-          borderRadius: '8px',
-          padding: '6px 10px',
+          borderRadius: '9px',
+          padding: '4px 6px',
           fontFamily: 'system-ui, -apple-system, sans-serif',
           fontSize: '13px',
         });
         ancora.appendChild(painelEl);
       } else {
-        // Fallback flutuante.
         Object.assign(painelEl.style, {
           position: 'fixed',
-          // Abaixo do cabeçalho fixo do CRM, não por cima dele.
           top: `${(window.__smartTableUtil?.alturaCabecalho?.() ?? 0) + 16}px`,
           right: '16px',
           background: '#ffffff',
           border: '1px solid #d0d5dd',
           borderRadius: '10px',
-          padding: '10px 14px',
+          padding: '5px 7px',
           boxShadow: '0 2px 10px rgba(0,0,0,0.12)',
           fontFamily: 'system-ui, -apple-system, sans-serif',
           fontSize: '13px',
-          zIndex: 999998,
-          display: 'flex',
+          zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+          display: 'inline-flex',
           alignItems: 'center',
-          gap: '10px',
+          gap: '6px',
         });
         document.body.appendChild(painelEl);
       }
@@ -265,56 +273,159 @@
 
     const posicao = fila.indiceAtual + 1;
     const total = fila.clientes.length;
+    painelEl.replaceChildren();
 
-    painelEl.innerHTML = '';
-
-    const label = document.createElement('span');
-    label.textContent = `Fila: ${posicao}/${total}`;
-    label.style.color = '#16232F';
-    label.style.fontWeight = '600';
-    label.style.whiteSpace = 'nowrap';
-
-    const btnVoltar = document.createElement('button');
-    btnVoltar.type = 'button';
-    btnVoltar.textContent = '← Voltar';
-    Object.assign(btnVoltar.style, {
-      cursor: 'pointer', border: 'none', background: '#eef2f6',
-      color: '#16232F', padding: '6px 10px', borderRadius: '6px', fontSize: '12px',
+    const chip = document.createElement('span');
+    chip.textContent = `Fila ${posicao}/${total}`;
+    Object.assign(chip.style, {
+      color: '#16232F',
+      fontWeight: '650',
+      whiteSpace: 'nowrap',
+      padding: '0 5px',
+      fontVariantNumeric: 'tabular-nums',
     });
-    if (fila.indiceAtual === 0) {
-      btnVoltar.disabled = true;
-      btnVoltar.style.opacity = '0.4';
-      btnVoltar.style.cursor = 'default';
-    }
-    btnVoltar.onclick = () => irParaAnterior();
 
-    const btnPular = document.createElement('button');
-    btnPular.type = 'button';
-    btnPular.textContent = 'Próximo →';
-    Object.assign(btnPular.style, {
-      cursor: 'pointer', border: 'none', background: '#eef2f6',
-      color: '#16232F', padding: '6px 10px', borderRadius: '6px', fontSize: '12px',
+    const criarSeta = (rotulo, direcao, acao, desabilitado) => {
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.textContent = direcao;
+      botao.title = rotulo;
+      botao.setAttribute('aria-label', rotulo);
+      Object.assign(botao.style, {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '28px',
+        height: '28px',
+        padding: '0',
+        border: '1px solid #E4E7EC',
+        borderRadius: '7px',
+        background: '#F8FAFC',
+        color: '#344054',
+        fontSize: '19px',
+        lineHeight: '1',
+        cursor: desabilitado ? 'default' : 'pointer',
+        opacity: desabilitado ? '0.38' : '1',
+      });
+      botao.disabled = desabilitado;
+      botao.addEventListener('click', acao);
+      return botao;
+    };
+
+    const btnVoltar = criarSeta(
+      'Voltar um cliente na fila',
+      '‹',
+      () => irParaAnterior(),
+      fila.indiceAtual === 0
+    );
+    const btnProximo = criarSeta(
+      'Próximo cliente da fila',
+      '›',
+      () => irParaProximo('pulado'),
+      false
+    );
+
+    const menuWrap = document.createElement('div');
+    Object.assign(menuWrap.style, {
+      position: 'relative',
+      display: 'inline-flex',
+      alignItems: 'center',
     });
-    btnPular.onclick = () => irParaProximo('pulado');
+
+    const btnMenu = document.createElement('button');
+    btnMenu.type = 'button';
+    btnMenu.textContent = '⋯';
+    btnMenu.title = 'Mais ações da fila';
+    btnMenu.setAttribute('aria-label', 'Mais ações da fila');
+    btnMenu.setAttribute('aria-haspopup', 'menu');
+    btnMenu.setAttribute('aria-expanded', 'false');
+    btnMenu.dataset.papel = 'gatilho-encerrar';
+    Object.assign(btnMenu.style, {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '28px',
+      height: '28px',
+      padding: '0',
+      border: '1px solid #E4E7EC',
+      borderRadius: '7px',
+      background: '#FFFFFF',
+      color: '#475467',
+      fontSize: '18px',
+      lineHeight: '1',
+      cursor: 'pointer',
+    });
+
+    const menu = document.createElement('div');
+    menu.dataset.papel = 'menu-encerrar';
+    menu.hidden = true;
+    menu.setAttribute('role', 'menu');
+    Object.assign(menu.style, {
+      display: 'none',
+      position: 'absolute',
+      top: 'calc(100% + 7px)',
+      right: '0',
+      zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55,
+      minWidth: '150px',
+      padding: '5px',
+      background: '#FFFFFF',
+      border: '1px solid #D0D5DD',
+      borderRadius: '8px',
+      boxShadow: '0 8px 24px rgba(16,24,40,.16)',
+    });
 
     const btnEncerrar = document.createElement('button');
     btnEncerrar.type = 'button';
-    btnEncerrar.textContent = 'Encerrar';
+    btnEncerrar.textContent = 'Encerrar fila';
+    btnEncerrar.setAttribute('role', 'menuitem');
     Object.assign(btnEncerrar.style, {
-      cursor: 'pointer', border: 'none', background: 'transparent',
-      color: '#b42318', padding: '6px 8px', borderRadius: '6px', fontSize: '12px',
+      display: 'block',
+      width: '100%',
+      padding: '8px 9px',
+      border: '0',
+      borderRadius: '5px',
+      background: '#FFFFFF',
+      color: '#B42318',
+      fontSize: '12px',
+      fontWeight: '600',
+      textAlign: 'left',
+      cursor: 'pointer',
     });
-    btnEncerrar.onclick = () => {
+    btnEncerrar.addEventListener('click', () => {
+      fecharMenuEncerrar();
       limparFila();
       removerPainel();
       toast('Fila encerrada.');
-    };
+    });
 
-    painelEl.appendChild(label);
-    painelEl.appendChild(btnVoltar);
-    painelEl.appendChild(btnPular);
-    painelEl.appendChild(btnEncerrar);
+    btnMenu.addEventListener('click', () => {
+      const abrir = menu.hidden;
+      menu.hidden = !abrir;
+      menu.style.display = abrir ? 'block' : 'none';
+      btnMenu.setAttribute('aria-expanded', String(abrir));
+    });
+
+    menu.appendChild(btnEncerrar);
+    menuWrap.append(btnMenu, menu);
+    painelEl.append(chip, btnVoltar, btnProximo, menuWrap);
   }
+
+  function tratarCliqueForaMenuEncerrar(evento) {
+    if (!painelEl) return;
+    const menuWrap = painelEl.querySelector('[data-papel="gatilho-encerrar"]')?.parentElement;
+    if (menuWrap && !menuWrap.contains(evento.target)) fecharMenuEncerrar();
+  }
+
+  function tratarEscapeMenuEncerrar(evento) {
+    if (evento.key !== 'Escape') return;
+    const menu = painelEl?.querySelector('[data-papel="menu-encerrar"]');
+    if (!menu || menu.hidden) return;
+    fecharMenuEncerrar();
+    painelEl.querySelector('[data-papel="gatilho-encerrar"]')?.focus();
+  }
+
+  document.addEventListener('pointerdown', tratarCliqueForaMenuEncerrar, true);
+  document.addEventListener('keydown', tratarEscapeMenuEncerrar);
 
   /* ---------------------------------------------------------------------
    * 5. CONSTRUÇÃO DA FILA (página de LISTA de clientes)

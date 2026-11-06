@@ -1958,46 +1958,120 @@
         return chip;
     }
 
+    let _vigiaMenuFerramentasInstalada = false;
+
+    function fecharMenuFerramentas() {
+        const menu = document.getElementById('smarttable-ferramentas-menu');
+        const gatilho = document.getElementById('smarttable-ferramentas-gatilho');
+        if (!menu || !gatilho) return;
+        menu.hidden = true;
+        menu.style.display = 'none';
+        gatilho.setAttribute('aria-expanded', 'false');
+    }
+
     function criarBotao() {
-        // Evita duplicar se, por algum motivo, a instalacao rodar duas vezes.
         if (document.getElementById('aviso-cobranca-botao')) return;
-        // Seletor orfao (o CRM redesenhou a area e levou so o botao): troca por um novo.
         document.getElementById('aviso-cobranca-formato')?.remove();
+        document.getElementById('smarttable-ferramentas-container')?.remove();
+
+        const ancora = document.querySelector('[onclick^="openModalContato"]')?.parentElement
+            || document.getElementById('fluxo-cobranca')?.parentElement
+            || null;
+
+        const container = document.createElement('div');
+        container.id = 'smarttable-ferramentas-container';
+        Object.assign(container.style, {
+            position: 'relative', display: 'inline-flex', alignItems: 'center',
+            fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
+        });
+
+        const gatilho = document.createElement('button');
+        gatilho.id = 'smarttable-ferramentas-gatilho';
+        gatilho.type = 'button';
+        gatilho.textContent = '⋯ Ferramentas';
+        gatilho.setAttribute('aria-haspopup', 'menu');
+        gatilho.setAttribute('aria-expanded', 'false');
+        Object.assign(gatilho.style, {
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            gap: '6px', padding: '6px 11px', background: '#FFFFFF',
+            color: '#344054', border: '1px solid #D0D5DD', borderRadius: '8px',
+            fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+            whiteSpace: 'nowrap', fontFamily: 'inherit'
+        });
+
+        const menu = document.createElement('div');
+        menu.id = 'smarttable-ferramentas-menu';
+        menu.hidden = true;
+        menu.setAttribute('role', 'menu');
+        menu.setAttribute('aria-label', 'Ferramentas do cliente');
+        Object.assign(menu.style, {
+            position: 'absolute', right: '0', top: 'calc(100% + 7px)',
+            zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55, minWidth: '210px', display: 'none',
+            flexDirection: 'column', gap: '7px', padding: '9px',
+            background: '#FFFFFF', border: '1px solid #D0D5DD',
+            borderRadius: '10px', boxShadow: '0 8px 24px rgba(16,24,40,.16)'
+        });
+
+        const formato = criarSeletorFormato(false);
+        formato.setAttribute('role', 'menuitem');
+        Object.assign(formato.style, {
+            display: 'flex', width: '100%', justifyContent: 'space-between',
+            margin: '0', padding: '8px 10px', borderRadius: '7px',
+            boxSizing: 'border-box'
+        });
 
         const botao = document.createElement('button');
         botao.id = 'aviso-cobranca-botao';
         botao.type = 'button';
         botao.textContent = rotuloDoBotao();
+        botao.setAttribute('role', 'menuitem');
         botao.onmouseenter = () => { if (!botao.disabled) botao.style.background = '#22394D'; };
         botao.onmouseleave = () => { if (!botao.disabled) botao.style.background = TOKENS.cabecalho; };
+        Object.assign(botao.style, {
+            display: 'block', width: '100%', boxSizing: 'border-box',
+            margin: '0', padding: '9px 10px', background: TOKENS.cabecalho,
+            color: '#FFFFFF', border: 'none', borderRadius: '7px',
+            fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+            textAlign: 'left', fontFamily: 'inherit'
+        });
         botao.addEventListener('click', aoClicar);
+        botao.addEventListener('click', fecharMenuFerramentas);
 
-        // Tenta encaixar na mesma linha de ações nativas do CRM (Contato /
-        // Negociação / Tarefa) em vez de flutuar por cima da tela. Se o
-        // seletor não bater (CRM mudou o layout), cai pro position: fixed
-        // antigo -- nunca deixa de aparecer.
-        const ancora = document.querySelector('[onclick^="openModalContato"]')?.parentElement
-            || document.getElementById('fluxo-cobranca')?.parentElement
-            || null;
+        const abrirOuFechar = () => {
+            const abrir = menu.hidden;
+            menu.hidden = !abrir;
+            menu.style.display = abrir ? 'flex' : 'none';
+            gatilho.setAttribute('aria-expanded', String(abrir));
+        };
+        gatilho.addEventListener('click', abrirOuFechar);
+        menu.append(formato, botao);
+        container.append(gatilho, menu);
 
         if (ancora) {
-            Object.assign(botao.style, {
-                padding: '6px 12px', background: TOKENS.cabecalho, color: '#FFFFFF',
-                border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
-                cursor: 'pointer', fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
-            });
-            ancora.appendChild(criarSeletorFormato(false));
-            ancora.appendChild(botao);
+            ancora.appendChild(container);
         } else {
-            Object.assign(botao.style, {
-                position: 'fixed', bottom: '20px', right: '20px', zIndex: '999999',
-                padding: '12px 20px', background: TOKENS.cabecalho, color: '#FFFFFF',
-                border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600',
-                cursor: 'pointer', boxShadow: '0 4px 12px rgba(21,26,33,0.25)',
-                fontFamily: '-apple-system, Segoe UI, Arial, sans-serif'
+            Object.assign(container.style, {
+                position: 'fixed', bottom: '20px', right: '20px',
+                zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55
             });
-            document.body.appendChild(criarSeletorFormato(true));
-            document.body.appendChild(botao);
+            menu.style.top = 'auto';
+            menu.style.bottom = 'calc(100% + 7px)';
+            document.body.appendChild(container);
+        }
+
+        if (!_vigiaMenuFerramentasInstalada) {
+            _vigiaMenuFerramentasInstalada = true;
+            document.addEventListener('pointerdown', (evento) => {
+                const atual = document.getElementById('smarttable-ferramentas-container');
+                if (atual && !atual.contains(evento.target)) fecharMenuFerramentas();
+            }, true);
+            document.addEventListener('keydown', (evento) => {
+                if (evento.key !== 'Escape') return;
+                const atual = document.getElementById('smarttable-ferramentas-menu');
+                if (!atual || atual.hidden) return;
+                fecharMenuFerramentas();
+                document.getElementById('smarttable-ferramentas-gatilho')?.focus();
+            });
         }
 
         aquecerHtml2Canvas();
