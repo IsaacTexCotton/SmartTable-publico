@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.125.0', data: '06/11/2026',
+      mudancas: [
+        'Remove o menu + Novo e restaura Contato, Negociação e Tarefa nos controles nativos e nas posições originais do CRM.',
+        'Mantém Promessa no cabeçalho e preserva o Registro Rápido como recurso adicional, sem substituir os acessos nativos.'
+      ],
+    },
+    {
       versao: '1.124.0', data: '06/11/2026',
       mudancas: [
         'Agrupa Formato e Gerar Relatório no menu Ferramentas, mantendo o mesmo botão e os atalhos existentes.',
