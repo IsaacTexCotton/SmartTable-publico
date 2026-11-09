@@ -20,6 +20,7 @@
   const ID_MODAL = 'smarttable-systextil-modal';
   const TEMPO_ESPERA_GRUPO_MS = 4500;
   const TTL_PEDIDO_MS = 5 * 60 * 1000;
+  const TTL_ACOMPANHAMENTO_MS = 10 * 60 * 1000;
   const LIMITE_TITULO = 40;
   const LIMITE_PARCELA = 20;
   const pendentes = new Map();
@@ -244,6 +245,64 @@
           pendente.botao.textContent = 'Tentar novamente';
         }
       }, restante + 250);
+      return;
+    }
+    const etapasEmAndamento = {
+      processando: {
+        botao: 'Processando no Systextil...',
+        mensagem: 'O Systextil iniciou o preenchimento e a consulta do título.',
+      },
+      'emissao-solicitada': {
+        botao: 'Emissão solicitada...',
+        mensagem: 'Título conferido e emissão solicitada ao Systextil.',
+      },
+      baixando: {
+        botao: 'Baixando PDF...',
+        mensagem: 'O processo foi concluído. O PDF está sendo salvo.',
+      },
+    };
+    const etapa = etapasEmAndamento[resultado.status];
+    if (etapa) {
+      if (pendente.botao?.isConnected) {
+        pendente.botao.textContent = etapa.botao;
+      }
+      mostrarStatus(resultado.mensagem || etapa.mensagem);
+      pendente.timer = window.setTimeout(() => {
+        if (pendentes.get(resultado.id) !== pendente) return;
+        pendentes.delete(resultado.id);
+        const mensagem = 'O SmartTable não recebeu a confirmação final do Systextil. Confira Processos agendados e a pasta Downloads antes de qualquer nova tentativa.';
+        if (pendente.botao?.isConnected) {
+          pendente.botao.textContent = 'Conferência necessária';
+          pendente.botao.title = mensagem;
+        }
+        mostrarStatus(mensagem, true);
+      }, TTL_ACOMPANHAMENTO_MS);
+      return;
+    }
+    if (resultado.status === 'concluido') {
+      pendentes.delete(resultado.id);
+      const sucessoConfirmado = resultado.ok === true;
+      const mensagem = sucessoConfirmado
+        ? (resultado.mensagem || 'Segunda via concluída no Systextil. PDF salvo na pasta Downloads.')
+        : 'O Systextil informou conclusão sem confirmar o sucesso. Confira Processos agendados e Downloads antes de tentar novamente.';
+      if (pendente.botao?.isConnected) {
+        pendente.botao.disabled = true;
+        pendente.botao.textContent = sucessoConfirmado ? '2ª via concluída' : 'Conferência necessária';
+        pendente.botao.title = mensagem;
+      }
+      mostrarStatus(mensagem, !sucessoConfirmado);
+      return;
+    }
+    if (resultado.status === 'indeterminado') {
+      pendentes.delete(resultado.id);
+      const mensagem = resultado.mensagem ||
+        'O Systextil não confirmou o resultado da emissão. Confira Processos agendados e Downloads manualmente antes de tentar novamente.';
+      if (pendente.botao?.isConnected) {
+        pendente.botao.disabled = true;
+        pendente.botao.textContent = 'Conferência necessária';
+        pendente.botao.title = mensagem;
+      }
+      mostrarStatus(mensagem, true);
       return;
     }
     if (resultado.status === 'preenchido') {

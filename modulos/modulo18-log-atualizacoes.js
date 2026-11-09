@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.125.1', data: '09/11/2026',
+      mudancas: [
+        'O SmartTable passa a acompanhar consulta, emissão e download da segunda via no Systextil.',
+        'Quando o Systextil confirma o download, o SmartTable mostra 2ª via concluída e informa que o PDF foi salvo em Downloads.',
+        'Resultados indeterminados ficam em conferência manual e não liberam uma nova tentativa automaticamente.'
+      ],
+    },
+    {
       versao: '1.125.0', data: '06/11/2026',
       mudancas: [
         'Remove o menu + Novo e restaura Contato, Negociação e Tarefa nos controles nativos e nas posições originais do CRM.',
