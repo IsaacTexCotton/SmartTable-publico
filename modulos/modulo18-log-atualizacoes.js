@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.126.1', data: '13/11/2026',
+      mudancas: [
+        'Restaura o comportamento estável da versão 1.125.1 e remove o relatório agrupado introduzido na 1.126.0.',
+        'A versão foi incrementada para permitir que o Tampermonkey reconheça e aplique a atualização de recuperação.'
+      ],
+    },
+    {
       versao: '1.125.1', data: '09/11/2026',
       mudancas: [
         'O SmartTable passa a acompanhar consulta, emissão e download da segunda via no Systextil.',
