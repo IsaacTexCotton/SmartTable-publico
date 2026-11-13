@@ -690,6 +690,7 @@
     'Nome Padronizado do Contato',
     'Guia de Implementações',
     'Ponte CRM → Systextil',
+    'Relatórios Agrupados',
     'Menu Novo',
   ]);
 
