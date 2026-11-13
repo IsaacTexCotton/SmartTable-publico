@@ -788,7 +788,6 @@
                 chaves.add(chave);
                 registros.push({
                     ...registro,
-                    cnpj,
                     razaoSocial: String(fonte.razaoSocial || registro.razaoSocial || '').trim(),
                     fluxo: registro.fluxo || fonte.dados.fluxo,
                 });
@@ -1533,46 +1532,7 @@
     // nenhuma regra CSS da página cruza essa fronteira (garantido pela
     // especificação, não é um truque frágil), então o relatório fica imune
     // a qualquer estilo do CRM, atual ou futuro.
-    // Fallback nativo para o novo modelo: SVG + foreignObject, sem CDN.
-    // O HTML agrupado usa estilos inline e não depende de fontes/imagens externas.
-    function capturarViaSvgNativa(container, iframe) {
-        return new Promise((resolver, rejeitar) => {
-            const largura = Math.max(1, container.scrollWidth || container.offsetWidth || 430);
-            const altura = Math.max(1, container.scrollHeight || container.offsetHeight || 300);
-            const clone = container.cloneNode(true);
-            clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-            const xhtml = new iframe.contentWindow.XMLSerializer().serializeToString(clone);
-            const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + (largura * 2) +
-                '" height="' + (altura * 2) + '" viewBox="0 0 ' + largura + ' ' + altura + '">' +
-                '<foreignObject x="0" y="0" width="' + largura + '" height="' + altura + '">' +
-                xhtml + '</foreignObject></svg>';
-            const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-            const imagem = new iframe.contentWindow.Image();
-
-            imagem.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = largura * 2;
-                    canvas.height = altura * 2;
-                    const contexto = canvas.getContext('2d');
-                    if (!contexto) throw new Error('Canvas 2D indisponível para a captura nativa.');
-                    contexto.drawImage(imagem, 0, 0, canvas.width, canvas.height);
-                    URL.revokeObjectURL(url);
-                    resolver(canvas);
-                } catch (erro) {
-                    URL.revokeObjectURL(url);
-                    rejeitar(erro);
-                }
-            };
-            imagem.onerror = () => {
-                URL.revokeObjectURL(url);
-                rejeitar(new Error('O navegador não conseguiu renderizar o fallback SVG do relatório.'));
-            };
-            imagem.src = url;
-        });
-    }
-
-    async function capturarEExportar(html, opcoes = {}) {
+    async function capturarEExportar(html) {
         const iframe = document.createElement('iframe');
         Object.assign(iframe.style, {
             position: 'fixed', top: '-9999px', left: '-9999px', border: '0', width: '1000px', height: '3000px',
@@ -1582,39 +1542,23 @@
         try {
             const doc = iframe.contentDocument;
             doc.open();
-            const metaViewport = opcoes.viewport
-                ? '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-                : '';
-            doc.write('<!doctype html><html><head>' + metaViewport + '</head><body style="margin:0;background:#fff;color-scheme:light;"></body></html>');
+            doc.write('<!doctype html><html><head></head><body style="margin:0;"></body></html>');
             doc.close();
             doc.body.innerHTML = html;
             const container = doc.body.firstElementChild;
-            if (!container) throw new Error('O HTML do relatório não criou um elemento para captura.');
 
-            let canvas;
-            try {
-                const lib = await obterHtml2Canvas(iframe);
-                canvas = await lib(container, {
-                    backgroundColor: TOKENS.papel,
-                    scale: 2,
-                    width: container.scrollWidth,
-                    height: container.scrollHeight,
-                    windowWidth: container.scrollWidth,
-                    windowHeight: container.scrollHeight,
-                });
-            } catch (erro) {
-                if (!opcoes.fallbackNativo) throw erro;
-                console.warn('[aviso-cobranca] html2canvas-pro indisponível; usando captura SVG nativa para o relatório agrupado.');
-                canvas = await capturarViaSvgNativa(container, iframe);
-            }
-
+            const lib = await obterHtml2Canvas(iframe);
+            const canvas = await lib(container, {
+                backgroundColor: TOKENS.papel,
+                scale: 2,
+                width: container.scrollWidth,
+                height: container.scrollHeight,
+                windowWidth: container.scrollWidth,
+                windowHeight: container.scrollHeight,
+            });
             const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
             if (!blob) throw new Error('Falha ao converter o relatório em imagem.');
             _ultimaImagemBlob = blob;
-
-            if (opcoes.somenteBlob) {
-                return { copiado: false, baixado: false, blob };
-            }
 
             let copiado = false;
             if (navigator.clipboard && window.ClipboardItem) {
@@ -1650,7 +1594,7 @@
                 setTimeout(() => URL.revokeObjectURL(url), 10000);
             }
 
-            return { copiado, baixado: !copiado, blob };
+            return { copiado, baixado: !copiado };
         } finally {
             iframe.remove();
         }
@@ -1678,9 +1622,6 @@
     // confirmação; se falhar em todas, o Alt+S não envia. Ver "CONFIRMAÇÃO
     // DA CÓPIA DO Alt+A" no Módulo 4.
     async function recopiarUltimaImagem() {
-        if (window.__relatorioAgrupado?.temImagens?.()) {
-            return window.__relatorioAgrupado.recopiar();
-        }
         if (!_ultimaImagemBlob) return false;
         if (!navigator.clipboard || !window.ClipboardItem) return false;
         try {
@@ -1797,22 +1738,8 @@
         aplicarDestaques(dados.registros);
         observarTabela(tabela, dados.registros);
 
-        let resultado;
-        if (typeof window.__relatorioAgrupado?.gerar === 'function') {
-            resultado = await window.__relatorioAgrupado.gerar({
-                dados,
-                hoje,
-                formato: formatoAtual(),
-                montarLegado: (dadosCliente) => montarRelatorio(dadosCliente, hoje, formatoAtual()),
-                capturar: (html, opcoes) => capturarEExportar(html, opcoes),
-            });
-            _ultimaImagemBlob = window.__relatorioAgrupado.primeiraImagem?.() || _ultimaImagemBlob;
-        } else {
-            // Fallback de compatibilidade: se o Módulo 41 não carregou, mantém
-            // exatamente a captura anterior em vez de interromper o Alt+A.
-            const html = montarRelatorio(dados, hoje, formatoAtual());
-            resultado = await capturarEExportar(html);
-        }
+        const html = montarRelatorio(dados, hoje, formatoAtual());
+        const resultado = await capturarEExportar(html);
 
         return {
             total: dados.registros.length,
@@ -2110,26 +2037,6 @@
         botao.addEventListener('click', aoClicar);
         botao.addEventListener('click', fecharMenuFerramentas);
 
-        const baixar = document.createElement('button');
-        baixar.id = 'aviso-cobranca-baixar-png';
-        baixar.type = 'button';
-        baixar.textContent = 'Baixar PNG';
-        baixar.setAttribute('role', 'menuitem');
-        baixar.disabled = true;
-        Object.assign(baixar.style, {
-            display: 'block', width: '100%', boxSizing: 'border-box',
-            margin: '0', padding: '9px 10px', background: '#FFFFFF',
-            color: '#344054', border: '1px solid #D0D5DD', borderRadius: '7px',
-            fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-            textAlign: 'left', fontFamily: 'inherit'
-        });
-        baixar.addEventListener('click', () => {
-            const baixou = window.__relatorioAgrupado?.baixar?.() === true;
-            if (!baixou) notificar('Gere um relatório antes de baixar as imagens.', 'error');
-            else notificar('Download das imagens iniciado.', 'success');
-            fecharMenuFerramentas();
-        });
-
         const abrirOuFechar = () => {
             const abrir = menu.hidden;
             menu.hidden = !abrir;
@@ -2137,7 +2044,7 @@
             gatilho.setAttribute('aria-expanded', String(abrir));
         };
         gatilho.addEventListener('click', abrirOuFechar);
-        menu.append(formato, botao, baixar);
+        menu.append(formato, botao);
         container.append(gatilho, menu);
 
         if (ancora) {

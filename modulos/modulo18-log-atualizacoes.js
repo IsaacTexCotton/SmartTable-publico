@@ -24,15 +24,6 @@
 
   const LOG_ATUALIZACOES = [
     {
-      versao: '1.126.0', data: '10/11/2026',
-      mudancas: [
-        'O relatório escolhe automaticamente o modelo por quantidade de títulos de cada CNPJ: até 9 mantém o HTML existente, de 10 a 14 usa o modelo agrupado e a partir de 15 gera duas imagens.',
-        'O modelo agrupado organiza títulos por vencimento e atraso, calcula subtotais e total em centavos e divide as páginas sem separar grupos, salvo grupos com mais de 10 títulos.',
-        'Cada razão social do grupo recebe seu próprio relatório; o botão Baixar PNG exporta todas as imagens e a cópia para o WhatsApp mantém as páginas como itens separados.',
-        'Quando os CDNs de html2canvas-pro não estiverem disponíveis, o novo modelo tenta a captura nativa SVG/foreignObject do Chromium.'
-      ],
-    },
-    {
       versao: '1.125.1', data: '09/11/2026',
       mudancas: [
         'O SmartTable passa a acompanhar consulta, emissão e download da segunda via no Systextil.',
