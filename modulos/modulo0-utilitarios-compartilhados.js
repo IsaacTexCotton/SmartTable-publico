@@ -691,6 +691,8 @@
     'Guia de Implementações',
     'Ponte CRM → Systextil',
     'Menu Novo',
+    'Plano de Regularização',
+    'Plano da Carteira',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

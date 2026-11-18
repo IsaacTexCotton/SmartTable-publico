@@ -2006,7 +2006,7 @@
         menu.setAttribute('aria-label', 'Ferramentas do cliente');
         Object.assign(menu.style, {
             position: 'absolute', right: '0', top: 'calc(100% + 7px)',
-            zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55, minWidth: '210px', display: 'none',
+            zIndex: window.__smartTableUtil?.Z_INDEX_POPUP, minWidth: '210px', display: 'none',
             flexDirection: 'column', gap: '7px', padding: '9px',
             background: '#FFFFFF', border: '1px solid #D0D5DD',
             borderRadius: '10px', boxShadow: '0 8px 24px rgba(16,24,40,.16)'
@@ -2052,7 +2052,7 @@
         } else {
             Object.assign(container.style, {
                 position: 'fixed', bottom: '20px', right: '20px',
-                zIndex: window.__smartTableUtil?.Z_INDEX_POPUP ?? 55
+                zIndex: window.__smartTableUtil?.Z_INDEX_POPUP
             });
             menu.style.top = 'auto';
             menu.style.bottom = 'calc(100% + 7px)';

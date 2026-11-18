@@ -77,9 +77,9 @@
  * o mesmo campo que exclui quem mexeu HOJE; aqui acha quem está PARADO.
  *
  * EXCLUSÕES (nunca entram, em nenhuma faixa):
- *   - Mais de 19 dias de atraso, SALVO cartório puro (v1.97.0): o teto só vale pro
- *     fluxo de negativação (SCPC) e pra quem tem título fora do cartório; cliente do
- *     fluxo Cartório com TODOS os vencidos em cartório fica (faixa 16). O corte é
+ *   - Mais de 19 dias de atraso, SALVO fluxo Cartório (SCPC "n", v1.129.0): o teto só
+ *     vale pro fluxo de negativação (SCPC); cliente do fluxo Cartório fica na fila
+ *     até ir para o analista, qualquer que seja a situação dos títulos. O corte é
  *     DEPOIS da visita, pois o fluxo só existe na página do cliente.
  *   - Dia 1 de atraso
  *   - Última movimentação é HOJE
@@ -211,12 +211,14 @@
     14: '5º dia de atraso',
     15: 'Demais dias',
     16: 'Todos os títulos em cartório',
+    17: 'Protestados',
   };
 
   // Faixa em que, dentro dela, quem tem MAIS dias vem primeiro (mais perto
   // do 16º dia, quando começa o aviso de suspensão) -- ver compararPelaRegua.
   const FAIXA_SCPC_ANTES_DO_AVISO = 11;
   const FAIXA_PROMESSA_NAO_CUMPRIDA = 7;
+  const FAIXA_PROTESTADOS = 17;
 
   // Cor de cada faixa: borda do aviso de troca de prioridade e barra/ponto do
   // painel de progresso (Módulo 11). Critérios: contraste >= 3:1 sobre o branco
@@ -226,7 +228,7 @@
   // dia (1, 12), roxo = Cluster Novo, ciano/verde-azulado = contato (4, 5),
   // verde = promessa no dia, rosa = promessa quebrada, índigo = janela SCPC
   // (8, 9, 11), musgo = conta esquecida, laranja/âmbar/ocre = atraso e
-  // cartório (10, 13, 14), cinza = demais dias.
+  // cartório (10, 13, 14), cinza = demais dias, roxo muito escuro = protestados (17).
   // A cor nunca é o único sinal (WCAG 1.4.1): a faixa sempre tem número e nome.
   // tests/fila-prioridade.test.js confere contraste e que nenhuma cor se repete.
   const CORES_PRIORIDADE = {
@@ -246,6 +248,7 @@
     14: '#CA8504',
     15: '#667085',
     16: '#1D4E5F',
+    17: '#3B0764',
   };
 
   /* ---------------------------------------------------------------------
@@ -462,7 +465,7 @@
   // está no fluxo de NEGATIVAÇÃO (SCPC); cliente de CARTÓRIO passa dos 19 dias e
   // continua na fila. Saber o fluxo exige visitar, então a lista NÃO corta mais
   // por dias: o cliente acima do teto segue com `acimaDoTeto: true` e é cortado
-  // DEPOIS da visita (classificarAPartirDaAba), salvo cartório puro.
+  // DEPOIS da visita (classificarAPartirDaAba), salvo fluxo Cartório.
   //
   // Cluster Novo continua isento do teto em qualquer fluxo (decisão anterior):
   // a cobrança bloqueia o faturamento dele.
@@ -549,6 +552,9 @@
   //     pessoa (faixa 3). Ausente = só a movimentação decide.
   //   - temTituloEmCartorio: há título EM_CARTORIO entre os em cobrança (faixa 13).
   //   - temNegativadoNoDiaDaSuspensao: há título NEGATIVADO_SCPC no 19º dia (faixa 8).
+  //   - maiorNegativadoDias: maior atraso entre os NEGATIVADO_SCPC (ou null). Com o
+  //     título escolhido de último dia, decide 8/9/11 em vez da 12.
+  //   - temTituloProtestado: algum título com posição PROTESTO (faixa 17).
   function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje, extras = {}) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
     const { situacaoKey, diasAtrasoReal } = escolhido;
@@ -599,7 +605,13 @@
     }
     // SCPC antes do aviso vem ANTES do SCPC último dia e de "cartório e outro vencido" (13).
     if (situacaoKey === 'NEGATIVADO_SCPC' && diasAtrasoReal < CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC) return FAIXA_SCPC_ANTES_DO_AVISO;
-    if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 12;
+    // Último dia + título negativado (1 a 18 dias): vai pela faixa do negativado, nunca a 12.
+    if (situacaoKey === 'ULTIMO_DIA' && typeof extras.maiorNegativadoDias === 'number') {
+      return extras.maiorNegativadoDias >= CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC ? 9 : FAIXA_SCPC_ANTES_DO_AVISO;
+    }
+    // Faixa 12: só quem não tem título além do último dia (cartório, protesto).
+    if (situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC' && extras.temTituloEmCartorio !== true && extras.temTituloProtestado !== true) return 12;
+    if (extras.temTituloProtestado === true) return FAIXA_PROTESTADOS;
     // Faixas 13 e 14: subdivisão do que seria "Demais dias".
     if (extras.temTituloEmCartorio === true && situacaoKey !== 'EM_CARTORIO') return 13;
     if (situacaoKey === 'EM_ATRASO' && diasAtrasoReal === CONFIG.DIA_PRIORIDADE_QUINTO_DIA) return 14;
@@ -607,6 +619,18 @@
     // cliente estão em cartório (escolherTituloRepresentativo prefere qualquer outro).
     if (situacaoKey === 'EM_CARTORIO') return 16;
     return 15;
+  }
+
+  // Posição PROTESTO (decisão do usuário, 18/11/2026). Palavra inteira, sem acento:
+  // não casa com "NAO PROTESTAR" nem com CARTORIO.
+  function ehPosicaoProtesto(posicao) {
+    return /(^|[^A-Z])PROTESTO([^A-Z]|$)/.test(String(posicao ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase());
+  }
+
+  // Maior atraso entre os títulos NEGATIVADO_SCPC; null se não há nenhum.
+  function maiorNegativadoEntre(registros) {
+    const dias = (registros || []).filter((r) => r.situacaoKey === 'NEGATIVADO_SCPC' && typeof r.diasAtrasoReal === 'number').map((r) => r.diasAtrasoReal);
+    return dias.length > 0 ? Math.max(...dias) : null;
   }
 
   /** Soma do saldo dos títulos em cobrança (desempate da régua v3); 0 se nada legível. */
@@ -714,7 +738,9 @@
     // Teto de 19 dias, agora conferido aqui (v1.97.0): só passa quem está no
     // fluxo de cartório com TODOS os vencidos em cartório (escolhido EM_CARTORIO).
     // Negativação (SCPC), acordo atrasado e o resto seguem cortados pelo teto.
-    if (cliente.acimaDoTeto && (prioridadeForcada !== null || dadosTitulos.fluxo !== 'CARTORIO' || escolhido.situacaoKey !== 'EM_CARTORIO')) {
+    // Decisão do usuário (18/11/2026): cliente do fluxo Cartório (SCPC "n") NÃO segue o
+    // teto em nenhuma situação; fica na fila até ir para o analista.
+    if (cliente.acimaDoTeto && dadosTitulos.fluxo !== 'CARTORIO') {
       return { cliente, excluidoPorDias: true };
     }
 
@@ -752,6 +778,8 @@
         maiorAtrasoDoCliente: maiorAtrasoEntreTodos(dadosTitulos.registros),
         ultimoContatoIso,
         temTituloEmCartorio: dadosTitulos.registros.some((r) => r.situacaoKey === 'EM_CARTORIO'),
+        maiorNegativadoDias: maiorNegativadoEntre(dadosTitulos.registros),
+        temTituloProtestado: dadosTitulos.registros.some((r) => ehPosicaoProtesto(r.posicao)),
         temNegativadoNoDiaDaSuspensao: dadosTitulos.registros.some(
           (r) => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
         ),

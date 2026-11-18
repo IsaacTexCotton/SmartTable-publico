@@ -24,6 +24,35 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.129.1', data: '18/11/2026',
+      mudancas: [
+        'Interno, sem mudança visual: o menu Ferramentas do Aviso de Cobrança e o menu da fila deixaram de guardar uma cópia do número da camada dos popups; passam a ler só do Módulo 0 (a mesma regra dos outros painéis).'
+      ],
+    },
+    {
+      versao: '1.129.0', data: '18/11/2026',
+      mudancas: [
+        'Alt+U, SCPC último dia (faixa 12): agora só entra quem NÃO tem título além do último dia. Cliente com título de último dia e outro negativado vai pela faixa do negativado (19º dia: 8; 16º a 18º: 9; abaixo disso: 11); com título em cartório, para a 13.',
+        'Alt+U, cliente de cartório (SCPC "n"): não segue mais o teto de 19 dias, em nenhuma situação dos títulos. Fica na fila até ir para o analista. O teto continua valendo para o SCPC.',
+        'Alt+U: faixa nova, a 17, "Protestados", por último na fila: cliente com qualquer título de posição PROTESTO. As faixas 1 a 12 ainda passam na frente; as demais numerações não mudaram.'
+      ],
+    },
+    {
+      versao: '1.128.0', data: '18/11/2026',
+      mudancas: [
+        'Novo Módulo 42 (Plano da Carteira): lê a lista de clientes e a página de cada empresa no CRM, agrupa pela raiz do CNPJ e monta o plano de regularização com as regras do Módulo 41, informando cada etapa.',
+        'Nova ponte integracoes/plano-regularizacao-ponte.user.js: o painel local "CRM Diário" pede o plano e acompanha o processo ao vivo, sem você tocar no CRM. Só lê; o plano é apagado do armazenamento assim que o painel o recebe.',
+        'Novo painel/crm_v22.11.html: o CRM Diário com a janela "Plano de regularização" (processo passo a passo, resumo, grupos, cronograma de datas-limite e empresas não lidas).'
+      ],
+    },
+    {
+      versao: '1.127.0', data: '18/11/2026',
+      mudancas: [
+        'Novo Módulo 41 (Plano de Regularização): regras que calculam, por grupo de empresas, os marcos de cada título (prazo do dia 6, cartório, SCPC e suspensão no 20º dia), o valor devido em cada data (multa de 2% e juros de 3% ao mês proporcionais) e o cronograma de datas-limite.',
+        'Ainda sem tela: o painel do plano depende da aprovação do desenho. Nada é gravado no CRM.'
+      ],
+    },
+    {
       versao: '1.126.1', data: '13/11/2026',
       mudancas: [
         'Restaura o comportamento estável da versão 1.125.1 e remove o relatório agrupado introduzido na 1.126.0.',
