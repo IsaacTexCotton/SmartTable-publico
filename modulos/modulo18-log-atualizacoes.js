@@ -24,6 +24,19 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.130.1', data: '18/11/2026',
+      mudancas: [
+        'Plano de regularização: título com posição PROTESTO agora entra na fase "protestado" (pagamento direto, custas de cartório a confirmar, sem data-limite), igual ao que já valia para a posição CARTORIO.',
+        'Alt+N (promessa rápida): a posição PROTESTO aparece como "Em cartório", com a cor de cartório, também quando o Módulo 1 não classificou o título (antes aparecia o texto cru).'
+      ],
+    },
+    {
+      versao: '1.130.0', data: '18/11/2026',
+      mudancas: [
+        'Título com posição PROTESTO agora é tratado como título em cartório, em qualquer portador e com qualquer atraso. Antes, fora do Itaú, ele era lido como "verificar posição" e o Alt+A não montava a mensagem; agora usa a mensagem de cartório que já existia. "NAO PROTESTAR" não mudou.'
+      ],
+    },
+    {
       versao: '1.129.1', data: '18/11/2026',
       mudancas: [
         'Interno, sem mudança visual: o menu Ferramentas do Aviso de Cobrança e o menu da fila deixaram de guardar uma cópia do número da camada dos popups; passam a ler só do Módulo 0 (a mesma regra dos outros painéis).'

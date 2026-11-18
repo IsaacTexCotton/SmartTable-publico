@@ -505,6 +505,11 @@
         // vez de chamar normalizarTexto() pra não alterar o formato usado
         // no resto da função.
         if (posicao.includes('CARTORIO') || posicao.includes('CARTÓRIO')) return 'EM_CARTORIO';
+        // Posição PROTESTO (v1.130.0, AUTORIZADO pelo usuário em 18/11/2026: "tratar
+        // PROTESTO como cartório"; valor confirmado por diagnóstico censurado em 3
+        // clientes). Título protestado é título em cartório, qualquer que seja o
+        // portador ou os dias. Palavra inteira: "NAO PROTESTAR" não casa.
+        if (/(^|[^A-Z])PROTESTO([^A-Z]|$)/.test(normalizarTexto(posicao))) return 'EM_CARTORIO';
 
         if (diasAtrasoReal >= DIAS_ATRASO_MIN && diasAtrasoReal <= DIAS_ATRASO_MAX) {
             return 'EM_ATRASO';

@@ -175,6 +175,9 @@
     if (fluxo === 'SCPC') return hoje > marcos.ultimoDiaSemSuspensao ? FASES.SUSPENSO : FASES.NEGATIVADO;
     if (posicao.includes('NAO PROTESTAR')) return FASES.SEM_PROTESTO;
     if (posicao.includes('CARTORIO')) return FASES.PROTESTADO;
+    // Posição PROTESTO = protestado (decisão do usuário, 18/11/2026; valor confirmado por diagnóstico censurado).
+    // Palavra inteira: "NAO PROTESTAR" já saiu acima.
+    if (/(^|[^A-Z])PROTESTO([^A-Z]|$)/.test(posicao)) return FASES.PROTESTADO;
     return FASES.INTIMACAO;
   }
 

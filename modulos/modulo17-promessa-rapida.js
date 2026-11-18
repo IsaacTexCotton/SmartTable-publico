@@ -325,7 +325,8 @@
   }
 
   /* ---- Peças visuais ---- */
-  const ROTULO_POR_POSICAO = { COBRANCA: 'Cobrança', CARTORIO: 'Em cartório', 'NAO PROTESTAR': 'Não protestar' };
+  // PROTESTO = cartório (decisão do usuário, 18/11/2026), mesmo rótulo e mesma chave de CARTORIO.
+  const ROTULO_POR_POSICAO = { COBRANCA: 'Cobrança', CARTORIO: 'Em cartório', PROTESTO: 'Em cartório', 'NAO PROTESTAR': 'Não protestar' };
   const CHAVE_DA_SITUACAO = {
     EM_ATRASO: 'EM_ATRASO', PRAZO_FINAL: 'EM_ATRASO', ULTIMO_DIA: 'ULTIMO_DIA', EM_CARTORIO: 'EM_CARTORIO',
     NEGATIVADO_SCPC: 'NEGATIVADO_SCPC', SEM_PROTESTO: 'EM_ATRASO', VERIFICAR_POSICAO: 'VERIFICAR_POSICAO',
@@ -352,7 +353,7 @@
     }
     const posicao = String(t.situacao ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
     const rotulo = ROTULO_POR_POSICAO[posicao];
-    if (rotulo) return { rotulo, chave: posicao === 'CARTORIO' ? 'EM_CARTORIO' : 'EM_ATRASO' };
+    if (rotulo) return { rotulo, chave: posicao === 'CARTORIO' || posicao === 'PROTESTO' ? 'EM_CARTORIO' : 'EM_ATRASO' };
     return { rotulo: t.situacao || '', chave: null };
   }
 
