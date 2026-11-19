@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.131.0', data: '19/11/2026',
+      mudancas: [
+        'Alt+U: a fila agora é montada baixando a página de cada cliente, sem abrir abas (antes essa leitura só era conferida em segundo plano). Se a página de um cliente falhar, só ele é lido pela aba.',
+        'Alt+U: uma vez por dia, 6 clientes são conferidos pelas abas contra a leitura da página, agora também no valor vencido (desempate dentro da faixa). Se houver diferença, a fila do dia é refeita pelas abas e a página volta amanhã.',
+        'O tempo de cada montagem da fila passa a ser guardado (só números) para medir quanto o novo caminho ganhou.'
+      ],
+    },
+    {
       versao: '1.130.2', data: '19/11/2026',
       mudancas: [
         'Plano de regularização: título em acordo (Negociações) e título em cartório marcado "fora do relatório" no painel Alerta agora ficam fora do plano, como no relatório. Antes entravam com multa e juros, porque a pergunta era feita com o formato errado do título.',

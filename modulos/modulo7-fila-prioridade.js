@@ -105,9 +105,13 @@
  *   - iframe oculto: o CRM responde X-Frame-Options: deny.
  *   - fetch + DOMParser: o HTML baixado não traz a tabela de títulos nem
  *     SCPC/promessa/grupo prontos, mas os dados vêm embutidos em <script>
- *     (__TITULOS_ABERTOS__ e companhia). Isso alimenta o MODO SOMBRA, mais
- *     abaixo; a fila continua montada pelas abas, e a página baixada roda
- *     junto só para comparar.
+ *     (__TITULOS_ABERTOS__ e companhia). Isso alimentou o MODO SOMBRA, mais
+ *     abaixo, e depois de 19 dias úteis seguidos com zero diferença (decisão do
+ *     usuário, 19/11/2026, v1.131.0) virou o CAMINHO PRINCIPAL: a página baixada
+ *     classifica; a aba só entra para o cliente cuja página falhou, numa AMOSTRA
+ *     diária que confere o caminho novo contra o antigo e, se a amostra achar
+ *     diferença, para refazer a fila do dia. Volta ao caminho antigo gravando '1'
+ *     em CONFIG.CHAVE_FORCAR_ABAS.
  *
  * CONCORRÊNCIA: CONFIG.CONCORRENCIA_CLASSIFICACAO (4) abas ao mesmo tempo; o
  * teto é conservador de propósito (~92 cargas de página contra o CRM).
@@ -192,6 +196,18 @@
     // Espera máxima pela sombra antes de montar a fila: a fila nunca atrasa além disso.
     SOMBRA_ESPERA_MAXIMA_MS: 20000,
     SOMBRA_DIAS_HISTORICO: 30,
+    // CAMINHO DA CLASSIFICAÇÃO (decisão do usuário, 19/11/2026, depois de 19 dias úteis seguidos de sombra com zero
+    // diferença): a PÁGINA BAIXADA é o caminho principal do Alt+U; a aba só entra (a) para o cliente cuja página falhou,
+    // (b) numa AMOSTRA diária que confere o caminho novo contra o antigo e (c) quando a amostra acha diferença.
+    // Escape sem publicar código: gravar '1' nesta chave volta ao caminho antigo (abas) até apagar.
+    CHAVE_FORCAR_ABAS: 'smarttable_alt_u_forcar_abas_v1',
+    // Falhas da página SEM nenhum sucesso: o resto do lote vai direto para as abas (o CRM mudou, não adianta insistir).
+    LIMITE_FALHAS_PAGINA: 5,
+    AMOSTRA_ABAS: 6,
+    AMOSTRA_CONCORRENCIA_ABAS: 3,
+    // Tempo e caminho de cada montagem (só números), para medir o ganho. Pode haver mais de uma por dia (Shift+Alt+U).
+    CHAVE_MONTAGENS: 'smarttable_montagem_alt_u_v1',
+    MONTAGENS_MAXIMO: 60,
   };
 
   const NOMES_PRIORIDADE = {
@@ -1044,9 +1060,11 @@
    * @param {(cliente: object) => Promise<object>} [classificar] Costura de
    *   teste (abrir aba não acontece no jsdom): permite cobrir a concorrência e o
    *   disjuntor. Em produção nunca é passado.
+   * @param {{concorrencia?: number}} [opcoes] concorrencia: abas ao mesmo tempo (padrão
+   *   CONFIG.CONCORRENCIA_CLASSIFICACAO); a amostra diária usa menos.
    * @returns {Promise<{resultados: object[], abortouPorPopup: boolean}>}
    */
-  async function classificarEmLote(clientes, aoProgredir, classificar) {
+  async function classificarEmLote(clientes, aoProgredir, classificar, opcoes = {}) {
     const classificarUm = classificar || classificarCliente;
     const resultados = new Array(clientes.length);
     let proximo = 0;
@@ -1104,7 +1122,7 @@
       return { resultados: resultados.filter(Boolean), abortouPorPopup };
     }
 
-    const quantos = Math.max(1, Math.min(CONFIG.CONCORRENCIA_CLASSIFICACAO, clientes.length - proximo));
+    const quantos = Math.max(1, Math.min(opcoes.concorrencia ?? CONFIG.CONCORRENCIA_CLASSIFICACAO, clientes.length - proximo));
     await Promise.all(Array.from({ length: quantos }, trabalhador));
 
     return { resultados: resultados.filter(Boolean), abortouPorPopup };
@@ -1344,6 +1362,8 @@
       titulo: r.escolhido?.tituloCompleto ?? null,
       grupo: (r.empresasComVencido || []).map((e) => String(e?.cnpj || '').replace(/\D/g, '')).sort().join(','),
       ultimoContato: r.ultimoContatoIso ?? null,
+      // Segundo desempate dentro da faixa (compararPelaRegua): em centavos inteiros, para a comparação não depender de ponto flutuante.
+      valorVencido: Math.round((r.valorVencido ?? 0) * 100),
     };
   }
 
@@ -1358,6 +1378,8 @@
     if (valor == null || valor === '') return valor;
     if (campo === 'titulo') return apelido(valor);
     if (campo === 'grupo') return String(valor).split(',').map((c) => apelido(c)).join(',');
+    // Dinheiro de cliente nunca vai para log nem localStorage (regra 2): o relatório só diz que o campo difere.
+    if (campo === 'valorVencido') return '[valor omitido]';
     return valor;
   }
 
@@ -1421,9 +1443,10 @@
       return {
         ultimo: JSON.parse(localStorage.getItem(CONFIG.CHAVE_SOMBRA_ULTIMA) || 'null'),
         historico: JSON.parse(localStorage.getItem(CONFIG.CHAVE_SOMBRA_HISTORICO) || '[]'),
+        montagens: lerMontagens(),
       };
     } catch (erro) {
-      return { ultimo: null, historico: [] };
+      return { ultimo: null, historico: [], montagens: [] };
     }
   }
 
@@ -1448,6 +1471,102 @@
       promessa.catch((erro) => { console.warn('[Fila Prioridade] Modo sombra falhou.', erro); return null; }),
       new Promise((r) => { const id = setTimeout(() => r(null), CONFIG.SOMBRA_ESPERA_MAXIMA_MS); id?.unref?.(); }),
     ]);
+  }
+
+  /* ---------------------------------------------------------------------
+   * CAMINHO PRINCIPAL PELA PÁGINA BAIXADA (v1.131.0)
+   * --------------------------------------------------------------------- */
+
+  /** Os módulos que a classificação pela página baixada precisa estão carregados? */
+  function podeUsarPaginaBaixada() {
+    return Boolean(window.__avisoCobranca?.simularTitulos && window.__grupoEconomico && window.__contextoAdicionalDebug?.contextoDaPaginaBaixada);
+  }
+
+  /** Hoje o Alt+U deve usar as abas? '1' = escolha do usuário (até apagar); a data de hoje = a amostra achou diferença neste dia. */
+  function abasForcadas(hoje = new Date()) {
+    try {
+      const v = localStorage.getItem(CONFIG.CHAVE_FORCAR_ABAS);
+      return v === '1' || (v !== null && v === window.__smartTableUtil.dataIso(hoje));
+    } catch (erro) {
+      return false;
+    }
+  }
+
+  /** A amostra achou diferença: o resto do dia fica nas abas (amanhã a página volta e a amostra confere de novo). */
+  function forcarAbasHoje(hoje = new Date()) {
+    try {
+      if (localStorage.getItem(CONFIG.CHAVE_FORCAR_ABAS) !== '1') localStorage.setItem(CONFIG.CHAVE_FORCAR_ABAS, window.__smartTableUtil.dataIso(hoje));
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Não consegui gravar o aviso de abas forçadas hoje.', erro?.name);
+    }
+  }
+
+  /**
+   * Classificador do caminho principal: tenta a página baixada e, se ela falhar para o cliente, cai na aba (nunca some da fila).
+   * Disjuntor: LIMITE_FALHAS_PAGINA falhas e nenhum sucesso mandam o resto do lote direto para as abas.
+   * `estado.viaPagina` guarda quem foi classificado pela página (só esses entram na comparação com a amostra de abas).
+   */
+  function criarClassificadorPelaPagina() {
+    const estado = { viaPagina: new Set(), viaAba: 0, falhasPagina: 0, sucessosPagina: 0, paginaQuebrada: false };
+    async function classificar(cliente) {
+      if (!estado.paginaQuebrada) {
+        const r = await classificarPelaPaginaBaixada(cliente);
+        if (!r.erro) {
+          estado.sucessosPagina += 1;
+          estado.viaPagina.add(cliente.cnpj);
+          return r;
+        }
+        estado.falhasPagina += 1;
+        console.warn(`[Fila Prioridade] Página baixada falhou para ${window.__smartTableUtil.apelidoParaLog(cliente.cnpj)} (${r.erro}) -- usando a aba.`);
+        if (estado.falhasPagina >= CONFIG.LIMITE_FALHAS_PAGINA && estado.sucessosPagina === 0) {
+          estado.paginaQuebrada = true;
+          console.warn('[Fila Prioridade] A página baixada falhou várias vezes seguidas sem nenhum sucesso -- o resto do lote vai pelas abas.');
+        }
+      }
+      estado.viaAba += 1;
+      return classificarCliente(cliente);
+    }
+    return { classificar, estado };
+  }
+
+  /** Clientes espalhados pela lista inteira, sem sorteio (a lista vem na ordem da tela, sem relação com a faixa). */
+  function escolherAmostra(clientes, quantos = CONFIG.AMOSTRA_ABAS) {
+    const n = Math.min(quantos, clientes.length);
+    return Array.from({ length: Math.max(0, n) }, (_, i) => clientes[Math.floor(((i + 0.5) * clientes.length) / n)]);
+  }
+
+  /**
+   * Compara a amostra classificada pelas abas com o que a página deu para os mesmos clientes. Fica de fora quem foi
+   * resolvido pela aba no caminho principal (aba contra aba não prova nada) e quem a aba não leu (pop-up, tempo).
+   * @returns {object|null} o relatório da compararSombra, ou null se nada pôde ser comparado.
+   */
+  function conferirAmostra(amostra, resultadosDasAbas, todos, viaPagina) {
+    const porCnpj = (lista) => new Map(lista.map((r) => [r?.cliente?.cnpj, r]));
+    const aba = porCnpj(resultadosDasAbas);
+    const pagina = porCnpj(todos);
+    const pares = amostra.filter((c) => viaPagina.has(c.cnpj) && aba.has(c.cnpj) && pagina.has(c.cnpj));
+    const relatorio = compararSombra(pares.map((c) => aba.get(c.cnpj)), pares.map((c) => pagina.get(c.cnpj)));
+    return relatorio.comparados > 0 ? relatorio : null;
+  }
+
+  /** Grava só números da montagem (caminho, duração, quantos). Nunca derruba o Alt+U. */
+  function registrarMontagem(dados) {
+    try {
+      const lista = lerMontagens();
+      lista.push({ dia: window.__smartTableUtil.dataIso(new Date()), geradoEm: Date.now(), ...dados });
+      localStorage.setItem(CONFIG.CHAVE_MONTAGENS, JSON.stringify(lista.slice(-CONFIG.MONTAGENS_MAXIMO)));
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Não consegui gravar o tempo da montagem.', erro?.name);
+    }
+  }
+
+  function lerMontagens() {
+    try {
+      const lista = JSON.parse(localStorage.getItem(CONFIG.CHAVE_MONTAGENS) || '[]');
+      return Array.isArray(lista) ? lista : [];
+    } catch (erro) {
+      return [];
+    }
   }
 
   /**
@@ -1609,28 +1728,83 @@
     try {
       atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
 
-      // MODO SOMBRA: corre JUNTO com as abas e é comparada no fim. Não entra na fila.
-      const sombra = window.__avisoCobranca?.simularTitulos && window.__grupoEconomico && window.__contextoAdicionalDebug?.contextoDaPaginaBaixada && !sombraJaRodouHoje()
-        ? rodarSombra(sobreviventes)
+      // CAMINHO: a página baixada é o principal (v1.131.0); as abas são o caminho de antes, usado quando os módulos da
+      // página não estão carregados, quando o usuário forçou (CHAVE_FORCAR_ABAS) ou quando a amostra de hoje achou diferença.
+      const viaPagina = podeUsarPaginaBaixada() && !abasForcadas();
+      const classificador = viaPagina ? criarClassificadorPelaPagina() : null;
+      const inicioMs = Date.now();
+
+      // Caminho das abas: o MODO SOMBRA corre JUNTO e é comparado no fim (como sempre). Não entra na fila.
+      const sombra = !viaPagina && podeUsarPaginaBaixada() && !sombraJaRodouHoje() ? rodarSombra(sobreviventes) : null;
+      // Caminho da página: uma AMOSTRA de abas, em paralelo, confere o caminho novo contra o antigo (1 vez por dia).
+      const amostra = viaPagina && !sombraJaRodouHoje() ? escolherAmostra(sobreviventes) : [];
+      const amostraEmCurso = amostra.length > 0
+        ? classificarEmLote(amostra, () => {}, undefined, { concorrencia: CONFIG.AMOSTRA_CONCORRENCIA_ABAS }).catch((erro) => {
+          console.warn('[Fila Prioridade] A amostra de abas falhou -- sem conferência hoje.', erro?.message);
+          return null;
+        })
         : null;
+
+      const classificarTudo = async (classificar) => {
+        atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
+        try {
+          return await classificarEmLote(
+            sobreviventes,
+            (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`),
+            classificar
+          );
+        } finally {
+          removerIndicadorProgresso();
+        }
+      };
 
       const resultados = [];
       let lote;
       try {
-        lote = await classificarEmLote(
-          sobreviventes,
-          (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`)
-        );
+        lote = await classificarTudo(classificador?.classificar);
       } catch (erro) {
         // Sem isto uma exceção deixava a trava e o indicador ligados até recarregar
         // ("já tem uma classificação em andamento").
         console.error('[Fila Prioridade] Erro inesperado na classificação -- abortando esta rodada.', erro);
         toast('Erro ao classificar a fila (veja o console). Tente Shift+Alt+U de novo.', 6000);
         return;
-      } finally {
-        removerIndicadorProgresso();
       }
-      const { resultados: todos, abortouPorPopup } = lote;
+      let { resultados: todos, abortouPorPopup } = lote;
+      const duracaoMs = Date.now() - inicioMs;
+
+      if (viaPagina) {
+        const est = classificador.estado;
+        registrarMontagem({ caminho: 'pagina', duracaoMs, clientes: sobreviventes.length, viaAba: est.viaAba, falhasPagina: est.falhasPagina, paginaQuebrada: est.paginaQuebrada });
+        console.log('[Fila Prioridade] Montagem pela página baixada:', JSON.stringify({ clientes: sobreviventes.length, segundos: Math.round(duracaoMs / 100) / 10, viaAba: est.viaAba, falhasPagina: est.falhasPagina }));
+        const lotesDaAmostra = amostraEmCurso ? await amostraEmCurso : null;
+        const relatorio = lotesDaAmostra ? conferirAmostra(amostra, lotesDaAmostra.resultados, todos, est.viaPagina) : null;
+        if (relatorio) {
+          gravarRelatorioSombra(relatorio);
+          console.log('[Fila Prioridade] Conferência por abas (amostra x página baixada):', JSON.stringify(relatorio));
+          const n = relatorio.diferencas.length;
+          if (n === 0) {
+            toast(`Modo sombra: ${relatorio.comparados} clientes comparados, nenhuma diferença.`, 7000);
+          } else {
+            // A página difere da aba (a referência): hoje a fila sai das abas, como antes, e amanhã a página é conferida de novo.
+            toast(`Modo sombra: ${n} diferença(s) em ${relatorio.comparados} clientes -- hoje a fila foi refeita pelas abas (detalhes no console).`, 9000);
+            forcarAbasHoje();
+            const inicioAbas = Date.now();
+            try {
+              lote = await classificarTudo(undefined);
+            } catch (erro) {
+              console.error('[Fila Prioridade] Erro ao refazer pelas abas -- abortando esta rodada.', erro);
+              toast('Erro ao classificar a fila (veja o console). Tente Shift+Alt+U de novo.', 6000);
+              return;
+            }
+            ({ resultados: todos, abortouPorPopup } = lote);
+            registrarMontagem({ caminho: 'abas', motivo: 'diferenca-na-amostra', duracaoMs: Date.now() - inicioAbas, clientes: sobreviventes.length });
+          }
+        } else if (amostra.length > 0) {
+          console.warn('[Fila Prioridade] Nenhum cliente da amostra pôde ser comparado (aba não leu ou foi resolvido pela aba) -- sem conferência hoje; tenta de novo no próximo Alt+U.');
+        }
+      } else {
+        registrarMontagem({ caminho: 'abas', duracaoMs, clientes: sobreviventes.length });
+      }
 
       if (sombra) {
         const pelaPagina = await esperarSombra(sombra);
@@ -1888,6 +2062,14 @@
     classificarAPartirDaAba,
     montarAbaVirtual,
     classificarPelaPaginaBaixada,
+    podeUsarPaginaBaixada,
+    abasForcadas,
+    forcarAbasHoje,
+    criarClassificadorPelaPagina,
+    escolherAmostra,
+    conferirAmostra,
+    registrarMontagem,
+    lerMontagens,
     compararSombra,
     relatorioSombra,
     gravarRelatorioSombra,
