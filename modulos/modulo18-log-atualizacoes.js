@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.131.1', data: '19/11/2026',
+      mudancas: [
+        'Alt+U: o diário voltou a registrar a baixa (título que sumiu da lista) de TODOS os clientes da fila. Na v1.131.0, ao baixar só a página do cliente, só a baixa de quem você abria era vista, o que distorcia as taxas de baixa do diário.',
+        'Os diagnósticos de console passam a mostrar, em cada montagem da fila, se a baixa foi detectada.'
+      ],
+    },
+    {
       versao: '1.131.0', data: '19/11/2026',
       mudancas: [
         'Alt+U: a fila agora é montada baixando a página de cada cliente, sem abrir abas (antes essa leitura só era conferida em segundo plano). Se a página de um cliente falhar, só ele é lido pela aba.',

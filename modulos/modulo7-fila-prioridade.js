@@ -1306,7 +1306,7 @@
    * da página baixada. Lança se faltar qualquer fonte obrigatória -- nunca
    * classifica com dado pela metade.
    */
-  async function montarAbaVirtual(cliente, hoje = normalizarData(new Date())) {
+  async function montarAbaVirtual(cliente, hoje = normalizarData(new Date()), coletor = null) {
     const controle = typeof window.AbortController === 'function' ? new window.AbortController() : null;
     const limite = setTimeout(() => controle?.abort(), CONFIG.SOMBRA_TIMEOUT_PAGINA_MS);
     let html;
@@ -1329,6 +1329,10 @@
     const grupoId = (/\/crm\/clientes\/grupo\/([^/?#]+)/.exec(cliente.url) || [])[1] ?? null;
     const empresasComVencido = await window.__grupoEconomico.buscarOutrasEmpresasComVencido(cliente.cnpj, grupoId);
 
+    // Só no FIM, quando a página inteira deu certo: as listas da tabela alimentam a detecção de baixa em lote (Módulo 6). O caminho principal
+    // do Alt+U passa o coletor; a sombra do caminho antigo não (as abas já detectam a baixa ao carregar).
+    if (Array.isArray(coletor)) coletor.push({ cnpj: cliente.cnpj, dados });
+
     return {
       closed: false,
       close() {},
@@ -1341,9 +1345,9 @@
   }
 
   /** Classifica pela página baixada. Nunca lança (igual a classificarCliente). */
-  async function classificarPelaPaginaBaixada(cliente) {
+  async function classificarPelaPaginaBaixada(cliente, coletor = null) {
     try {
-      return classificarAPartirDaAba(cliente, await montarAbaVirtual(cliente));
+      return classificarAPartirDaAba(cliente, await montarAbaVirtual(cliente, undefined, coletor));
     } catch (erro) {
       return { cliente, erro: `pagina-baixada: ${String(erro?.message || erro).slice(0, 80)}` };
     }
@@ -1507,10 +1511,10 @@
    * `estado.viaPagina` guarda quem foi classificado pela página (só esses entram na comparação com a amostra de abas).
    */
   function criarClassificadorPelaPagina() {
-    const estado = { viaPagina: new Set(), viaAba: 0, falhasPagina: 0, sucessosPagina: 0, paginaQuebrada: false };
+    const estado = { viaPagina: new Set(), viaAba: 0, falhasPagina: 0, sucessosPagina: 0, paginaQuebrada: false, retratos: [] };
     async function classificar(cliente) {
       if (!estado.paginaQuebrada) {
-        const r = await classificarPelaPaginaBaixada(cliente);
+        const r = await classificarPelaPaginaBaixada(cliente, estado.retratos);
         if (!r.erro) {
           estado.sucessosPagina += 1;
           estado.viaPagina.add(cliente.cnpj);
@@ -1527,6 +1531,24 @@
       return classificarCliente(cliente);
     }
     return { classificar, estado };
+  }
+
+  /**
+   * Detecção de baixa das páginas baixadas (v1.131.1): o Alt+U pela página não carrega a página do cliente numa aba, então a detecção do
+   * Módulo 6 (que alimenta o diário e a linha "Recebemos a baixa") não rodava e a baixa só era vista em quem o operador abre. Nunca derruba o Alt+U.
+   * @returns {object|null} resumo só com números; null se o Módulo 6 não tem a função (então a detecção segue como estava).
+   */
+  function registrarBaixasDoLote(retratos) {
+    try {
+      const registrar = window.__contextoAdicionalDebug?.registrarBaixasDaPaginaBaixada;
+      if (typeof registrar !== 'function') return null;
+      const resumo = registrar(retratos);
+      console.log('[Fila Prioridade] Baixas detectadas pelas páginas baixadas:', JSON.stringify(resumo));
+      return resumo;
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Não consegui registrar as baixas das páginas baixadas -- a fila segue normal.', erro?.name);
+      return null;
+    }
   }
 
   /** Clientes espalhados pela lista inteira, sem sorteio (a lista vem na ordem da tela, sem relação com a faixa). */
@@ -1774,7 +1796,10 @@
 
       if (viaPagina) {
         const est = classificador.estado;
-        registrarMontagem({ caminho: 'pagina', duracaoMs, clientes: sobreviventes.length, viaAba: est.viaAba, falhasPagina: est.falhasPagina, paginaQuebrada: est.paginaQuebrada });
+        // Primeiro a detecção de baixa (vai para o diário ANTES do registro da fila, como quando as abas a faziam), depois a montagem, que
+        // grava se ela rodou: os diagnósticos precisam saber de que dia em diante a baixa voltou a ser vista em todos.
+        const baixas = registrarBaixasDoLote(est.retratos);
+        registrarMontagem({ caminho: 'pagina', duracaoMs, clientes: sobreviventes.length, viaAba: est.viaAba, falhasPagina: est.falhasPagina, paginaQuebrada: est.paginaQuebrada, deteccaoDeBaixa: baixas !== null });
         console.log('[Fila Prioridade] Montagem pela página baixada:', JSON.stringify({ clientes: sobreviventes.length, segundos: Math.round(duracaoMs / 100) / 10, viaAba: est.viaAba, falhasPagina: est.falhasPagina }));
         const lotesDaAmostra = amostraEmCurso ? await amostraEmCurso : null;
         const relatorio = lotesDaAmostra ? conferirAmostra(amostra, lotesDaAmostra.resultados, todos, est.viaPagina) : null;
@@ -2069,6 +2094,7 @@
     escolherAmostra,
     conferirAmostra,
     registrarMontagem,
+    registrarBaixasDoLote,
     lerMontagens,
     compararSombra,
     relatorioSombra,

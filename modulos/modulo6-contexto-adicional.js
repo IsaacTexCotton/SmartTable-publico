@@ -42,7 +42,7 @@
   // MANTER SINCRONIZADO MANUALMENTE com @version em smart-table.user.js. O
   // wrapper pode estar numa versão nova com os @require ainda em cache antigo;
   // este toast confirma qual versão carregou. Só este módulo faz o aviso.
-  const VERSAO_SMARTTABLE = '1.131.0';
+  const VERSAO_SMARTTABLE = '1.131.1';
 
   // Cada módulo se anuncia no Módulo 0 (registrarModuloCarregado); aqui só se
   // LÊ o registro, sem lista própria de módulos (cópias locais já ficaram para
@@ -479,6 +479,45 @@
     }
   }
 
+  /**
+   * O NÚCLEO da detecção de baixa, único para o caminho ao vivo (página aberta) e o do lote (páginas baixadas pelo Alt+U): dado o retrato
+   * anterior do cliente e as listas da tabela de agora (`dados`, a saída do Módulo 1), diz o que sumiu AGORA e o que fica "grudado" no dia.
+   * Título que SAI da cobrança sem ser pago (acordo, CARTEIRA/NÃO COBRAR, "fora do relatório") também some de `registros`; só conta como
+   * sumido o que não está em NENHUMA lista da tabela.
+   * @returns {{titulosAtuais: string[], sumidosAgora: string[], titulosSumidos: string[]}}
+   */
+  function compararComRetrato(anterior, dados, hojeChave) {
+    const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
+    const aindaNaTabela = new Set(
+      [dados.registros, dados.emAcordo, dados.naoCobrar, dados.foraDoRelatorio]
+        .flatMap((lista) => (Array.isArray(lista) ? lista : []))
+        .map((r) => r?.tituloCompleto)
+    );
+    const sumidosAgora =
+      anterior && Array.isArray(anterior.titulos)
+        ? anterior.titulos.filter((t) => !aindaNaTabela.has(t))
+        : [];
+    const sumidosDeHoje =
+      anterior && Array.isArray(anterior.sumidos) && anterior.sumidosEm === hojeChave
+        ? anterior.sumidos
+        : [];
+    const titulosSumidos = [...new Set([...sumidosDeHoje, ...sumidosAgora])].filter((t) => !aindaNaTabela.has(t));
+    return { titulosAtuais, sumidosAgora, titulosSumidos };
+  }
+
+  /** Descarta os retratos de clientes não revisitados há mais de DIAS_EXPIRACAO_SNAPSHOT_TITULOS dias. */
+  function descartarRetratosAntigos(snapshots, agora) {
+    const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
+    const limpos = {};
+    Object.keys(snapshots).forEach((chaveCnpj) => {
+      const entrada = snapshots[chaveCnpj];
+      if (entrada && typeof entrada.salvoEm === 'number' && (agora - entrada.salvoEm) < limiteMs) {
+        limpos[chaveCnpj] = entrada;
+      }
+    });
+    return limpos;
+  }
+
   // Compara com o retrato da visita anterior ANTES de sobrescrevê-lo com o
   // atual (sempre as duas coisas juntas, nessa ordem) e aproveita para
   // descartar entradas antigas.
@@ -508,23 +547,11 @@
       return { houve: deHoje.length > 0, titulos: deHoje };
     }
 
-    const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
-    // Título que SAI da cobrança sem ser pago (acordo, CARTEIRA/NÃO COBRAR,
-    // "fora do relatório") também some de `registros`; agradecer a "baixa"
-    // dele seria errado. Só conta como sumido o que não está em NENHUMA lista
-    // da tabela.
-    const aindaNaTabela = new Set(
-      [dados.registros, dados.emAcordo, dados.naoCobrar, dados.foraDoRelatorio]
-        .flatMap((lista) => (Array.isArray(lista) ? lista : []))
-        .map((r) => r?.tituloCompleto)
-    );
+    // Agradecer a "baixa" de título que só mudou de lista (acordo, NÃO COBRAR...) seria errado: o núcleo só conta o que sumiu de TODAS as listas.
     const snapshots = lerSnapshotsTitulos();
     const anterior = snapshots[cnpj];
-
-    const sumidosAgora =
-      anterior && Array.isArray(anterior.titulos)
-        ? anterior.titulos.filter((t) => !aindaNaTabela.has(t))
-        : [];
+    const hojeChave = chaveData(new Date());
+    const { titulosAtuais, sumidosAgora, titulosSumidos } = compararComRetrato(anterior, dados, hojeChave);
 
     // A comparação é destrutiva (o retrato é sobrescrito a cada carga) e o
     // agradecimento só é montado no Alt+A. Sem persistência, um F5 entre a
@@ -533,7 +560,6 @@
     // precisa de limpeza: ao registrar o contato de hoje, contatoRecente vira
     // null e a linha sai sozinha (ver obterLinhaAgradecimentoPagamento no
     // Módulo 4).
-    const hojeChave = chaveData(new Date());
 
     // Diário (Módulo 8): registra só o que sumiu AGORA, nunca o acumulado do
     // dia. Gravar `titulosSumidos` duplicaria o evento a cada recarga, e o
@@ -541,21 +567,9 @@
     if (sumidosAgora.length > 0 && window.__diario) {
       window.__diario.registrar('baixa', { c: cnpj, tt: sumidosAgora });
     }
-    const sumidosDeHoje =
-      anterior && Array.isArray(anterior.sumidos) && anterior.sumidosEm === hojeChave
-        ? anterior.sumidos
-        : [];
-    const titulosSumidos = [...new Set([...sumidosDeHoje, ...sumidosAgora])].filter((t) => !aindaNaTabela.has(t));
 
     const agora = Date.now();
-    const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
-    const snapshotsLimpos = {};
-    Object.keys(snapshots).forEach((chaveCnpj) => {
-      const entrada = snapshots[chaveCnpj];
-      if (entrada && typeof entrada.salvoEm === 'number' && (agora - entrada.salvoEm) < limiteMs) {
-        snapshotsLimpos[chaveCnpj] = entrada;
-      }
-    });
+    const snapshotsLimpos = descartarRetratosAntigos(snapshots, agora);
     snapshotsLimpos[cnpj] = {
       titulos: titulosAtuais,
       salvoEm: agora,
@@ -566,6 +580,48 @@
     salvarSnapshotsTitulos(snapshotsLimpos);
 
     return { houve: titulosSumidos.length > 0, titulos: titulosSumidos };
+  }
+
+  // Retrato mais velho que isto (em dias) não vira evento do diário: a baixa foi detectada TARDE e o dia do evento não diria quando o cliente
+  // pagou, que é o que o diário usa para medir. O retrato é atualizado e a linha "Recebemos a baixa" continua funcionando.
+  const DIAS_MAXIMOS_RETRATO_PARA_DIARIO = 4;
+
+  /**
+   * Detecção de baixa para as páginas BAIXADAS do Alt+U (Módulo 7, v1.131.1). Antes da v1.131.0 o Alt+U abria a aba de cada cliente e a detecção
+   * rodava ao carregar a página; baixando só o HTML ela deixou de rodar, e a baixa passou a ser vista só em quem o operador abre (dependia do
+   * contato). Esta função faz o MESMO (compararComRetrato) para o lote inteiro: lê os retratos UMA vez, grava UMA vez e registra os eventos de
+   * baixa do diário num lote só, em vez de ~200 leituras e gravações do objeto inteiro.
+   * @param {{cnpj: string, dados: object}[]} itens `dados` é a saída do Módulo 1 (`simularTitulos`) da página baixada do cliente.
+   * @returns {{clientes: number, comBaixa: number, titulosSumidos: number, semRetratoAnterior: number, foraDoDiarioPorRetratoAntigo: number}}
+   *   Só números (vai para o console).
+   */
+  function registrarBaixasDaPaginaBaixada(itens) {
+    const resumo = { clientes: 0, comBaixa: 0, titulosSumidos: 0, semRetratoAnterior: 0, foraDoDiarioPorRetratoAntigo: 0 };
+    if (!Array.isArray(itens) || itens.length === 0) return resumo;
+    const hojeChave = chaveData(new Date());
+    const agora = Date.now();
+    const snapshots = lerSnapshotsTitulos();
+    const eventos = [];
+    itens.forEach((item) => {
+      const cnpj = item?.cnpj;
+      const dados = item?.dados;
+      if (!cnpj || !dados || !Array.isArray(dados.registros)) return;
+      const anterior = snapshots[cnpj];
+      const { titulosAtuais, sumidosAgora, titulosSumidos } = compararComRetrato(anterior, dados, hojeChave);
+      resumo.clientes += 1;
+      if (!anterior) resumo.semRetratoAnterior += 1;
+      if (sumidosAgora.length > 0) {
+        resumo.comBaixa += 1;
+        resumo.titulosSumidos += sumidosAgora.length;
+        const idadeDias = typeof anterior.salvoEm === 'number' ? (agora - anterior.salvoEm) / 86400000 : Infinity;
+        if (idadeDias <= DIAS_MAXIMOS_RETRATO_PARA_DIARIO) eventos.push({ c: cnpj, tt: sumidosAgora });
+        else resumo.foraDoDiarioPorRetratoAntigo += 1;
+      }
+      snapshots[cnpj] = { titulos: titulosAtuais, salvoEm: agora, sumidos: titulosSumidos, sumidosEm: hojeChave };
+    });
+    salvarSnapshotsTitulos(descartarRetratosAntigos(snapshots, agora));
+    if (eventos.length > 0 && window.__diario) window.__diario.registrarLote('baixa', eventos);
+    return resumo;
   }
 
   // true quando há contato registrado e o mais recente é anterior à data de
@@ -863,6 +919,8 @@
     lerSnapshotsTitulos,
     salvarSnapshotsTitulos,
     verificarESalvarSnapshotTitulos,
+    registrarBaixasDaPaginaBaixada,
+    DIAS_MAXIMOS_RETRATO_PARA_DIARIO,
     obterCnpjDaPagina,
     contextoVazio,
     calcularContexto,
