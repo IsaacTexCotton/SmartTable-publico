@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte do Plano de Regularização (CRM ↔ painel local)
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.0
+// @version      0.1.1
 // @description  Liga o painel local "CRM Diário" ao CRM: o painel pede, esta ponte aciona o SmartTable na aba do CRM e devolve o andamento e o plano ao painel. Só lê.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        file:///*
@@ -26,7 +26,9 @@
  *   - A aba do CRM avisa que está viva (batimento) para o painel mostrar "CRM conectado".
  *   - Se várias abas do CRM receberem o pedido, só UMA executa (disputa com confirmação).
  *   - O plano contém nomes e valores de clientes: fica no armazenamento só enquanto trafega e é apagado assim
- *     que o painel o recebe. Nada é gravado no CRM.
+ *     que o painel o recebe. Pedido que o painel já abandonou não é executado nem tem o plano publicado, e um
+ *     resultado que ninguém recebeu (painel fechado) é apagado pela aba do CRM depois de RESULTADO_VALE_MS.
+ *     Nada é gravado no CRM.
  *   - Na janela do painel só age se for mesmo o "CRM Diário" (tem window.CRMBridge e o título certo).
  *
  * REQUISITO: para o Tampermonkey rodar em arquivo local, ligar "Permitir acesso a URLs de arquivo" nas
@@ -50,6 +52,7 @@
     DISPUTA_MS: 250,
     PEDIDO_VALE_MS: 2 * 60 * 1000,
     SEM_CRM_MS: 8000,
+    RESULTADO_VALE_MS: 60 * 1000,
   });
 
   /**
@@ -73,6 +76,13 @@
       const timer = setInterval(bater, cfg.BATIMENTO_MS);
 
       const publicar = (pedidoId, evento) => { seq += 1; GM.set(KEY_ESTADO, { pedidoId, seq, aba: idAba, evento }); };
+      // O painel desiste zerando o pedido (sem resposta a tempo): pedido que não é mais o gravado não vale.
+      const vigente = (pedidoId) => GM.get(KEY_PEDIDO, null)?.id === pedidoId;
+      // Resultado ou erro que o painel não recolheu (fechado no meio) não fica no armazenamento: tem dado de cliente.
+      const apagarSeNinguemRecebeu = (pedidoId) => setTimeout(() => {
+        const atual = GM.get(KEY_ESTADO, null);
+        if (atual?.pedidoId === pedidoId && atual.aba === idAba) GM.set(KEY_ESTADO, null);
+      }, cfg.RESULTADO_VALE_MS);
 
       const executar = async (pedido) => {
         if (!pagina.__planoCarteira || !pagina.__planoRegularizacao) {
@@ -81,9 +91,12 @@
         }
         try {
           const pacote = await pagina.__planoCarteira.coletar({ onEvento: (e) => publicar(pedido.id, e) });
+          if (!vigente(pedido.id)) return;
           publicar(pedido.id, { tipo: 'resultado', pacote });
+          apagarSeNinguemRecebeu(pedido.id);
         } catch (erro) {
           publicar(pedido.id, { tipo: 'erro', mensagem: String(erro?.message || erro).slice(0, 200) });
+          apagarSeNinguemRecebeu(pedido.id);
         } finally {
           if (GM.get(KEY_PEDIDO, null)?.id === pedido.id) GM.set(KEY_PEDIDO, null);
         }
@@ -96,7 +109,7 @@
         GM.set(KEY_DISPUTA, { pedidoId: novo.id, aba: idAba, em: agora() });
         setTimeout(() => {
           const d = GM.get(KEY_DISPUTA, null);
-          if (d?.pedidoId === novo.id && d.aba === idAba) executar(novo);
+          if (d?.pedidoId === novo.id && d.aba === idAba && vigente(novo.id)) executar(novo);
         }, cfg.DISPUTA_MS);
       });
       return () => clearInterval(timer);

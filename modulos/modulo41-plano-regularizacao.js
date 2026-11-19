@@ -188,6 +188,12 @@
     return 'DIRETO';
   }
 
+  // ---------------------------------------------------------------- ordem do cronograma
+  // A MESMA ordem no cronograma de uma empresa e no mesclado do grupo: data, tipo do evento, maior valor, título.
+  const ORDEM_TIPO = Object.freeze({ VENCIMENTO: 0, LIMITE_ANTES_DO_CARTORIO: 1, LIMITE_ANTES_DA_NEGATIVACAO: 1, ULTIMO_DIA_SEM_SUSPENSAO: 2 });
+  const compararEventos = (a, b) => a.data.localeCompare(b.data) || ORDEM_TIPO[a.tipo] - ORDEM_TIPO[b.tipo]
+    || b.valorNaData - a.valorNaData || a.tituloId.localeCompare(b.tituloId);
+
   // ---------------------------------------------------------------- plano de um cliente (uma empresa)
   /**
    * @param {{titulos: object[], scpc?: string|null, tituloEmAcordo?: Function, tituloForaDoRelatorio?: Function}} fonte
@@ -216,11 +222,14 @@
       if (!vencimento) return ignorados.push({ ordem, motivo: 'vencimento ilegível' });
       if (typeof principal !== 'number' || !Number.isFinite(principal) || principal < 0) return ignorados.push({ ordem, motivo: 'valor ilegível' });
 
-      const id = `${t.numeroTitulo ?? ''}/${t.sequencia ?? ''}`;
+      // "numero/sequencia", o mesmo texto que o Módulo 1 passa aos predicados (registro.tituloCompleto): os reais
+      // (Módulo 16 acordosDaPaginaBaixada, Módulo 12 predicadoForaDoRelatorio) leem TEXTO, não o objeto do título.
+      const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
+      const id = `${texto(t.numeroTitulo)}/${texto(t.sequencia)}`;
       const posicao = normalizar(t.posicaoDescricao);
       const motivoFora = POSICOES_FORA.find((p) => posicao.includes(p))
-        || (typeof fonte.tituloEmAcordo === 'function' && fonte.tituloEmAcordo(t) ? 'ACORDO' : null)
-        || (typeof fonte.tituloForaDoRelatorio === 'function' && fonte.tituloForaDoRelatorio(t) ? 'FORA_DO_RELATORIO' : null);
+        || (typeof fonte.tituloEmAcordo === 'function' && fonte.tituloEmAcordo(id) ? 'ACORDO' : null)
+        || (typeof fonte.tituloForaDoRelatorio === 'function' && fonte.tituloForaDoRelatorio(id) ? 'FORA_DO_RELATORIO' : null);
       if (motivoFora) return foraDoPlano.push({ id, motivo: motivoFora });
 
       const marcos = marcosDoTitulo(vencimento, cal);
@@ -260,8 +269,7 @@
     if (titulos.some((t) => t.fase === FASES.SUSPENSO)) alertas.push({ codigo: 'CADASTRO_SUSPENSO', texto: 'Há título além do 20º dia no SCPC: cadastro suspenso, caso do analista.' });
     if (ignorados.length) alertas.push({ codigo: 'TITULOS_IGNORADOS', texto: `${ignorados.length} título(s) com dado ilegível ficaram fora do plano.` });
 
-    const ordemTipo = { VENCIMENTO: 0, LIMITE_ANTES_DO_CARTORIO: 1, LIMITE_ANTES_DA_NEGATIVACAO: 1, ULTIMO_DIA_SEM_SUSPENSAO: 2 };
-    cronograma.sort((a, b) => a.data.localeCompare(b.data) || ordemTipo[a.tipo] - ordemTipo[b.tipo] || b.valorNaData - a.valorNaData || a.tituloId.localeCompare(b.tituloId));
+    cronograma.sort(compararEventos);
 
     const vencidos = titulos.filter((t) => t.diasAtraso >= 1);
     const soma = (lista, campo) => reais(lista.reduce((s, t) => s + centavos(t[campo]), 0));
@@ -298,7 +306,7 @@
     const planos = empresas.map(({ id, fonte }) => ({ id, plano: planejarEmpresa(fonte, hoje) }));
     const cronograma = planos
       .flatMap(({ id, plano }) => plano.cronograma.map((e) => ({ ...e, empresaId: id })))
-      .sort((a, b) => a.data.localeCompare(b.data) || b.valorNaData - a.valorNaData || a.tituloId.localeCompare(b.tituloId));
+      .sort((a, b) => compararEventos(a, b) || String(a.empresaId).localeCompare(String(b.empresaId)));
     const somar = (campo) => reais(planos.reduce((s, { plano }) => s + centavos(plano.resumo[campo]), 0));
     return {
       empresas: planos,

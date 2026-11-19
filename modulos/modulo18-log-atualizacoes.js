@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.130.2', data: '19/11/2026',
+      mudancas: [
+        'Plano de regularização: título em acordo (Negociações) e título em cartório marcado "fora do relatório" no painel Alerta agora ficam fora do plano, como no relatório. Antes entravam com multa e juros, porque a pergunta era feita com o formato errado do título.',
+        'Plano de regularização: empresa que aparece duas vezes na lista de clientes é lida e somada uma vez só (antes os totais do grupo dobravam).',
+        'Plano de regularização: no cronograma do grupo, eventos da mesma data seguem a mesma ordem do cronograma de cada empresa (vencimento antes do último dia antes do cartório).',
+        'Leitura de dados da página: o nome de uma variável não é mais confundido com o final de outra mais longa (ex.: CLIENTES dentro de FILTRO_CLIENTES).'
+      ],
+    },
+    {
       versao: '1.130.1', data: '18/11/2026',
       mudancas: [
         'Plano de regularização: título com posição PROTESTO agora entra na fase "protestado" (pagamento direto, custas de cartório a confirmar, sem data-limite), igual ao que já valia para a posição CARTORIO.',

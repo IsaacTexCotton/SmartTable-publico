@@ -456,7 +456,8 @@
    * @returns {*} o valor (JSON.parse) ou undefined se não achou
    */
   function lerVariavelDoScript(doc, nome) {
-    const padrao = new RegExp(`${nome.replace(/[$]/g, '\\$')}\\s*=\\s*[\\[{]`);
+    // Fronteira antes do nome: 'CLIENTES' não pode casar o fim de 'FILTRO_CLIENTES = {' (devolveria o objeto errado).
+    const padrao = new RegExp(`(?<![\\w$])${nome.replace(/[$]/g, '\\$')}\\s*=\\s*[\\[{]`);
     for (const script of doc.querySelectorAll('script:not([src])')) {
       const t = script.textContent || '';
       const i = t.search(padrao);

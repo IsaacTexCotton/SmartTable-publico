@@ -125,8 +125,16 @@
       etapa('lista', 'erro', `Não consegui ler a lista de clientes (${erro.message})`);
       throw erro;
     }
-    const clientes = lista.clientes.filter((c) => c && c.cnpj && c.controleCliente != null);
-    const descartados = lista.clientes.length - clientes.length;
+    const validos = lista.clientes.filter((c) => c && c.cnpj && c.controleCliente != null);
+    const descartados = lista.clientes.length - validos.length;
+    // Um CNPJ, uma empresa: linha repetida na lista seria baixada de novo e somada duas vezes no grupo.
+    const vistos = new Set();
+    const clientes = validos.filter((c) => {
+      const chave = String(c.cnpj).replace(/\D/g, '') || String(c.cnpj);
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
     etapa('lista', 'ok', `${clientes.length} empresas com dívida na lista (${lista.origem})${descartados ? `, ${descartados} sem CNPJ ou controle foram ignoradas` : ''}`);
 
     // 2. Títulos
