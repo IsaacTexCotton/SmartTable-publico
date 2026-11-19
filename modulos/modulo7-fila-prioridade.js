@@ -1900,7 +1900,28 @@
   function filtrosAtivosNaListaAtual() {
     const detectar = window.__smartTableUtil?.filtrosAtivosNaListaDeClientes;
     if (typeof detectar !== 'function') return ['não deu pra conferir os filtros (atualize o SmartTable)'];
-    return detectar(window.CLIENTES, { pessoas: window.__carteira?.CONFIG_CARTEIRA?.PESSOAS });
+    return detectar(window.CLIENTES, { pessoas: pessoasDaListaCompleta() });
+  }
+
+  /**
+   * Primeiros nomes cuja lista (`?negociador=`) vale como lista COMPLETA: a carteira configurada (PESSOAS) MAIS quem está logado.
+   * v1.131.2: antes só valia a carteira (fixa em 'isaac'), e a lista própria de qualquer outro login era tratada como "filtrada":
+   * o Alt+U não gravava o cache do dia e o Alt+S registrava a anotação sem "Prioridade:". Lista de OUTRA pessoa segue como filtro.
+   * Usuário logado não lido (Módulo 6 ausente ou sem o botão do usuário) = só a carteira, como antes (falha fechada).
+   * @returns {string[]}
+   */
+  function pessoasDaListaCompleta() {
+    const base = window.__carteira?.CONFIG_CARTEIRA?.PESSOAS;
+    const pessoas = Array.isArray(base) ? [...base] : [];
+    let nome = '';
+    try {
+      const logado = window.__contextoAdicionalDebug?.lerUsuarioLogado?.();
+      nome = logado ? window.__smartTableUtil?.primeiroNomeDeUsuario?.(logado) ?? '' : '';
+    } catch (erro) {
+      nome = '';
+    }
+    if (nome && !pessoas.includes(nome)) pessoas.push(nome);
+    return pessoas;
   }
 
   /**
@@ -2084,6 +2105,7 @@
     ehFilaDePrioridade,
     usarFilaAtualComoReferencia,
     filtrosAtivosNaListaAtual,
+    pessoasDaListaCompleta,
     classificarAPartirDaAba,
     montarAbaVirtual,
     classificarPelaPaginaBaixada,

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.131.2', data: '19/11/2026',
+      mudancas: [
+        'Alt+U: quem entra no CRM com outro login (que não o da carteira configurada) tinha a PRÓPRIA lista tratada como "filtrada". A fila saía só com os clientes dessa lista, o cache do dia, o progresso e o diário não eram gravados e o Alt+S registrava a anotação sem "Prioridade:". Agora a lista do usuário logado vale como lista completa. A lista de OUTRA pessoa segue como filtro.'
+      ],
+    },
+    {
       versao: '1.131.1', data: '19/11/2026',
       mudancas: [
         'Alt+U: o diário voltou a registrar a baixa (título que sumiu da lista) de TODOS os clientes da fila. Na v1.131.0, ao baixar só a página do cliente, só a baixa de quem você abria era vista, o que distorcia as taxas de baixa do diário.',

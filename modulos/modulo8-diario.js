@@ -1209,7 +1209,8 @@
       const atendidos = window.filaDebug?.obterAtendidosHoje?.() ?? new Set();
       const foraDaLista = clientes.filter((c) => !naLista.has(c.cnpj));
       const pendentes = foraDaLista.filter((c) => !atendidos.has(c.cnpj));
-      const filtros = window.__smartTableUtil?.filtrosAtivosNaListaDeClientes?.(lista) ?? null;
+      const pessoas = window.filaPrioridadeDebug?.pessoasDaListaCompleta?.();
+      const filtros = window.__smartTableUtil?.filtrosAtivosNaListaDeClientes?.(lista, pessoas ? { pessoas } : undefined) ?? null;
       return {
         versao_diagnostico: 1,
         lista_disponivel: true,
