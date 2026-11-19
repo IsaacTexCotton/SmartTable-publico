@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.131.3', data: '19/11/2026',
+      mudancas: [
+        'O console e o aviso de carregamento deixam de apontar um módulo "faltando" que não existe mais (Menu Novo): a contagem agora fecha (por exemplo 40 de 40).',
+        'Plano de regularização: a mensagem "SmartTable desatualizado" (no painel local e na ponte) agora pede a versão certa, 1.128.0 ou mais nova (dizia 1.127.0, que ainda não tem o coletor).'
+      ],
+    },
+    {
       versao: '1.131.2', data: '19/11/2026',
       mudancas: [
         'Alt+U: quem entra no CRM com outro login (que não o da carteira configurada) tinha a PRÓPRIA lista tratada como "filtrada". A fila saía só com os clientes dessa lista, o cache do dia, o progresso e o diário não eram gravados e o Alt+S registrava a anotação sem "Prioridade:". Agora a lista do usuário logado vale como lista completa. A lista de OUTRA pessoa segue como filtro.'

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte do Plano de Regularização (CRM ↔ painel local)
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.1
+// @version      0.1.2
 // @description  Liga o painel local "CRM Diário" ao CRM: o painel pede, esta ponte aciona o SmartTable na aba do CRM e devolve o andamento e o plano ao painel. Só lê.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        file:///*
@@ -86,7 +86,7 @@
 
       const executar = async (pedido) => {
         if (!pagina.__planoCarteira || !pagina.__planoRegularizacao) {
-          publicar(pedido.id, { tipo: 'erro', mensagem: 'O SmartTable desta aba não tem o plano de regularização (atualize o SmartTable para a versão 1.127.0 ou mais nova).' });
+          publicar(pedido.id, { tipo: 'erro', mensagem: 'O SmartTable desta aba não tem o plano de regularização (atualize o SmartTable para a versão 1.128.0 ou mais nova).' });
           return;
         }
         try {

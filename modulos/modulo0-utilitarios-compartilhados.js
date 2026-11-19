@@ -691,7 +691,6 @@
     'Nome Padronizado do Contato',
     'Guia de Implementações',
     'Ponte CRM → Systextil',
-    'Menu Novo',
     'Plano de Regularização',
     'Plano da Carteira',
   ]);
