@@ -16,10 +16,11 @@
  *   - Prazo do dia 6: vencimento + 6 dias corridos; se cair em dia não útil, vai para o próximo dia
  *     útil. Esse é o ÚLTIMO DIA para pagar direto à TexCotton antes do encaminhamento. Mesma conta do
  *     `calcularPrazos` do Módulo 1.
- *   - CARTÓRIO: depois do prazo, o título é encaminhado e, durante a intimação, só se paga pelo
- *     cartório (mais custas, valor DESCONHECIDO: o plano nunca inventa um número). Depois do protesto
- *     (posição CARTORIO no CRM) e ainda em aberto, paga-se direto à TexCotton, SEM data-limite. O
- *     prazo da intimação não existe no CRM: o plano nunca inventa uma data para ele.
+ *   - CARTÓRIO: depois do prazo, o título é encaminhado e, no cartório (posição CARTORIO no CRM, ou a
+ *     intimação presumida quando o CRM ainda não marcou), só se paga pelo cartório (mais custas, valor
+ *     DESCONHECIDO: o plano nunca inventa um número). Só com a posição PROTESTO o título está PROTESTADO:
+ *     ainda em aberto, paga-se direto à TexCotton, SEM data-limite. O prazo da intimação não existe no
+ *     CRM: o plano nunca inventa uma data para ele.
  *   - SCPC: o pagamento direto é sempre permitido. Último dia sem suspensão = vencimento + 20 dias
  *     corridos, prorrogado para o próximo dia útil se cair em dia não útil (o usuário: "pode deixar
  *     como 20º"). Depois disso o cadastro é suspenso e o caso é do analista: o título sai do escopo.
@@ -162,6 +163,7 @@
   const FASES = Object.freeze({
     A_VENCER: 'A_VENCER',
     PRAZO_DIRETO: 'PRAZO_DIRETO',
+    EM_CARTORIO: 'EM_CARTORIO',
     INTIMACAO: 'INTIMACAO',
     PROTESTADO: 'PROTESTADO',
     SEM_PROTESTO: 'SEM_PROTESTO',
@@ -174,16 +176,19 @@
     if (hoje <= marcos.limiteDireto) return FASES.PRAZO_DIRETO;
     if (fluxo === 'SCPC') return hoje > marcos.ultimoDiaSemSuspensao ? FASES.SUSPENSO : FASES.NEGATIVADO;
     if (posicao.includes('NAO PROTESTAR')) return FASES.SEM_PROTESTO;
-    if (posicao.includes('CARTORIO')) return FASES.PROTESTADO;
-    // Posição PROTESTO = protestado (decisão do usuário, 18/11/2026; valor confirmado por diagnóstico censurado).
-    // Palavra inteira: "NAO PROTESTAR" já saiu acima.
+    // Posição PROTESTO = PROTESTADO (decisão do usuário, 18/11/2026; valor confirmado por diagnóstico censurado). Palavra inteira: "NAO PROTESTAR"
+    // já saiu acima. Vem ANTES do cartório: o protesto é o estado seguinte.
     if (/(^|[^A-Z])PROTESTO([^A-Z]|$)/.test(posicao)) return FASES.PROTESTADO;
+    // Posição CARTORIO = EM CARTORIO, NÃO protestado (correção do usuário, 23/11/2026: "títulos com a posição cartório estão em cartório; só com a
+    // posição protesto ele está protestado"). Antes caía em PROTESTADO, o que mostrava "pagar direto, sem prazo" para título que está no cartório.
+    if (posicao.includes('CARTORIO')) return FASES.EM_CARTORIO;
+    // Passou do prazo do dia 6 e o CRM ainda não marcou cartório nem protesto: o plano ASSUME a intimação (sem confirmação do CRM).
     return FASES.INTIMACAO;
   }
 
   /** Por onde o título pode ser pago HOJE. */
   function canalDaFase(fase) {
-    if (fase === FASES.INTIMACAO) return 'CARTORIO';
+    if (fase === FASES.INTIMACAO || fase === FASES.EM_CARTORIO) return 'CARTORIO';
     if (fase === FASES.SUSPENSO) return 'ANALISTA';
     return 'DIRETO';
   }
@@ -237,7 +242,7 @@
       const fase = faseDoTitulo({ fluxo, posicao, hoje: dia, marcos });
       const canal = canalDaFase(fase);
       const enc = calcularEncargos(principal, atraso);
-      const custasAConfirmar = fase === FASES.INTIMACAO || fase === FASES.PROTESTADO;
+      const custasAConfirmar = fase === FASES.INTIMACAO || fase === FASES.EM_CARTORIO || fase === FASES.PROTESTADO;
       const titulo = {
         id, fluxo, fase, canal, vencimento: paraIso(vencimento), diasAtraso: Math.max(0, atraso),
         principal: enc.principal, multa: enc.multa, juros: enc.juros, valorHoje: enc.total,
@@ -260,7 +265,7 @@
         evento(marcos.limiteDireto, fluxo === 'SCPC' ? 'LIMITE_ANTES_DA_NEGATIVACAO' : 'LIMITE_ANTES_DO_CARTORIO', 'DIRETO');
       }
       if (fluxo === 'SCPC' && fase !== FASES.SUSPENSO) evento(marcos.ultimoDiaSemSuspensao, 'ULTIMO_DIA_SEM_SUSPENSAO', 'DIRETO');
-      if (fase === FASES.INTIMACAO) semData.push({ id, motivo: 'AGUARDANDO_CARTORIO' });
+      if (fase === FASES.INTIMACAO || fase === FASES.EM_CARTORIO) semData.push({ id, motivo: 'AGUARDANDO_CARTORIO' });
       if (fase === FASES.PROTESTADO || fase === FASES.SEM_PROTESTO) semData.push({ id, motivo: 'SEM_PRAZO' });
       if (fase === FASES.SUSPENSO) semData.push({ id, motivo: 'FORA_DO_ESCOPO_ANALISTA' });
     });

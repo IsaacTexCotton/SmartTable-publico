@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.132.1', data: '23/11/2026',
+      mudancas: [
+        'Plano de regularização: título com a posição "Cartório" aparece como "Em cartório: pagar pelo cartório" (com custas a confirmar e sem data-limite). Antes aparecia como "Protestado". Só a posição "Protesto" é "Protestado: pagar direto, sem prazo".'
+      ],
+    },
+    {
       versao: '1.132.0', data: '19/11/2026',
       mudancas: [
         'Novo botão "Plano" na tela do cliente, ao lado do Alerta, e atalho Shift+Alt+P: abre o plano de regularização do grupo de empresas do cliente (situação de cada título, valor devido hoje com multa de 2% e juros de 3% ao mês, e o cronograma de datas-limite) numa janela no mesmo padrão visual do CRM (a do "Registrar Contato": fundo escurecido, cabeçalho com ícone e X, rodapé cinza com Atualizar e Fechar, clique fora fecha, Esc fecha), com a tabela e os chips dos títulos no estilo da tabela de títulos do CRM. A próxima data-limite do grupo aparece em destaque no topo, com o valor a pagar nesse dia. Só lê; nada é gravado no CRM. O plano é montado só ao abrir, a partir da página do cliente e das outras empresas da mesma raiz de CNPJ. Com o plano aberto, os outros atalhos Alt ficam parados atrás dele.',

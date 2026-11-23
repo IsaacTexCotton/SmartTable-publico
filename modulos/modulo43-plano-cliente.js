@@ -111,11 +111,11 @@
     tdConteudo: 'st-td-content',
   });
   // Variante do `pbi-badge` por fase do título (as do CSS real do CRM): azul = a vencer, amarelo = no prazo de pagamento direto, vermelho = situação que pede atenção do analista.
-  const CHIP_DA_FASE = { A_VENCER: 'info', PRAZO_DIRETO: 'aviso', SEM_PROTESTO: 'neutro', INTIMACAO: 'perigo', PROTESTADO: 'perigo', NEGATIVADO: 'perigo', SUSPENSO: 'perigo' };
+  const CHIP_DA_FASE = { A_VENCER: 'info', PRAZO_DIRETO: 'aviso', SEM_PROTESTO: 'neutro', EM_CARTORIO: 'perigo', INTIMACAO: 'perigo', PROTESTADO: 'perigo', NEGATIVADO: 'perigo', SUSPENSO: 'perigo' };
 
   // Rótulos de tela (os códigos vêm do Módulo 41).
   const FASES = {
-    A_VENCER: 'A vencer', PRAZO_DIRETO: 'No prazo de pagamento direto', INTIMACAO: 'Em intimação: só pelo cartório', PROTESTADO: 'Protestado: pagar direto, sem prazo',
+    A_VENCER: 'A vencer', PRAZO_DIRETO: 'No prazo de pagamento direto', EM_CARTORIO: 'Em cartório: pagar pelo cartório', INTIMACAO: 'Em intimação: só pelo cartório', PROTESTADO: 'Protestado: pagar direto, sem prazo',
     SEM_PROTESTO: 'Não protestar: pagar direto', NEGATIVADO: 'Negativado: pagar direto', SUSPENSO: 'Cadastro suspenso: caso do analista',
   };
   const CANAIS = { DIRETO: 'Direto à TexCotton', CARTORIO: 'Pelo cartório (+ custas)', ANALISTA: 'Analista' };
