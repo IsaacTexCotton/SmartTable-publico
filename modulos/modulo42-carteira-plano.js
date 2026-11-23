@@ -1,22 +1,22 @@
 /* =========================================================================
  * MÓDULO 42: PLANO DA CARTEIRA (COLETOR) — CRM TexCotton
  * -------------------------------------------------------------------------
- * Pedido do usuário (18/11/2026): o painel local "CRM Diário" deve fazer o plano de regularização
- * SOZINHO e mostrar o processo. O painel não alcança o CRM (arquivo local, sem rede); quem alcança é
- * esta página. Este módulo faz o trabalho dentro do CRM e devolve (a) o andamento, etapa por etapa, e
- * (b) o plano pronto. A ponte entre as duas janelas é o userscript
- * `integracoes/plano-regularizacao-ponte.user.js`.
+ * Lê no CRM o que o Módulo 41 precisa para montar o plano de regularização e devolve o plano pronto, informando
+ * cada etapa. Quem mostra o plano na tela do cliente é o Módulo 43; este módulo só coleta e calcula.
  *
- * O que faz, em ordem (cada passo vira um evento de andamento):
+ * Duas entradas (cada passo vira um evento de andamento):
+ *   - coletarGrupoDoCliente: a empresa da página aberta e as outras empresas da MESMA RAIZ DE CNPJ (matriz e
+ *     filial contam como um cliente; o `grupoCliente` não serve, só bate em 72 de 161 linhas). Usada pelo Módulo 43.
+ *   - coletar: a carteira inteira, grupo por grupo (sem tela hoje; ficou da v1.128.0 e segue testada).
+ *
+ * Em ambas:
  *   1. LISTA: lê `window.CLIENTES` (na lista de clientes) ou baixa `/crm/clientes` e lê o `var CLIENTES`
  *      embutido (fato confirmado na Busca Rápida, 30/09/2026);
- *   2. TÍTULOS: baixa a página de cada cliente (4 por vez, `credentials: same-origin`, 15 s de limite
+ *   2. TÍTULOS: baixa a página de cada empresa (4 por vez, `credentials: same-origin`, 15 s de limite
  *      cada) e lê `__TITULOS_ABERTOS__` e o parágrafo "SCPC:", como a Fila do Módulo 7;
- *   3. REGRAS: agrupa as empresas pela RAIZ DO CNPJ (matriz e filial contam como um cliente; o
- *      `grupoCliente` não serve, só bate em 72 de 161 linhas) e aplica o Módulo 41 em cada grupo;
- *   4. PLANO: ordena os grupos pelo marco mais próximo e devolve o pacote.
+ *   3. REGRAS: aplica o Módulo 41 em cada grupo.
  *
- * Nunca classifica com dado pela metade: o cliente cuja página falha entra em `falhas` (com CNPJ e
+ * Nunca classifica com dado pela metade: a empresa cuja página falha entra em `falhas` (com CNPJ e
  * motivo), não some. Só LÊ: nada é gravado no CRM. Nada de nome ou valor vai para o console.
  *
  * Carga: depois dos Módulos 1, 12, 16 e 41. Expõe window.__planoCarteira.
@@ -69,7 +69,8 @@
 
   /** Títulos, SCPC e os predicados (acordo, fora do relatório) de UMA empresa. Lança se faltar a fonte principal. */
   async function lerEmpresa(cliente, buscar) {
-    const url = window.__smartTableUtil.montarUrlCliente(cliente.controleCliente, cliente.cnpj);
+    // `urlPronta`: a página aberta (a empresa pode nem estar na lista, que só tem quem deve).
+    const url = cliente.urlPronta ?? window.__smartTableUtil.montarUrlCliente(cliente.controleCliente, cliente.cnpj);
     const doc = lerHtml(await baixarTexto(url, buscar));
     const titulos = window.__smartTableUtil.lerVariavelDoScript(doc, '__TITULOS_ABERTOS__');
     if (!Array.isArray(titulos)) throw new Error('página sem os títulos');
@@ -208,5 +209,95 @@
     return pacote;
   }
 
-  window.__planoCarteira = { CONFIG, coletar, lerScpcDaPagina, raizCnpj };
+  const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
+
+  /**
+   * O plano do GRUPO do cliente da página aberta: as empresas da mesma raiz de CNPJ (da lista de clientes) mais a
+   * própria página, que entra sempre (a lista só tem quem deve). Lança se não achar o CNPJ, se a lista não vier ou
+   * se a página aberta não puder ser lida (plano do grupo sem a empresa da tela seria dado pela metade); outra
+   * empresa do grupo que falhar vai para `falhas` e fica de fora, dito na tela.
+   * @param {{cnpj?: string, url?: string, onEvento?: Function, sinal?: {aborted: boolean}, hoje?: Date, buscar?: Function}} [opcoes]
+   *   `cnpj`/`url`: da página (padrão: o `?cnpj=` e o endereço atuais). Eventos como em `coletar`.
+   * @returns {Promise<object>} { versao, geradoEm, hoje, grupo, falhas }; `grupo.vazio` = nada a planejar.
+   */
+  async function coletarGrupoDoCliente(opcoes = {}) {
+    const { onEvento = () => {}, sinal = { aborted: false }, buscar = (...a) => window.fetch(...a) } = opcoes;
+    const util = window.__smartTableUtil;
+    const plano = window.__planoRegularizacao;
+    if (!plano) throw new Error('Módulo 41 (regras do plano) não carregado.');
+    const cnpjCru = String(opcoes.cnpj ?? new URLSearchParams(window.location.search).get('cnpj') ?? '').trim();
+    const cnpjAtual = soDigitos(cnpjCru);
+    if (cnpjAtual.length < 8) throw new Error('Não achei o CNPJ deste cliente na página.');
+    const hoje = util.normalizarData(opcoes.hoje ?? new Date());
+    const etapa = (id, estado, texto) => onEvento({ tipo: 'etapa', id, estado, texto });
+    const cancelado = () => sinal.aborted === true;
+
+    // 1. Lista
+    etapa('lista', 'andamento', 'Lendo a lista de clientes do CRM');
+    let lista;
+    try {
+      lista = await lerListaDeClientes(buscar);
+    } catch (erro) {
+      etapa('lista', 'erro', `Não consegui ler a lista de clientes (${erro.message})`);
+      throw new Error(`Não consegui ler a lista de clientes para achar as outras empresas do grupo (${erro.message}).`);
+    }
+    const raiz = cnpjAtual.slice(0, 8);
+    const vistos = new Set();
+    const doGrupo = lista.clientes.filter((c) => c && c.cnpj && c.controleCliente != null && raizCnpj(c.cnpj) === raiz)
+      .filter((c) => { const k = soDigitos(c.cnpj); if (vistos.has(k)) return false; vistos.add(k); return true; });
+    // A página aberta primeiro e sempre, com o endereço em que o operador está.
+    const daLista = doGrupo.find((c) => soDigitos(c.cnpj) === cnpjAtual);
+    const atual = { ...(daLista ?? { cnpj: cnpjCru, razaoSocial: '' }), urlPronta: opcoes.url ?? window.location.href };
+    const empresas = [atual, ...doGrupo.filter((c) => c !== daLista)];
+    etapa('lista', 'ok', `${empresas.length} empresa(s) neste grupo`);
+
+    // 2. Títulos
+    etapa('titulos', 'andamento', 'Lendo os títulos de cada empresa do grupo');
+    const lidas = new Map();
+    const falhas = [];
+    let feito = 0;
+    await emParalelo(empresas, CONFIG.SIMULTANEAS, async (empresa) => {
+      try {
+        lidas.set(empresa.cnpj, await lerEmpresa(empresa, buscar));
+      } catch (erro) {
+        falhas.push({ cnpj: empresa.cnpj, motivo: String(erro?.message || erro).slice(0, 80) });
+      }
+      feito += 1;
+      onEvento({ tipo: 'progresso', feito, total: empresas.length, falhas: falhas.length });
+    }, cancelado);
+    if (cancelado()) throw new Error('cancelado');
+    const falhaDaAtual = falhas.find((f) => f.cnpj === atual.cnpj);
+    if (falhaDaAtual) {
+      etapa('titulos', 'erro', `Não consegui ler esta empresa (${falhaDaAtual.motivo})`);
+      throw new Error(`Não consegui ler os títulos desta empresa (${falhaDaAtual.motivo}).`);
+    }
+    const totalTitulos = [...lidas.values()].reduce((soma, e) => soma + e.titulos.length, 0);
+    etapa('titulos', falhas.length ? 'erro' : 'ok', `${totalTitulos} títulos em ${lidas.size} empresa(s)${falhas.length ? `; ${falhas.length} do grupo não puderam ser lidas e ficam de fora` : ''}`);
+
+    // 3. Regras
+    etapa('regras', 'andamento', 'Aplicando as regras de cartório, SCPC, prazo do dia 6, juros e multa');
+    const lidasEmOrdem = empresas.filter((c) => lidas.has(c.cnpj));
+    const g = plano.planejarGrupo(lidasEmOrdem.map((c) => ({ id: c.cnpj, fonte: lidas.get(c.cnpj) })), hoje);
+    const nomes = new Map(lidasEmOrdem.map((c) => [c.cnpj, String(c.razaoSocial ?? '').slice(0, 80)]));
+    const vazio = g.empresas.every(({ plano: p }) => p.titulos.length === 0 && p.foraDoPlano.length === 0 && p.ignorados.length === 0);
+    const nomeDoGrupo = nomes.get(atual.cnpj) || [...nomes.values()].find(Boolean) || '';
+    etapa('regras', 'ok', vazio ? 'Nada a planejar neste grupo' : 'Plano pronto');
+    const dia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+    return {
+      versao: CONFIG.VERSAO_PACOTE,
+      geradoEm: new Date().toISOString(),
+      hoje: dia,
+      grupo: {
+        grupoId: raiz,
+        nome: nomeDoGrupo,
+        vazio,
+        empresas: g.empresas.map(({ id, plano: p }) => ({ cnpj: id, nome: nomes.get(id), ...p })),
+        cronograma: g.cronograma,
+        resumo: g.resumo,
+      },
+      falhas,
+    };
+  }
+
+  window.__planoCarteira = { CONFIG, coletar, coletarGrupoDoCliente, lerScpcDaPagina, raizCnpj };
 })();

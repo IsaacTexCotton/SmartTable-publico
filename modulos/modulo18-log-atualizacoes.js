@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.132.0', data: '19/11/2026',
+      mudancas: [
+        'Novo botão "Plano" na tela do cliente, ao lado do Alerta, e atalho Shift+Alt+P: abre o plano de regularização do grupo de empresas do cliente (situação de cada título, valor devido hoje com multa de 2% e juros de 3% ao mês, e o cronograma de datas-limite) numa janela no mesmo padrão visual do CRM (a do "Registrar Contato": fundo escurecido, cabeçalho com ícone e X, rodapé cinza com Atualizar e Fechar, clique fora fecha, Esc fecha), com a tabela e os chips dos títulos no estilo da tabela de títulos do CRM. A próxima data-limite do grupo aparece em destaque no topo, com o valor a pagar nesse dia. Só lê; nada é gravado no CRM. O plano é montado só ao abrir, a partir da página do cliente e das outras empresas da mesma raiz de CNPJ. Com o plano aberto, os outros atalhos Alt ficam parados atrás dele.',
+        'O painel local "CRM Diário" e a ponte do plano de regularização saíram: o plano passa a existir só dentro do CRM. Se você instalou a ponte no Tampermonkey, pode desinstalá-la.'
+      ],
+    },
+    {
       versao: '1.131.3', data: '19/11/2026',
       mudancas: [
         'O console e o aviso de carregamento deixam de apontar um módulo "faltando" que não existe mais (Menu Novo): a contagem agora fecha (por exemplo 40 de 40).',

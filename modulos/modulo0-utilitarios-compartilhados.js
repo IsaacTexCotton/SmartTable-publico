@@ -693,6 +693,7 @@
     'Ponte CRM → Systextil',
     'Plano de Regularização',
     'Plano da Carteira',
+    'Plano do Cliente',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

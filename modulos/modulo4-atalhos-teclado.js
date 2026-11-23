@@ -151,6 +151,7 @@
     { tecla: 'Alt+J', descricao: 'Contatos do Google: carregar o CSV exportado; ao abrir um cliente, sugere o nome e o celular do responsável financeiro pela raiz do CNPJ (você confere e salva no CRM)' },
     { tecla: 'Alt+X', descricao: 'Mensagens do Alt+A: ver os textos, editar como rascunho, ver a prévia da mensagem completa, publicar, ver o histórico e voltar a uma versão' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
+    { tecla: 'Shift+Alt+P', descricao: 'Plano de regularização do grupo do cliente: situação de cada título, valor devido por data e cronograma de datas-limite (só lê, não grava no CRM)' },
     { tecla: 'Shift+Alt+I', descricao: 'Guia de Implementações: explicações funcionais e histórico de versões' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
@@ -806,6 +807,10 @@
       // O diálogo do Alt+N (Módulo 17) também é modal: nenhum outro atalho Alt+letra age atrás dele (o foco inicial é o próprio
       // diálogo, e estaDigitando() não o pega). Alt+S registraria e enviaria a cobrança por trás dele. O Alt+N, que fecha, segue abaixo.
       if (e.altKey && e.code !== CONFIG_ATALHOS.TECLA_PROMESSA_RAPIDA && window.__promessaRapida?.estaAberto?.()) return;
+
+      // O plano de regularização (Módulo 43) é modal, como o diálogo do Alt+N: nenhum outro atalho Alt+letra age atrás dele (Alt+S registraria e
+      // enviaria a cobrança por trás do plano). O Shift+Alt+P, que fecha, é tratado pelo próprio Módulo 43.
+      if (e.altKey && window.__planoCliente?.estaAberto?.()) return;
 
       // O guia de implementações é modal: evita que outro atalho execute atrás dele.
       if (e.altKey && !(e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === CONFIG_ATALHOS.TECLA_IMPLEMENTACOES) && window.__painelImplementacoes?.estaAberto?.()) return;

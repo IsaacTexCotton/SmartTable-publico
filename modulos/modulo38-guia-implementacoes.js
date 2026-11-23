@@ -93,6 +93,11 @@
           detalhes: 'Permite iniciar, pausar, navegar entre clientes e marcar Retornou ou Sem retorno pelo formulário nativo do CRM. A saída da fila depende de confirmação do novo registro. Se a gravação for incerta, o fluxo não a repete automaticamente.'
         },
         {
+          titulo: 'Plano de regularização', atalho: 'Shift+Alt+P ou botão Plano',
+          resumo: 'Mostra o plano de regularização do grupo de empresas do cliente.',
+          detalhes: 'Lido só ao abrir, a partir da página do cliente e das outras empresas da mesma raiz de CNPJ. Para cada título mostra a situação, como pagar, os dias de atraso e o valor devido hoje (multa de 2% e juros de 3% ao mês, proporcionais), e monta o cronograma de datas-limite do grupo. Títulos em acordo, fora do relatório ou em não cobrar ficam fora. Custas de cartório e prazo da intimação não são conhecidos e aparecem como a confirmar. Só lê: nada é gravado no CRM.'
+        },
+        {
           titulo: 'Registro Rápido e frases fixadas', atalho: 'No perfil do cliente',
           resumo: 'Reaproveita observações sem registrar automaticamente.',
           detalhes: 'As frases fixadas aparecem dentro do formulário. Clicar numa frase preenche somente a observação e preserva o resultado selecionado. O contato só é salvo quando o operador aciona Registrar contato.'
