@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.133.0', data: '23/11/2026',
+      mudancas: [
+        'Novo lembrete "Verificar no banco": ao abrir um cliente, um aviso no canto lista os títulos que o CRM marca com o ícone de alerta (vencidos há mais de 15 dias, sem negativação, cartório ou protesto), com um botão Registrar em cada um. Registrar abre um formulário no padrão do "Registrar Contato" com quatro resultados (já está em cartório/protesto, pago aguardando baixa, negativado/SCPC, aguardando o banco) e uma observação, copia o texto pronto ("Verificado no banco em ...") para você colar no contato do CRM e tira o título do aviso até o alerta mudar. Nada é gravado no CRM por este recurso; o registro fica só neste navegador.'
+      ],
+    },
+    {
       versao: '1.132.3', data: '23/11/2026',
       mudancas: [
         'Corrigido o mesmo problema do CNPJ sem o zero à esquerda (o CRM esconde o zero das raízes que começam em 0) em mais três lugares: a fila do Alt+U não junta mais a razão de 13 dígitos com as irmãs do mesmo grupo (o cliente entrava duas vezes), o nome padronizado do contato passa a levar a raiz certa do CNPJ, e a busca de contatos do Google pela raiz volta a achar o contato dessas razões.'

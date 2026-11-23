@@ -709,6 +709,7 @@
     'Plano de Regularização',
     'Plano da Carteira',
     'Plano do Cliente',
+    'Verificar no Banco',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

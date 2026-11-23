@@ -812,6 +812,9 @@
       // enviaria a cobrança por trás do plano). O Shift+Alt+P, que fecha, é tratado pelo próprio Módulo 43.
       if (e.altKey && window.__planoCliente?.estaAberto?.()) return;
 
+      // O formulário "Verificação no banco" (Módulo 44) também é modal: nenhum atalho Alt+letra age atrás dele (Alt+S registraria e enviaria a cobrança).
+      if (e.altKey && window.__verificarBanco?.estaAberto?.()) return;
+
       // O guia de implementações é modal: evita que outro atalho execute atrás dele.
       if (e.altKey && !(e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === CONFIG_ATALHOS.TECLA_IMPLEMENTACOES) && window.__painelImplementacoes?.estaAberto?.()) return;
 
