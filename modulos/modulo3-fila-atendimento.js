@@ -431,9 +431,11 @@
    * 5. CONSTRUÇÃO DA FILA (página de LISTA de clientes)
    * --------------------------------------------------------------------- */
   // Raiz do CNPJ (8 primeiros dígitos), comum a matriz e filiais. Ignora
-  // pontuação pra não depender de como o CRM formata a linha.
+  // pontuação pra não depender de como o CRM formata a linha. O CRM mostra o
+  // CNPJ de raiz iniciada em 0 sem o zero (13 dígitos): sem restaurá-lo, essa
+  // razão não agruparia com as irmãs e o cliente entraria duas vezes na fila.
   function extrairRaizCnpj(cnpj) {
-    return (cnpj || '').replace(/\D/g, '').slice(0, 8);
+    return window.__smartTableUtil.cnpjCompleto(cnpj).slice(0, 8);
   }
 
   function construirFilaAPartirDaPagina() {

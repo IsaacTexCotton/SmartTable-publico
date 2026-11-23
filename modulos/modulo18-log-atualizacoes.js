@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.132.3', data: '23/11/2026',
+      mudancas: [
+        'Corrigido o mesmo problema do CNPJ sem o zero à esquerda (o CRM esconde o zero das raízes que começam em 0) em mais três lugares: a fila do Alt+U não junta mais a razão de 13 dígitos com as irmãs do mesmo grupo (o cliente entrava duas vezes), o nome padronizado do contato passa a levar a raiz certa do CNPJ, e a busca de contatos do Google pela raiz volta a achar o contato dessas razões.'
+      ],
+    },
+    {
       versao: '1.132.2', data: '23/11/2026',
       mudancas: [
         'Corrigido: o relatório em conjunto do grupo só era gerado numa das razões quando uma delas tem CNPJ que começa com zero. O CRM mostra esse CNPJ sem o zero (13 dígitos) e o SmartTable o tratava como inválido ("A lista de empresas do grupo contém um CNPJ inválido."), bloqueando o relatório em todas as outras razões do grupo. Agora o zero é restaurado ao validar e comparar. O Plano do cliente também passou a juntar no mesmo grupo as razões de CNPJ sem o zero.'

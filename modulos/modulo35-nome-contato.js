@@ -17,8 +17,9 @@
     return String(valor || '').replace(/\s+/g, ' ').trim();
   }
 
+  // O CRM mostra o CNPJ de raiz iniciada em 0 sem o zero (13 dígitos): completa antes de tirar a raiz.
   function raizCnpj(valor) {
-    return String(valor || '').replace(/\D/g, '').slice(0, 8);
+    return window.__smartTableUtil.cnpjCompleto(valor).slice(0, 8);
   }
 
   function limparCnpjDaRazao(razao) {

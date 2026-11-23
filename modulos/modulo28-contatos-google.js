@@ -455,9 +455,13 @@
     return { contatos, resumo, chavesTelefones: Array.from(chavesTelefones).sort() };
   }
 
-  /** Raiz do CNPJ (8 primeiros caracteres) de um CNPJ com ou sem máscara; '' se não tiver 14. */
+  /**
+   * Raiz do CNPJ (8 primeiros caracteres) de um CNPJ com ou sem máscara; '' se não tiver 14. Um CNPJ só de dígitos com
+   * 12 ou 13 é o que o CRM mostra quando a raiz começa em 0 (o zero some): ganha os zeros antes de tirar a raiz.
+   */
   function raizDoCnpj(cnpj) {
-    const limpo = String(cnpj ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const bruto = String(cnpj ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const limpo = /^\d{12,13}$/.test(bruto) ? window.__smartTableUtil.cnpjCompleto(bruto) : bruto;
     return limpo.length === 14 ? limpo.slice(0, 8) : '';
   }
 
