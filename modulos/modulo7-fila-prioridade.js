@@ -187,6 +187,9 @@
     // reescrito no mesmo dia, nem pelo Shift+Alt+U: a fila ao vivo encolhe
     // conforme se atende. Ver gravarSnapshotProgressoSeForOPrimeiroDoDia.
     CHAVE_SNAPSHOT_PROGRESSO: 'smarttable_progresso_dia_v2',
+    // Grupo especial do progresso (Módulo 11): clientes da lista com título que a regra "Verificar no banco" (Módulo 44) marca, de TODOS os
+    // visitados na classificação (inclusive os que a fila corta). Guardado à parte do snapshot e do cache, que o Módulo 2 lê.
+    CHAVE_VERIFICAR_BANCO_DIA: 'smarttable_progresso_verificar_banco_dia_v1',
     // MODO SOMBRA: a classificação pela página baixada roda junto com as abas e
     // é comparada. Só troca de caminho com zero diferença nos dias reais.
     CHAVE_SOMBRA_ULTIMA: 'smarttable_sombra_alt_u_v1',
@@ -713,6 +716,28 @@
    * nos DADOS, que é o que o modo sombra mede.
    */
   function classificarAPartirDaAba(cliente, aba) {
+    const resultado = decidirClassificacao(cliente, aba);
+    // Em TODO resultado, inclusive exclusão e erro: o grupo "Verificar no banco" do progresso cobre a lista visitada, não só a fila.
+    const chaves = lerChavesVerificarBanco(aba);
+    if (chaves) resultado.chavesVerificarBanco = chaves;
+    return resultado;
+  }
+
+  /**
+   * Chaves (número/sequência) dos títulos da aba que a regra "Verificar no banco" (Módulo 44) marca. `null` = não deu para ler (Módulo 44 ou
+   * a lista de títulos ausente): diferente de `[]` (leu e nenhum alerta). A aba virtual da página baixada já traz o resultado pronto.
+   */
+  function lerChavesVerificarBanco(aba) {
+    try {
+      if (Array.isArray(aba.__verificarBancoChaves)) return aba.__verificarBancoChaves;
+      const chaves = aba.__verificarBanco?.chavesComAlerta?.(aba.__TITULOS_ABERTOS__);
+      return Array.isArray(chaves) ? chaves : null;
+    } catch (erro) {
+      return null;
+    }
+  }
+
+  function decidirClassificacao(cliente, aba) {
     let dadosTitulos;
     try {
       dadosTitulos = aba.__avisoCobranca.simular();
@@ -1242,6 +1267,60 @@
   }
 
   /**
+   * Grupo especial do progresso: lê o que `gravarVerificarBancoDoDiaSeForOPrimeiroDoDia` guardou hoje; null se não há, é de outro dia ou está
+   * corrompido.
+   *
+   * @returns {{dia: string, geradoEm: number, visitados: number, semLeitura: number,
+   *   clientes: {cnpj: string, url: string|null, chaves: string[]}[]}|null}
+   */
+  function lerVerificarBancoDoDia() {
+    let dados;
+    try {
+      const cru = localStorage.getItem(CONFIG.CHAVE_VERIFICAR_BANCO_DIA);
+      if (!cru) return null;
+      dados = JSON.parse(cru);
+    } catch (erro) {
+      return null;
+    }
+    if (!dados || dados.dia !== window.__smartTableUtil.dataIso(new Date()) || !Array.isArray(dados.clientes)) return null;
+    return dados;
+  }
+
+  /**
+   * Guarda, SÓ NA PRIMEIRA CLASSIFICAÇÃO COMPLETA do dia (como o snapshot do progresso: o total fica fixo), quem tem título com a regra
+   * "Verificar no banco" ativa. Vale para todos os clientes visitados, inclusive os que a fila corta (teto de 19 dias, acordo em dia,
+   * promessa futura, "não cobrar" dos títulos). `semLeitura` conta os que deram erro ou vieram sem a leitura da regra: o painel os avisa em
+   * vez de fingir que não têm alerta. Sem nenhuma leitura (Módulo 44 ausente) não grava nada.
+   *
+   * @param {object[]} resultados Todos os resultados da classificação (com ou sem erro).
+   */
+  function gravarVerificarBancoDoDiaSeForOPrimeiroDoDia(resultados) {
+    if (lerVerificarBancoDoDia()) return;
+    const clientes = [];
+    let semLeitura = 0;
+    let lidos = 0;
+    (resultados || []).forEach((r) => {
+      if (!Array.isArray(r?.chavesVerificarBanco)) { semLeitura += 1; return; }
+      lidos += 1;
+      if (r.chavesVerificarBanco.length > 0 && r.cliente?.cnpj) {
+        clientes.push({ cnpj: r.cliente.cnpj, url: typeof r.cliente.url === 'string' ? r.cliente.url : null, chaves: r.chavesVerificarBanco.slice() });
+      }
+    });
+    if (lidos === 0) return;
+    try {
+      localStorage.setItem(CONFIG.CHAVE_VERIFICAR_BANCO_DIA, JSON.stringify({
+        dia: window.__smartTableUtil.dataIso(new Date()),
+        geradoEm: Date.now(),
+        visitados: resultados.length,
+        semLeitura,
+        clientes,
+      }));
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Não consegui gravar o grupo "Verificar no banco" do progresso.', erro);
+    }
+  }
+
+  /**
    * Grava o snapshot de progresso SÓ SE ainda não existir um de hoje (pedido do
    * usuário): o painel (Módulo 11) mostra sempre a PRIMEIRA fila por prioridade
    * do dia. Nunca sobrescreve o de hoje, nem no Shift+Alt+U; só quando o dia
@@ -1341,6 +1420,8 @@
       __contextoAdicional: contexto.__contextoAdicional,
       __contextoAdicionalDebug: contexto.__contextoAdicionalDebug,
       __alertaGrupo: { empresasComVencido },
+      // Mesma regra do Módulo 44 sobre os títulos CRUS da página (a simulação do Módulo 1 não traz posicaoCodigo nem sitCobrancaCodigo).
+      __verificarBancoChaves: window.__verificarBanco?.chavesComAlerta?.(titulos) ?? null,
     };
   }
 
@@ -1884,6 +1965,8 @@
       // Grava o cache ANTES de montar a fila: se a montagem falhar por algum
       // motivo, o trabalho caro (as ~92 visitas) não se perde.
       gravarCacheClassificacao(resultados);
+      // `todos` (não `resultados`): inclui quem a fila corta e quem deu erro. Mesmo critério de lista completa do cache e do snapshot.
+      gravarVerificarBancoDoDiaSeForOPrimeiroDoDia(todos);
 
       finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: true });
     } finally {
@@ -2130,6 +2213,8 @@
     obterMapaClientes,
     lerSnapshotProgresso,
     gravarSnapshotProgressoSeForOPrimeiroDoDia,
+    lerVerificarBancoDoDia,
+    gravarVerificarBancoDoDiaSeForOPrimeiroDoDia,
     classificarEmLote,
     lerCacheClassificacao,
     gravarCacheClassificacao,

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.134.0', data: '23/11/2026',
+      mudancas: [
+        'O Progresso da fila ganhou um grupo especial "Verificar no banco", no topo do painel, acima das faixas. Conta os clientes da lista que têm título com o alerta de "Verificar no banco" (vencido há mais de 15 dias, sem negativação, cartório ou protesto), e a barra anda quando todos os títulos com alerta do cliente foram registrados no Verificar no banco. Entram todos os clientes que o Alt+U visita, inclusive os que a fila corta (por exemplo, acima de 19 dias). Clicar na barra leva ao primeiro cliente ainda sem verificação. O cliente continua na faixa dele e também aparece neste grupo; a ordem da fila não mudou. O grupo é gravado na primeira classificação completa do dia (Alt+U ou Shift+Alt+U): se o painel avisar que não há leitura de hoje, rode Shift+Alt+U.'
+      ],
+    },
+    {
       versao: '1.133.0', data: '23/11/2026',
       mudancas: [
         'Novo lembrete "Verificar no banco": ao abrir um cliente, um aviso no canto lista os títulos que o CRM marca com o ícone de alerta (vencidos há mais de 15 dias, sem negativação, cartório ou protesto), com um botão Registrar em cada um. Registrar abre um formulário no padrão do "Registrar Contato" com quatro resultados (já está em cartório/protesto, pago aguardando baixa, negativado/SCPC, aguardando o banco) e uma observação, copia o texto pronto ("Verificado no banco em ...") para você colar no contato do CRM e tira o título do aviso até o alerta mudar. Nada é gravado no CRM por este recurso; o registro fica só neste navegador.'

@@ -17,11 +17,18 @@
  * Clicar numa faixa leva ao primeiro cliente não cobrado dela (ou ao primeiro
  * da faixa, se todos já foram cobrados): ver irParaFaixa.
  *
+ * GRUPO ESPECIAL "Verificar no banco" (pedido do usuário, 23/11/2026), no TOPO do painel e fora das 17 faixas: clientes da lista com título que
+ * a regra do Módulo 44 marca, verificados/total. Não muda a ordem da fila nem a régua. O total vem de window.filaPrioridadeDebug
+ * .lerVerificarBancoDoDia() (Módulo 7: todos os visitados na primeira classificação completa do dia, inclusive os que a fila corta); o
+ * "verificado" vem de window.__verificarBanco.clienteVerificado (Módulo 44: todos os títulos do cliente registrados lá). Um cliente conta
+ * na faixa dele E neste grupo; o "Hoje" continua somando só as faixas.
+ *
  * Não é ao vivo: como os outros painéis (Alt+O/D/H/L), calcula ao abrir.
  * Cada cliente é navegação de página cheia; reabrir é a atualização.
  *
  * Carregar depois dos Módulos 0 (registro de painéis), 3 (window.filaDebug)
- * e 7 (window.filaPrioridadeDebug, NOMES_PRIORIDADE, CORES_PRIORIDADE).
+ * e 7 (window.filaPrioridadeDebug, NOMES_PRIORIDADE, CORES_PRIORIDADE). O Módulo 44 (window.__verificarBanco) carrega depois deste e é
+ * consultado só na hora de abrir o painel.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -47,6 +54,8 @@
     linha: '#eef2f6',
     destaque: '#1B6B4A',
     fundo: '#ffffff',
+    // Grupo "Verificar no banco": âmbar escuro do ícone de alerta do CRM; nenhuma faixa da régua usa este tom (contraste 5,4:1 sobre o branco).
+    verificarBanco: '#B54708',
   };
 
   let painelEl = null;
@@ -56,8 +65,8 @@
    * Para onde o clique na faixa leva, na ordem do snapshot do dia: o primeiro
    * cliente ainda não cobrado; se todos já foram cobrados, o primeiro da faixa.
    */
-  function escolherAlvo(clientes) {
-    const pendente = clientes.find((c) => !c.cobrado);
+  function escolherAlvo(clientes, feito = (c) => c.cobrado) {
+    const pendente = clientes.find((c) => !feito(c));
     const escolhido = pendente || clientes[0];
     return { cnpj: escolhido.cnpj, url: escolhido.url, todosCobrados: !pendente };
   }
@@ -156,6 +165,34 @@
     };
   }
 
+  /**
+   * Grupo "Verificar no banco" (ver o cabeçalho). Sem DOM, como `montarProgresso`.
+   *
+   * @returns {{disponivel: boolean, motivo?: string, total?: number, verificados?: number, semLeitura?: number,
+   *            alvo?: {cnpj: string|null, url: string|null, todosCobrados: boolean}|null}}
+   *   `alvo.todosCobrados` quer dizer "todos verificados" (mesmo formato do alvo das faixas, que `navegarParaAlvo` usa).
+   */
+  function montarVerificarBanco() {
+    const dia = window.filaPrioridadeDebug?.lerVerificarBancoDoDia?.();
+    if (!dia) {
+      return { disponivel: false, motivo: 'Sem leitura de "Verificar no banco" hoje. Shift+Alt+U refaz a classificação e traz o grupo.' };
+    }
+    const verificar = window.__verificarBanco?.clienteVerificado;
+    if (typeof verificar !== 'function') {
+      return { disponivel: false, motivo: 'O Módulo "Verificar no banco" não carregou nesta página.' };
+    }
+    const clientes = dia.clientes
+      .filter((c) => c && c.cnpj && Array.isArray(c.chaves))
+      .map((c) => ({ cnpj: c.cnpj, url: typeof c.url === 'string' ? c.url : null, verificado: verificar(c.cnpj, c.chaves) }));
+    return {
+      disponivel: true,
+      total: clientes.length,
+      verificados: clientes.filter((c) => c.verificado).length,
+      semLeitura: Number(dia.semLeitura) || 0,
+      alvo: clientes.length > 0 ? escolherAlvo(clientes, (c) => c.verificado) : null,
+    };
+  }
+
   /* ---------------------------------------------------------------------
    * DESENHO
    * --------------------------------------------------------------------- */
@@ -193,6 +230,54 @@
       color: CORES.tinta, fontSize: '12px', fontWeight: '600',
     }));
     return linha;
+  }
+
+  /**
+   * Seção especial no topo: botão como o das faixas, mas com borda lateral e título em negrito sempre. Clicar leva ao primeiro cliente ainda
+   * sem verificação (ou ao primeiro, se todos já foram verificados).
+   */
+  function criarSecaoVerificarBanco(vb) {
+    const secao = criarDiv('', { marginBottom: '12px', paddingBottom: '10px', borderBottom: `1px solid ${CORES.linha}` });
+    if (vb.total === 0) {
+      secao.appendChild(criarDiv('Verificar no banco', { color: CORES.verificarBanco, fontWeight: '700', fontSize: '12px', marginBottom: '2px' }));
+      secao.appendChild(criarDiv('Nenhum cliente com título a verificar hoje.', { color: CORES.apagado, fontSize: '11px' }));
+    } else {
+      const bloco = document.createElement('button');
+      bloco.type = 'button';
+      bloco.setAttribute('data-grupo', 'verificar-banco');
+      bloco.title = vb.alvo.todosCobrados
+        ? 'Todos já verificados: ir para o primeiro cliente'
+        : 'Ir para o primeiro cliente ainda sem verificação no banco';
+      Object.assign(bloco.style, {
+        display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left', font: 'inherit',
+        cursor: 'pointer', background: 'transparent', border: 'none', borderRadius: '6px',
+        margin: '0', padding: '2px 0 2px 8px', borderLeft: `3px solid ${CORES.verificarBanco}`,
+      });
+      bloco.addEventListener('mouseenter', () => { bloco.style.background = CORES.linha; });
+      bloco.addEventListener('mouseleave', () => { bloco.style.background = 'transparent'; });
+      bloco.addEventListener('click', () => irParaVerificarBanco());
+
+      const cabecalho = criarDiv('', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '10px' });
+      cabecalho.appendChild(criarDiv('Verificar no banco', { color: CORES.verificarBanco, fontSize: '13px', fontWeight: '700' }));
+      cabecalho.appendChild(criarDiv(`${vb.verificados}/${vb.total}`, {
+        fontFamily: 'ui-monospace, monospace', color: CORES.tinta, fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap',
+      }));
+      bloco.appendChild(cabecalho);
+
+      const trilha = criarDiv('', { height: '8px', borderRadius: '4px', background: CORES.linha, overflow: 'hidden' });
+      trilha.appendChild(criarDiv('', {
+        height: '100%', width: `${Math.round((vb.verificados / vb.total) * 100)}%`, background: CORES.verificarBanco, borderRadius: '4px',
+      }));
+      bloco.appendChild(trilha);
+      bloco.appendChild(criarDiv('clientes com título a verificar', { color: CORES.apagado, fontSize: '11px', marginTop: '3px' }));
+      secao.appendChild(bloco);
+    }
+    if (vb.semLeitura > 0) {
+      secao.appendChild(criarDiv(`${vb.semLeitura} cliente(s) sem leitura (erro ou módulo ausente na classificação): podem ter título a verificar.`, {
+        color: CORES.apagado, fontSize: '11px', marginTop: '4px', lineHeight: '1.4',
+      }));
+    }
+    return secao;
   }
 
   function criarBarraFaixa(faixa, emAndamento) {
@@ -309,7 +394,26 @@
     const faixa = resultado.disponivel ? resultado.faixas.find((f) => f.tier === tier) : null;
     if (!faixa) return { ok: false, motivo: 'Essa faixa não está no progresso de hoje.' };
 
-    const { alvo } = faixa;
+    return navegarParaAlvo(
+      faixa.alvo,
+      `Faixa toda cobrada: indo para o primeiro (${faixa.nome}).`,
+      `Indo para o primeiro não cobrado: ${faixa.nome}.`
+    );
+  }
+
+  /** Clique no grupo "Verificar no banco": o primeiro cliente sem verificação, ou o primeiro se todos já foram verificados. */
+  function irParaVerificarBanco() {
+    const vb = montarVerificarBanco();
+    if (!vb.disponivel || !vb.alvo) return { ok: false, motivo: 'Não há cliente com título a verificar no progresso de hoje.' };
+    return navegarParaAlvo(
+      vb.alvo,
+      'Todos já verificados: indo para o primeiro cliente de "Verificar no banco".',
+      'Indo para o primeiro cliente ainda sem verificação no banco.'
+    );
+  }
+
+  /** Parte comum dos dois cliques (faixa e grupo especial): acha o endereço, ajusta a posição da fila ao vivo e navega. */
+  function navegarParaAlvo(alvo, mensagemTodosFeitos, mensagemPendente) {
     const filaDebug = window.filaDebug;
     const fila = filaDebug?.obterFila?.();
     const posicao = fila && alvo.cnpj ? fila.clientes.findIndex((c) => c.cnpj === alvo.cnpj) : -1;
@@ -328,9 +432,7 @@
     }
 
     fecharPainel();
-    window.__smartTableUtil?.toast?.(alvo.todosCobrados
-      ? `Faixa toda cobrada: indo para o primeiro (${faixa.nome}).`
-      : `Indo para o primeiro não cobrado: ${faixa.nome}.`);
+    window.__smartTableUtil?.toast?.(alvo.todosCobrados ? mensagemTodosFeitos : mensagemPendente);
     ganchos.navegar(url);
     return { ok: true, url, todosCobrados: alvo.todosCobrados };
   }
@@ -370,12 +472,20 @@
       color: CORES.tinta, fontWeight: '700', fontSize: '14px', marginBottom: '8px',
     }));
 
+    const verificarBanco = montarVerificarBanco();
+
     if (!resultado.disponivel) {
       painelEl.appendChild(criarDiv(resultado.motivo, { color: CORES.apagado, lineHeight: '1.5' }));
+      if (verificarBanco.disponivel) painelEl.appendChild(criarSecaoVerificarBanco(verificarBanco));
     } else if (resultado.faixas.length === 0) {
       painelEl.appendChild(criarDiv('A fila de hoje está vazia.', { color: CORES.apagado }));
+      if (verificarBanco.disponivel) painelEl.appendChild(criarSecaoVerificarBanco(verificarBanco));
     } else {
       if (resultado.estagioAtual) painelEl.appendChild(criarEstagioAtual(resultado.estagioAtual));
+      // Antes de tudo (pedido do usuário): acima do "Hoje" e das 17 faixas. Sem a leitura do dia, uma linha de aviso no lugar.
+      painelEl.appendChild(verificarBanco.disponivel
+        ? criarSecaoVerificarBanco(verificarBanco)
+        : criarDiv(verificarBanco.motivo, { color: CORES.apagado, fontSize: '11px', lineHeight: '1.4', marginBottom: '10px' }));
       painelEl.appendChild(criarResumoGeral(resultado));
       resultado.faixas.forEach((faixa) => {
         const emAndamento = Boolean(resultado.estagioAtual) && faixa.tier === resultado.estagioAtual.tier;
@@ -464,7 +574,9 @@
     fecharPainel,
     estaAberto: () => painelEl !== null,
     montarProgresso,
+    montarVerificarBanco,
     irParaFaixa,
+    irParaVerificarBanco,
     ganchos,
     CONFIG_PROGRESSO,
     obterBotao: () => botaoEl,

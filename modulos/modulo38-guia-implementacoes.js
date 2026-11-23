@@ -74,7 +74,7 @@
         {
           titulo: 'Progresso da fila', atalho: 'Automático',
           resumo: 'Mostra o andamento da fila em execução.',
-          detalhes: 'O indicador acompanha o processamento da fila e ajuda a perceber progresso sem depender de uma navegação manual pela lista.'
+          detalhes: 'O indicador acompanha o processamento da fila e ajuda a perceber progresso sem depender de uma navegação manual pela lista. No topo do painel fica o grupo especial "Verificar no banco": clientes da lista com título que o alerta do CRM marca, e a barra avança quando todos os títulos do cliente foram registrados no Verificar no banco. Não muda a ordem da fila; clicar na barra leva ao primeiro cliente ainda sem verificação.'
         }
       ]
     },

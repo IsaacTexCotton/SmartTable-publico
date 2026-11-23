@@ -167,6 +167,32 @@
     return comAlerta.filter((t) => !feitos[chaveDoTitulo(t)]);
   }
 
+  /**
+   * Para o progresso da fila (Módulos 7 e 11): as chaves (número/sequência, sem repetidas) dos títulos de uma lista qualquer que a regra do CRM
+   * marca com o alerta. Pura: não lê a página aberta nem o registro. Lista que não é lista = `null` (leitura impossível, diferente de "nenhum").
+   */
+  function chavesComAlerta(lista) {
+    if (!Array.isArray(lista)) return null;
+    const chaves = [];
+    lista.forEach((t) => {
+      if (!precisaAlerta(t)) return;
+      const k = chaveDoTitulo(t);
+      if (!chaves.includes(k)) chaves.push(k);
+    });
+    return chaves;
+  }
+
+  /**
+   * O cliente (CNPJ em qualquer formatação) está verificado quando TODAS as chaves dadas têm registro neste navegador. Sem chaves = falso
+   * (não há o que verificar, então não conta como verificado). Só lê o registro; nunca grava.
+   */
+  function clienteVerificado(cnpj, chaves) {
+    if (!Array.isArray(chaves) || chaves.length === 0) return false;
+    const feitos = lerTudo()[cnpjCompleto(cnpj)];
+    if (!feitos || typeof feitos !== 'object') return false;
+    return chaves.every((k) => Boolean(feitos[k]));
+  }
+
   /* ---------------------------------------------------------------------
    * TEXTO PARA O CRM
    * --------------------------------------------------------------------- */
@@ -467,6 +493,8 @@
     RESULTADOS,
     precisaAlerta,
     titulosComAlerta,
+    chavesComAlerta,
+    clienteVerificado,
     pendentes,
     montarTexto,
     conferirComATela,
