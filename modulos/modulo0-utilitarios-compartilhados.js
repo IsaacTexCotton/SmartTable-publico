@@ -412,6 +412,21 @@
   }
 
   /**
+   * Só os dígitos do CNPJ, com o zero à esquerda restaurado. O CRM mostra (na tabela do grupo e na URL) o CNPJ
+   * de raiz iniciada em 0 SEM o zero: "#######/####-##", 13 dígitos (fato confirmado em diagnóstico censurado,
+   * 23/11/2026). Com 12 ou 13 dígitos completa para 14; qualquer outro tamanho volta como veio (o chamador valida).
+   * Use para validar, comparar e tirar a raiz (8 primeiros dígitos). Para CONSULTAR o CRM ou o Módulo 12 use o
+   * valor cru, do jeito que o CRM apresenta.
+   *
+   * @param {unknown} valor
+   * @returns {string}
+   */
+  function cnpjCompleto(valor) {
+    const digitos = String(valor ?? '').replace(/\D/g, '');
+    return digitos.length === 12 || digitos.length === 13 ? digitos.padStart(14, '0') : digitos;
+  }
+
+  /**
    * "R$ 1.234,56" (ou "R$\u00a01.234,56") -> 1234.56; null se não for número.
    * Mesma regra do Módulo 4 (converterMoedaBrParaNumero).
    *
@@ -809,6 +824,7 @@
     dataCurtaDeIso,
     apelidoParaLog,
     numeroDeMoedaBr,
+    cnpjCompleto,
     lerVariavelDoScript,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,

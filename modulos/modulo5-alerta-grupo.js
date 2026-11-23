@@ -598,6 +598,10 @@
     return String(valor ?? '').replace(/\D/g, '');
   }
 
+  function completarCnpj(valor) {
+    return window.__smartTableUtil.cnpjCompleto(valor);
+  }
+
   function validarUrlDaEmpresa(empresa, cnpj) {
     if (typeof empresa?.url !== 'string' || !empresa.url.trim()) {
       throw new Error('Uma empresa com vencido não possui endereço de consulta.');
@@ -606,7 +610,7 @@
     if (url.origin !== window.location.origin || !/^\/crm\/clientes\/grupo\/\d+\/?$/.test(url.pathname)) {
       throw new Error('O endereço de uma razão do grupo não pertence à rota esperada do CRM.');
     }
-    if (digitosCnpj(url.searchParams.get('cnpj')) !== cnpj) {
+    if (completarCnpj(url.searchParams.get('cnpj')) !== completarCnpj(cnpj)) {
       throw new Error('O CNPJ do endereço não corresponde à empresa detectada no grupo.');
     }
     return url.href;
@@ -707,19 +711,23 @@
       throw new Error('Não foi possível ler a tabela do grupo. O relatório consolidado foi bloqueado.');
     }
 
-    const cnpjAtual = digitosCnpj(new URL(window.location.href).searchParams.get('cnpj'));
+    // O CRM apresenta o CNPJ de raiz iniciada em 0 sem o zero (13 dígitos): validação, comparação com a página
+    // aberta e chave de deduplicação usam a forma completa; `empresa.cnpj` segue cru, como o CRM mostra, porque é
+    // a chave do Módulo 12 ("Não cobrar") e tem de bater com a URL da razão.
+    const cnpjAtual = completarCnpj(new URL(window.location.href).searchParams.get('cnpj'));
     const empresasUnicas = new Map();
     for (const empresa of grupo.empresasComVencido) {
       const cnpj = digitosCnpj(empresa?.cnpj);
-      if (cnpj.length !== 14) throw new Error('A lista de empresas do grupo contém um CNPJ inválido.');
-      if (cnpj === cnpjAtual) continue;
+      const cnpjPadrao = completarCnpj(cnpj);
+      if (cnpjPadrao.length !== 14) throw new Error('A lista de empresas do grupo contém um CNPJ inválido.');
+      if (cnpjPadrao === cnpjAtual) continue;
       const razaoSocial = typeof empresa.razaoSocial === 'string' ? empresa.razaoSocial.trim() : '';
       if (!razaoSocial) throw new Error('Uma empresa com vencido está sem razão social identificável.');
-      const anterior = empresasUnicas.get(cnpj);
+      const anterior = empresasUnicas.get(cnpjPadrao);
       if (anterior && anterior.razaoSocial !== razaoSocial) {
         throw new Error('A mesma empresa apareceu com razões sociais divergentes na leitura do grupo.');
       }
-      if (!anterior) empresasUnicas.set(cnpj, { ...empresa, cnpj, razaoSocial });
+      if (!anterior) empresasUnicas.set(cnpjPadrao, { ...empresa, cnpj, razaoSocial });
     }
 
     const prazoFinal = Date.now() + TIMEOUT_TOTAL_RELATORIO_GRUPO_MS;

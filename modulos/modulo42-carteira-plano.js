@@ -30,7 +30,8 @@
 
   const CONFIG = Object.freeze({ SIMULTANEAS: 4, TIMEOUT_PAGINA_MS: 15000, VERSAO_PACOTE: 1 });
 
-  const raizCnpj = (cnpj) => String(cnpj ?? '').replace(/\D/g, '').slice(0, 8);
+  // CNPJ de raiz iniciada em 0 chega sem o zero (13 dígitos): completa antes de tirar a raiz (Módulo 0, cnpjCompleto).
+  const raizCnpj = (cnpj) => window.__smartTableUtil.cnpjCompleto(cnpj).slice(0, 8);
 
   /** fetch com limite de tempo. `buscar` é trocável nos testes. */
   async function baixarTexto(url, buscar) {
@@ -209,7 +210,7 @@
     return pacote;
   }
 
-  const soDigitos = (v) => String(v ?? '').replace(/\D/g, '');
+  const soDigitos = (v) => window.__smartTableUtil.cnpjCompleto(v);
 
   /**
    * O plano do GRUPO do cliente da página aberta: as empresas da mesma raiz de CNPJ (da lista de clientes) mais a
@@ -241,7 +242,7 @@
       etapa('lista', 'erro', `Não consegui ler a lista de clientes (${erro.message})`);
       throw new Error(`Não consegui ler a lista de clientes para achar as outras empresas do grupo (${erro.message}).`);
     }
-    const raiz = cnpjAtual.slice(0, 8);
+    const raiz = raizCnpj(cnpjAtual);
     const vistos = new Set();
     const doGrupo = lista.clientes.filter((c) => c && c.cnpj && c.controleCliente != null && raizCnpj(c.cnpj) === raiz)
       .filter((c) => { const k = soDigitos(c.cnpj); if (vistos.has(k)) return false; vistos.add(k); return true; });

@@ -24,6 +24,12 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.132.2', data: '23/11/2026',
+      mudancas: [
+        'Corrigido: o relatório em conjunto do grupo só era gerado numa das razões quando uma delas tem CNPJ que começa com zero. O CRM mostra esse CNPJ sem o zero (13 dígitos) e o SmartTable o tratava como inválido ("A lista de empresas do grupo contém um CNPJ inválido."), bloqueando o relatório em todas as outras razões do grupo. Agora o zero é restaurado ao validar e comparar. O Plano do cliente também passou a juntar no mesmo grupo as razões de CNPJ sem o zero.'
+      ],
+    },
+    {
       versao: '1.132.1', data: '23/11/2026',
       mudancas: [
         'Plano de regularização: título com a posição "Cartório" aparece como "Em cartório: pagar pelo cartório" (com custas a confirmar e sem data-limite). Antes aparecia como "Protestado". Só a posição "Protesto" é "Protestado: pagar direto, sem prazo".'
