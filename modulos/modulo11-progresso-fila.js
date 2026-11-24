@@ -23,12 +23,17 @@
  * "verificado" vem de window.__verificarBanco.clienteVerificado (Módulo 44: todos os títulos do cliente registrados lá). Um cliente conta
  * na faixa dele E neste grupo; o "Hoje" continua somando só as faixas.
  *
+ * GRUPO ESPECIAL "Aviso de suspensão" (pedido do usuário, 24/11/2026), logo ABAIXO do "Verificar no banco": clientes da lista com o "!" de suspensão da
+ * coluna Situação (Módulo 45), verificados/total. O total vem de window.__avisoSuspender.lerDoDia() (primeira lista completa do dia, fixo) e o "verificado"
+ * de window.__avisoSuspender.clienteVerificado (botão "Verificado" no cartão da página do cliente; vale até o "!" ser retirado e voltar). Mesmo desenho
+ * do grupo anterior, em outra cor. Também não muda a ordem da fila nem a régua.
+ *
  * Não é ao vivo: como os outros painéis (Alt+O/D/H/L), calcula ao abrir.
  * Cada cliente é navegação de página cheia; reabrir é a atualização.
  *
  * Carregar depois dos Módulos 0 (registro de painéis), 3 (window.filaDebug)
  * e 7 (window.filaPrioridadeDebug, NOMES_PRIORIDADE, CORES_PRIORIDADE). O Módulo 44 (window.__verificarBanco) carrega depois deste e é
- * consultado só na hora de abrir o painel.
+ * consultado só na hora de abrir o painel; o Módulo 45 (window.__avisoSuspender), idem.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -56,6 +61,8 @@
     fundo: '#ffffff',
     // Grupo "Verificar no banco": âmbar escuro do ícone de alerta do CRM; nenhuma faixa da régua usa este tom (contraste 5,4:1 sobre o branco).
     verificarBanco: '#B54708',
+    // Grupo "Aviso de suspensão": vermelho escuro (8,7:1 sobre o branco); nenhuma faixa da régua usa este tom.
+    avisoSuspender: '#912018',
   };
 
   let painelEl = null;
@@ -193,6 +200,31 @@
     };
   }
 
+  /**
+   * Grupo "Aviso de suspensão" (ver o cabeçalho). Sem DOM. Mesmo formato de `montarVerificarBanco`, sem `semLeitura`: a lista toda é lida de uma vez.
+   * `alvo.todosCobrados` quer dizer "todos verificados".
+   */
+  function montarAvisoSuspender() {
+    const modulo = window.__avisoSuspender;
+    if (typeof modulo?.lerDoDia !== 'function' || typeof modulo?.clienteVerificado !== 'function') {
+      return { disponivel: false, motivo: 'O módulo do aviso de suspensão não carregou nesta página.' };
+    }
+    const dia = modulo.lerDoDia();
+    if (!dia) {
+      return { disponivel: false, motivo: 'Sem leitura do aviso de suspensão hoje. Abra a lista de clientes completa (sem filtro) para o grupo aparecer.' };
+    }
+    const clientes = dia.clientes
+      .filter((c) => c && c.cnpj)
+      .map((c) => ({ cnpj: c.cnpj, url: typeof c.url === 'string' ? c.url : null, verificado: modulo.clienteVerificado(c.cnpj) }));
+    return {
+      disponivel: true,
+      total: clientes.length,
+      verificados: clientes.filter((c) => c.verificado).length,
+      semLeitura: 0,
+      alvo: clientes.length > 0 ? escolherAlvo(clientes, (c) => c.verificado) : null,
+    };
+  }
+
   /* ---------------------------------------------------------------------
    * DESENHO
    * --------------------------------------------------------------------- */
@@ -232,33 +264,54 @@
     return linha;
   }
 
+  /** O que muda de um grupo especial para o outro: nome, legenda, cor, o que dizer quando está vazio e para onde o clique vai. */
+  const GRUPO_VERIFICAR_BANCO = {
+    id: 'verificar-banco',
+    titulo: 'Verificar no banco',
+    legenda: 'clientes com título a verificar',
+    vazio: 'Nenhum cliente com título a verificar hoje.',
+    cor: () => CORES.verificarBanco,
+    irPara: () => irParaVerificarBanco(),
+    tituloTodos: 'Todos já verificados: ir para o primeiro cliente',
+    tituloPendente: 'Ir para o primeiro cliente ainda sem verificação no banco',
+  };
+  const GRUPO_AVISO_SUSPENDER = {
+    id: 'aviso-suspender',
+    titulo: 'Aviso de suspensão',
+    legenda: 'clientes com o ! de suspensão',
+    vazio: 'Nenhum cliente com o ! de suspensão hoje.',
+    cor: () => CORES.avisoSuspender,
+    irPara: () => irParaAvisoSuspender(),
+    tituloTodos: 'Todos já verificados: ir para o primeiro cliente',
+    tituloPendente: 'Ir para o primeiro cliente com o ! de suspensão ainda sem verificação',
+  };
+
   /**
    * Seção especial no topo: botão como o das faixas, mas com borda lateral e título em negrito sempre. Clicar leva ao primeiro cliente ainda
    * sem verificação (ou ao primeiro, se todos já foram verificados).
    */
-  function criarSecaoVerificarBanco(vb) {
+  function criarSecaoEspecial(vb, grupo) {
+    const cor = grupo.cor();
     const secao = criarDiv('', { marginBottom: '12px', paddingBottom: '10px', borderBottom: `1px solid ${CORES.linha}` });
     if (vb.total === 0) {
-      secao.appendChild(criarDiv('Verificar no banco', { color: CORES.verificarBanco, fontWeight: '700', fontSize: '12px', marginBottom: '2px' }));
-      secao.appendChild(criarDiv('Nenhum cliente com título a verificar hoje.', { color: CORES.apagado, fontSize: '11px' }));
+      secao.appendChild(criarDiv(grupo.titulo, { color: cor, fontWeight: '700', fontSize: '12px', marginBottom: '2px' }));
+      secao.appendChild(criarDiv(grupo.vazio, { color: CORES.apagado, fontSize: '11px' }));
     } else {
       const bloco = document.createElement('button');
       bloco.type = 'button';
-      bloco.setAttribute('data-grupo', 'verificar-banco');
-      bloco.title = vb.alvo.todosCobrados
-        ? 'Todos já verificados: ir para o primeiro cliente'
-        : 'Ir para o primeiro cliente ainda sem verificação no banco';
+      bloco.setAttribute('data-grupo', grupo.id);
+      bloco.title = vb.alvo.todosCobrados ? grupo.tituloTodos : grupo.tituloPendente;
       Object.assign(bloco.style, {
         display: 'block', width: '100%', boxSizing: 'border-box', textAlign: 'left', font: 'inherit',
         cursor: 'pointer', background: 'transparent', border: 'none', borderRadius: '6px',
-        margin: '0', padding: '2px 0 2px 8px', borderLeft: `3px solid ${CORES.verificarBanco}`,
+        margin: '0', padding: '2px 0 2px 8px', borderLeft: `3px solid ${cor}`,
       });
       bloco.addEventListener('mouseenter', () => { bloco.style.background = CORES.linha; });
       bloco.addEventListener('mouseleave', () => { bloco.style.background = 'transparent'; });
-      bloco.addEventListener('click', () => irParaVerificarBanco());
+      bloco.addEventListener('click', () => grupo.irPara());
 
       const cabecalho = criarDiv('', { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px', gap: '10px' });
-      cabecalho.appendChild(criarDiv('Verificar no banco', { color: CORES.verificarBanco, fontSize: '13px', fontWeight: '700' }));
+      cabecalho.appendChild(criarDiv(grupo.titulo, { color: cor, fontSize: '13px', fontWeight: '700' }));
       cabecalho.appendChild(criarDiv(`${vb.verificados}/${vb.total}`, {
         fontFamily: 'ui-monospace, monospace', color: CORES.tinta, fontWeight: '700', fontSize: '13px', whiteSpace: 'nowrap',
       }));
@@ -266,10 +319,10 @@
 
       const trilha = criarDiv('', { height: '8px', borderRadius: '4px', background: CORES.linha, overflow: 'hidden' });
       trilha.appendChild(criarDiv('', {
-        height: '100%', width: `${Math.round((vb.verificados / vb.total) * 100)}%`, background: CORES.verificarBanco, borderRadius: '4px',
+        height: '100%', width: `${Math.round((vb.verificados / vb.total) * 100)}%`, background: cor, borderRadius: '4px',
       }));
       bloco.appendChild(trilha);
-      bloco.appendChild(criarDiv('clientes com título a verificar', { color: CORES.apagado, fontSize: '11px', marginTop: '3px' }));
+      bloco.appendChild(criarDiv(grupo.legenda, { color: CORES.apagado, fontSize: '11px', marginTop: '3px' }));
       secao.appendChild(bloco);
     }
     if (vb.semLeitura > 0) {
@@ -278,6 +331,17 @@
       }));
     }
     return secao;
+  }
+
+  /**
+   * Os grupos especiais, de cima para baixo: "Verificar no banco" e depois "Aviso de suspensão". Grupo com leitura vira seção; sem leitura vira uma
+   * linha de aviso do motivo, só quando `comAviso` (com o painel das faixas à mostra), para não encher um painel que já está dizendo "sem fila".
+   */
+  function criarSecoesEspeciais(verificarBanco, avisoSuspender, comAviso) {
+    return [[verificarBanco, GRUPO_VERIFICAR_BANCO], [avisoSuspender, GRUPO_AVISO_SUSPENDER]].map(([dados, grupo]) => {
+      if (dados.disponivel) return criarSecaoEspecial(dados, grupo);
+      return comAviso ? criarDiv(dados.motivo, { color: CORES.apagado, fontSize: '11px', lineHeight: '1.4', marginBottom: '10px' }) : null;
+    }).filter(Boolean);
   }
 
   function criarBarraFaixa(faixa, emAndamento) {
@@ -412,14 +476,26 @@
     );
   }
 
-  /** Parte comum dos dois cliques (faixa e grupo especial): acha o endereço, ajusta a posição da fila ao vivo e navega. */
-  function navegarParaAlvo(alvo, mensagemTodosFeitos, mensagemPendente) {
+  /** Clique no grupo "Aviso de suspensão": o primeiro cliente ainda sem "Verificado", ou o primeiro se todos já foram verificados. */
+  function irParaAvisoSuspender() {
+    const vb = montarAvisoSuspender();
+    if (!vb.disponivel || !vb.alvo) return { ok: false, motivo: 'Não há cliente com o ! de suspensão no progresso de hoje.' };
+    return navegarParaAlvo(
+      vb.alvo,
+      'Todos já verificados: indo para o primeiro cliente com o ! de suspensão.',
+      'Indo para o primeiro cliente com o ! de suspensão ainda sem verificação.',
+      'Não tenho o endereço desse cliente (falta o número de controle na lista). Abra-o pela lista de clientes.'
+    );
+  }
+
+  /** Parte comum dos cliques (faixa e grupos especiais): acha o endereço, ajusta a posição da fila ao vivo e navega. */
+  function navegarParaAlvo(alvo, mensagemTodosFeitos, mensagemPendente, mensagemSemUrl) {
     const filaDebug = window.filaDebug;
     const fila = filaDebug?.obterFila?.();
     const posicao = fila && alvo.cnpj ? fila.clientes.findIndex((c) => c.cnpj === alvo.cnpj) : -1;
     const url = alvo.url || (posicao !== -1 ? fila.clientes[posicao].url : null);
     if (!url) {
-      const motivo = 'Não tenho o endereço desse cliente (a referência de hoje é anterior a este recurso). Use "Usar a fila atual".';
+      const motivo = mensagemSemUrl || 'Não tenho o endereço desse cliente (a referência de hoje é anterior a este recurso). Use "Usar a fila atual".';
       window.__smartTableUtil?.toast?.(motivo);
       return { ok: false, motivo };
     }
@@ -473,19 +549,18 @@
     }));
 
     const verificarBanco = montarVerificarBanco();
+    const avisoSuspender = montarAvisoSuspender();
 
     if (!resultado.disponivel) {
       painelEl.appendChild(criarDiv(resultado.motivo, { color: CORES.apagado, lineHeight: '1.5' }));
-      if (verificarBanco.disponivel) painelEl.appendChild(criarSecaoVerificarBanco(verificarBanco));
+      criarSecoesEspeciais(verificarBanco, avisoSuspender, false).forEach((secao) => painelEl.appendChild(secao));
     } else if (resultado.faixas.length === 0) {
       painelEl.appendChild(criarDiv('A fila de hoje está vazia.', { color: CORES.apagado }));
-      if (verificarBanco.disponivel) painelEl.appendChild(criarSecaoVerificarBanco(verificarBanco));
+      criarSecoesEspeciais(verificarBanco, avisoSuspender, false).forEach((secao) => painelEl.appendChild(secao));
     } else {
       if (resultado.estagioAtual) painelEl.appendChild(criarEstagioAtual(resultado.estagioAtual));
       // Antes de tudo (pedido do usuário): acima do "Hoje" e das 17 faixas. Sem a leitura do dia, uma linha de aviso no lugar.
-      painelEl.appendChild(verificarBanco.disponivel
-        ? criarSecaoVerificarBanco(verificarBanco)
-        : criarDiv(verificarBanco.motivo, { color: CORES.apagado, fontSize: '11px', lineHeight: '1.4', marginBottom: '10px' }));
+      criarSecoesEspeciais(verificarBanco, avisoSuspender, true).forEach((secao) => painelEl.appendChild(secao));
       painelEl.appendChild(criarResumoGeral(resultado));
       resultado.faixas.forEach((faixa) => {
         const emAndamento = Boolean(resultado.estagioAtual) && faixa.tier === resultado.estagioAtual.tier;
@@ -575,8 +650,10 @@
     estaAberto: () => painelEl !== null,
     montarProgresso,
     montarVerificarBanco,
+    montarAvisoSuspender,
     irParaFaixa,
     irParaVerificarBanco,
+    irParaAvisoSuspender,
     ganchos,
     CONFIG_PROGRESSO,
     obterBotao: () => botaoEl,

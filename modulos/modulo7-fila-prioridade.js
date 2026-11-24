@@ -1756,6 +1756,10 @@
       return;
     }
 
+    // Grupo "Aviso de suspensão" do progresso (Módulo 45): grava a lista do dia SE ela está completa e ainda não há uma de hoje. Antes de tudo, porque a
+    // retomada e o cache abaixo saem da função sem classificar nada. Módulo ausente = nada acontece.
+    window.__avisoSuspender?.registrarDoDia?.();
+
     // Continuar é o caso comum; refazer é o raro e vem pedido explicitamente.
     // Reconstruir reaplica o filtro de "já contatado hoje", que vem do
     // construirFilaAPartirDaPagina() do Módulo 3 (pula atendidosHoje).

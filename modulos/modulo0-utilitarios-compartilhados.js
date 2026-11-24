@@ -710,6 +710,7 @@
     'Plano da Carteira',
     'Plano do Cliente',
     'Verificar no Banco',
+    'Aviso de Suspensão',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
