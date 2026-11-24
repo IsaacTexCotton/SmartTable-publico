@@ -174,6 +174,8 @@
   }
 
   function acionarProximoDaFila() {
+    // Entrou pelo grupo "Aviso de suspensão" do Progresso (Módulo 45): o Próximo segue o grupo, não a fila. Módulo ausente ou fora do grupo = fila normal.
+    if (window.__avisoSuspender?.irParaProximoDoGrupo?.()) return;
     if (window.filaDebug && typeof window.filaDebug.irParaProximo === 'function') {
       window.filaDebug.irParaProximo('pulado');
     } else {

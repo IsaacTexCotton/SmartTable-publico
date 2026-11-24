@@ -12,6 +12,14 @@
  * real (24/11/2026, console do usuário, só números): `deveSuspender` é booleano nas 234 linhas de `window.CLIENTES`, e os 14 verdadeiros são os 14 "!" da
  * tela. Se um dia NENHUMA linha tiver o campo (o CRM mudou), o resultado é "sem leitura" e nada é gravado (nunca um "0 clientes" falso).
  *
+ * REGRA DE ENTRADA NO GRUPO (decisão do usuário, 24/11/2026): quem tem o "!" entra, EXCETO o cliente de CARTÓRIO (SCPC "n" na lista, o mesmo critério do
+ * fluxo Cartório do Alt+U) com menos de 28 dias de atraso (`diasAtraso` da lista; 28 entra, 27 não; sem número, fica de fora). SCPC "S"/"s" segue só o "!" do CRM.
+ * A versão dessa regra (`REGRA_DO_GRUPO`) vai gravada no grupo do dia: grupo gravado com outra regra não vale e é refeito na próxima lista completa.
+ *
+ * ALT+P NO GRUPO (decisão do usuário, 24/11/2026: "não está sendo possível ir para o próximo cliente nesta prioridade"): entrar pelo clique na barra do grupo
+ * (Módulo 11) liga o "modo grupo" (sessionStorage, desta aba, do dia); com ele, o Alt+P (Módulo 4) vai ao próximo cliente do grupo ainda sem "Verificado" em vez
+ * de seguir a fila do Alt+U. O modo acaba sozinho: Alt+U, clique numa faixa ou no outro grupo, o fim do grupo, ou o cliente da página não ser do grupo.
+ *
  * O QUE FAZ: (1) na lista, grava o grupo do dia (cnpj e endereço de quem tem o "!"), SÓ na primeira lista completa do dia (como o snapshot do
  * progresso: o total fica fixo), e apaga a marca de quem já não tem o "!" (assim o "!" que volta pede verificação de novo); (2) na página do cliente do
  * grupo, ainda sem marca, mostra o cartão com o botão "Verificado". Só lê a página; nada é enviado nem gravado no CRM. Guarda em `localStorage`
@@ -35,6 +43,12 @@
     BORDA_PX: 20,
     FOLGA_TOPO_PX: 8, // distância mínima entre o cartão e o cabeçalho fixo do CRM
     ALTURA_MINIMA_PX: 160,
+    // Cliente de cartório (SCPC "n" na lista): só entra no grupo com este atraso mínimo, em dias (>=).
+    DIAS_MINIMOS_CARTORIO: 28,
+    // Versão da regra de entrada no grupo (1 = só o "!"; 2 = mais o mínimo de 28 dias para cartório). Grupo gravado com outra versão não vale.
+    REGRA_DO_GRUPO: 2,
+    CHAVE_MODO: 'smarttable_aviso_suspender_modo_v1', // sessionStorage: o "modo grupo" do Alt+P, por aba
+    ESPERA_NAVEGAR_MS: 350, // o toast aparece antes da página trocar (como o Próximo do Módulo 3)
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
   });
 
@@ -67,6 +81,11 @@
   const hojeIso = () => window.__smartTableUtil?.dataIso?.(new Date()) ?? '';
   const temCampo = (linha) => Boolean(linha) && typeof linha === 'object' && linha[CONFIG.CAMPO_DO_CRM] !== undefined;
 
+  /** Cliente do fluxo Cartório: SCPC "n" na lista (vem em caixa mista: "n", "S", "s"). Sem o campo, não é cartório (vale só o "!" do CRM). */
+  const ehCartorio = (linha) => String(linha?.scpc ?? '').trim().toLowerCase() === 'n';
+  /** Cartório precisa de atraso numérico >= o mínimo; atraso ausente não prova nada e fica de fora. */
+  const atrasoSuficiente = (linha) => typeof linha?.diasAtraso === 'number' && linha.diasAtraso >= CONFIG.DIAS_MINIMOS_CARTORIO;
+
   function urlDoCliente(linha) {
     const controle = Number(linha?.controleCliente);
     if (!Number.isFinite(controle) || !linha?.cnpj) return null;
@@ -76,15 +95,19 @@
   /**
    * Quem tem o "!" na lista aberta. `null` = não dá para ler (sem `window.CLIENTES`, lista vazia, ou NENHUMA linha com o campo do CRM): diferente de
    * `[]` (leu e ninguém tem o "!"). Verdadeiro/falso como o CRM decide (`row.deveSuspender` truthy).
-   * @returns {{lidos: number, clientes: {cnpj: string, url: string|null}[]}|null}
+   * @returns {{lidos: number, foraPeloMinimo: number, clientes: {cnpj: string, url: string|null}[]}|null}
+   *   `foraPeloMinimo` = quantos têm o "!" mas são de cartório com menos de 28 dias (não entram).
    */
   function lerDaLista() {
     const lista = window.CLIENTES;
     if (!Array.isArray(lista) || lista.length === 0) return null;
     if (!lista.some(temCampo)) return null;
+    const comAviso = lista.filter((c) => c && c.cnpj && Boolean(c[CONFIG.CAMPO_DO_CRM]));
+    const entram = comAviso.filter((c) => !ehCartorio(c) || atrasoSuficiente(c));
     return {
       lidos: lista.length,
-      clientes: lista.filter((c) => c && c.cnpj && Boolean(c[CONFIG.CAMPO_DO_CRM])).map((c) => ({ cnpj: c.cnpj, url: urlDoCliente(c) })),
+      foraPeloMinimo: comAviso.length - entram.length,
+      clientes: entram.map((c) => ({ cnpj: c.cnpj, url: urlDoCliente(c) })),
     };
   }
 
@@ -100,6 +123,7 @@
       dados = JSON.parse(cru);
     } catch { return null; }
     if (!dados || dados.dia !== hojeIso() || !Array.isArray(dados.clientes)) return null;
+    if (dados.regra !== CONFIG.REGRA_DO_GRUPO) return null; // gravado com outra regra de entrada: não vale, a próxima lista completa o refaz
     return dados;
   }
 
@@ -119,12 +143,69 @@
     const lida = lerDaLista();
     if (!lida) return false;
     try {
-      window.localStorage.setItem(CONFIG.CHAVE_DIA, JSON.stringify({ dia: hojeIso(), geradoEm: Date.now(), lidos: lida.lidos, clientes: lida.clientes }));
+      window.localStorage.setItem(CONFIG.CHAVE_DIA, JSON.stringify({ dia: hojeIso(), regra: CONFIG.REGRA_DO_GRUPO, geradoEm: Date.now(), lidos: lida.lidos, foraPeloMinimo: lida.foraPeloMinimo, clientes: lida.clientes }));
       return true;
     } catch { return false; }
   }
 
   const estaNoGrupoDoDia = (cnpj) => (lerDoDia()?.clientes ?? []).some((c) => cnpjCompleto(c?.cnpj) === cnpjCompleto(cnpj));
+
+  /* ---------------------------------------------------------------------
+   * MODO GRUPO: o Alt+P segue o grupo (por aba; acaba sozinho)
+   * --------------------------------------------------------------------- */
+  // Troca de página: nos testes o jsdom não navega, então o destino é trocável.
+  const ganchos = {
+    navegar: (url) => { window.location.href = url; },
+  };
+
+  function modoAtivo() {
+    try {
+      const m = JSON.parse(window.sessionStorage.getItem(CONFIG.CHAVE_MODO) || 'null');
+      return Boolean(m) && m.dia === hojeIso();
+    } catch { return false; }
+  }
+  function iniciarModo() {
+    try { window.sessionStorage.setItem(CONFIG.CHAVE_MODO, JSON.stringify({ dia: hojeIso(), iniciadoEm: Date.now() })); return true; } catch { return false; }
+  }
+  function encerrarModo() {
+    try { window.sessionStorage.removeItem(CONFIG.CHAVE_MODO); } catch { /* sem armazenamento: nada a apagar */ }
+  }
+
+  /**
+   * O próximo cliente do grupo para quem está em `cnpjAtual`: o primeiro DEPOIS dele (ordem da lista) ainda sem "Verificado" e com endereço; sem nenhum depois,
+   * o primeiro antes dele. `estado`: "ok" (com `alvo` e `restantes`), "fora" (o atual não é do grupo), "todos-verificados" ou "sem-outro" (há pendente, mas só o atual
+   * ou sem endereço).
+   */
+  function proximoDoGrupo(cnpjAtual) {
+    const grupo = lerDoDia()?.clientes ?? [];
+    const atual = cnpjCompleto(cnpjAtual);
+    const i = grupo.findIndex((c) => cnpjCompleto(c?.cnpj) === atual);
+    if (i === -1) return { estado: 'fora' };
+    const pendente = (c) => Boolean(c) && Boolean(c.url) && cnpjCompleto(c.cnpj) !== atual && !clienteVerificado(c.cnpj);
+    const alvo = grupo.slice(i + 1).find(pendente) || grupo.slice(0, i).find(pendente) || null;
+    if (alvo) return { estado: 'ok', alvo, restantes: grupo.filter(pendente).length };
+    return { estado: grupo.every((c) => clienteVerificado(c?.cnpj)) ? 'todos-verificados' : 'sem-outro' };
+  }
+
+  /**
+   * Chamado pelo Alt+P (Módulo 4) ANTES da fila: em modo grupo, vai ao próximo cliente do grupo sem "Verificado".
+   * @returns {boolean} true se tratou o Alt+P (o Módulo 4 não segue a fila); false se não está em modo grupo ou saiu do grupo (o modo é desligado).
+   */
+  function irParaProximoDoGrupo() {
+    if (!modoAtivo()) return false;
+    const r = proximoDoGrupo(cnpjDaPagina());
+    if (r.estado === 'fora') { encerrarModo(); return false; }
+    if (r.estado === 'ok') {
+      window.__smartTableUtil?.toast?.(`Aviso de suspensão: próximo cliente (restam ${r.restantes} sem verificação).`);
+      setTimeout(() => ganchos.navegar(r.alvo.url), CONFIG.ESPERA_NAVEGAR_MS);
+      return true;
+    }
+    encerrarModo();
+    window.__smartTableUtil?.toast?.(r.estado === 'todos-verificados'
+      ? 'Aviso de suspensão: todos os clientes do grupo já foram verificados.'
+      : 'Aviso de suspensão: não há outro cliente sem verificação no grupo.');
+    return true;
+  }
 
   /* ---------------------------------------------------------------------
    * MARCAS "VERIFICADO" (CNPJ completo -> data)
@@ -295,6 +376,13 @@
     clienteVerificado,
     marcar,
     podarMarcas,
+    ehCartorio,
+    modoAtivo,
+    iniciarModo,
+    encerrarModo,
+    proximoDoGrupo,
+    irParaProximoDoGrupo,
+    ganchos,
     renderAviso,
     fecharAviso,
     avisoAberto: () => avisoEl !== null,

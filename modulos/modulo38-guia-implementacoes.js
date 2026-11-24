@@ -64,7 +64,7 @@
         {
           titulo: 'Navegar pela fila', atalho: 'Alt+P / Alt+V',
           resumo: 'Vai ao próximo cliente ou volta ao cliente anterior.',
-          detalhes: 'A navegação é acionada pelo operador; o módulo da fila não percorre clientes automaticamente por conta própria.'
+          detalhes: 'A navegação é acionada pelo operador; o módulo da fila não percorre clientes automaticamente por conta própria. Quando você entra pela barra "Aviso de suspensão" do Progresso da fila, o Alt+P passa a ir ao próximo cliente desse grupo ainda sem "Verificado" (e avisa quando acabar), até você iniciar o Alt+U, clicar numa faixa ou abrir um cliente de fora do grupo.'
         },
         {
           titulo: 'Busca rápida de cliente', atalho: 'Alt+B',

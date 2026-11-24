@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.136.0', data: '24/11/2026',
+      mudancas: [
+        'Aviso de suspensão: cliente de cartório (SCPC "n" na lista) só entra no grupo com 28 dias de atraso ou mais; quem é SCPC "S" ou "s" continua entrando só pelo "!" do CRM. O grupo do dia gravado hoje com a regra antiga é refeito na próxima vez que você abrir a lista de clientes completa (o total muda uma vez); as marcas "Verificado" ficam.',
+        'Aviso de suspensão: agora dá para ir ao próximo cliente do grupo. Ao entrar pelo clique na barra "Aviso de suspensão" do Progresso, o Alt+P vai ao próximo cliente do grupo ainda sem "Verificado" (do último, dá a volta e pula os já verificados) e avisa quando o grupo termina. O Alt+U, o clique numa faixa ou no outro grupo, ou abrir um cliente de fora do grupo voltam o Alt+P para a fila de sempre.'
+      ],
+    },
+    {
       versao: '1.135.0', data: '24/11/2026',
       mudancas: [
         'Novo grupo "Aviso de suspensão" no Progresso da fila, logo abaixo do "Verificar no banco": conta os clientes da lista que têm o "!" na situação (título protestado com saldo ou vencido há mais de 20 dias, que pela regra deveria estar com crédito Suspenso e cobrança Devedor Tex). Como o "!" não se retira à mão, ao abrir um desses clientes aparece um cartão "Aviso de suspensão" com o botão "Verificado": marcado, o cliente conta como feito na barra e sai da pendência até o "!" ser retirado e voltar. Clicar na barra leva ao primeiro cliente ainda sem verificação. O total do dia fica fixo (gravado na primeira vez que você abre a lista completa, sem filtro). A ordem da fila não mudou.'

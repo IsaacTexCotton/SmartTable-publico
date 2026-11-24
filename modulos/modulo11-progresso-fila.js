@@ -458,6 +458,7 @@
     const faixa = resultado.disponivel ? resultado.faixas.find((f) => f.tier === tier) : null;
     if (!faixa) return { ok: false, motivo: 'Essa faixa não está no progresso de hoje.' };
 
+    window.__avisoSuspender?.encerrarModo?.(); // clicar numa faixa volta o Alt+P para a fila
     return navegarParaAlvo(
       faixa.alvo,
       `Faixa toda cobrada: indo para o primeiro (${faixa.nome}).`,
@@ -469,6 +470,7 @@
   function irParaVerificarBanco() {
     const vb = montarVerificarBanco();
     if (!vb.disponivel || !vb.alvo) return { ok: false, motivo: 'Não há cliente com título a verificar no progresso de hoje.' };
+    window.__avisoSuspender?.encerrarModo?.(); // o outro grupo não é o do Alt+P do Aviso de suspensão
     return navegarParaAlvo(
       vb.alvo,
       'Todos já verificados: indo para o primeiro cliente de "Verificar no banco".',
@@ -480,12 +482,16 @@
   function irParaAvisoSuspender() {
     const vb = montarAvisoSuspender();
     if (!vb.disponivel || !vb.alvo) return { ok: false, motivo: 'Não há cliente com o ! de suspensão no progresso de hoje.' };
-    return navegarParaAlvo(
+    // Entrar pelo grupo liga o "modo grupo": o Alt+P (Módulo 4) passa a ir ao próximo cliente do grupo (Módulo 45). Se não navegar, desliga.
+    window.__avisoSuspender?.iniciarModo?.();
+    const r = navegarParaAlvo(
       vb.alvo,
       'Todos já verificados: indo para o primeiro cliente com o ! de suspensão.',
       'Indo para o primeiro cliente com o ! de suspensão ainda sem verificação.',
       'Não tenho o endereço desse cliente (falta o número de controle na lista). Abra-o pela lista de clientes.'
     );
+    if (!r.ok) window.__avisoSuspender?.encerrarModo?.();
+    return r;
   }
 
   /** Parte comum dos cliques (faixa e grupos especiais): acha o endereço, ajusta a posição da fila ao vivo e navega. */
