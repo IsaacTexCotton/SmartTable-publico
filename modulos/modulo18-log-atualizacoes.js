@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.137.1', data: '25/11/2026',
+      mudancas: [
+        'Celular no Systêxtil: ao clicar em "Enviar ao Systêxtil", o modal agora diz "Pedido enviado. Aguardando a ponte confirmar o recebimento…"; só depois que a ponte responde ele diz "entregue à ponte" (antes dizia "entregue" no instante do clique, sem a ponte ter confirmado nada).',
+        'A ponte do celular (userscript, versão 0.1.1) passou a escrever no console linhas de estado CENSURADAS, com o prefixo "[SmartTable ponte celular]" (sem CNPJ, sem número, sem valor de campo), para mostrar onde um pedido parou. Depois de instalar ou atualizar a ponte, recarregue (F5) as abas do CRM e do Systêxtil: o Tampermonkey só liga o script em páginas carregadas depois da instalação.'
+      ],
+    },
+    {
       versao: '1.137.0', data: '25/11/2026',
       mudancas: [
         'Celular no Systêxtil: na tela do cliente, quando o "Celular" do cadastro é diferente do "Celular Responsável" (e o do responsável é um celular completo: DDD e 9 dígitos), aparece o botão "Celular no Systêxtil" ao lado do Plano. O modal mostra os dois números com máscara e, ao confirmar, a ponte preenche o campo Celular da tela Cadastro de Clientes do Systêxtil (só o número, sem o DDD). Quem salva é você, com F9: nada é gravado sozinho.',

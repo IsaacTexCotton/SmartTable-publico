@@ -222,6 +222,8 @@
    * --------------------------------------------------------------------- */
   // Texto por estado da ponte. A resposta da ponte NUNCA vira texto direto: só o código escolhe uma destas frases.
   const FRASES = Object.freeze({
+    // Só deste lado: o pedido saiu, mas a ponte ainda não confirmou nada (não afirmo "entregue" antes disso).
+    enviado: ['andamento', 'Pedido enviado. Aguardando a ponte confirmar o recebimento…'],
     recebido: ['andamento', 'Pedido entregue à ponte. Abra a tela Cadastro de Clientes (pedi_f010) do Systêxtil, se ainda não estiver aberta.'],
     'aguardando-systextil': ['andamento', 'Aguardando a tela Cadastro de Clientes (pedi_f010) do Systêxtil. Abra-a numa aba deste navegador.'],
     'cnpj-preenchido': ['andamento', 'CNPJ preenchido no Systêxtil. Pesquisando (F7)…'],
@@ -242,6 +244,8 @@
   });
   const FINAIS = new Set(['preenchido', 'ja-igual', 'tela-nao-encontrada', 'tela-ocupada', 'cnpj-diferente', 'cliente-nao-carregou', 'campo-ausente', 'valor-nao-ficou', 'expirado', 'sem-ponte', 'pedido-invalido']);
   const SUCESSOS = new Set(['preenchido', 'ja-igual']);
+  // Estados que só este módulo cria: a ponte não pode mandá-los.
+  const SO_LOCAIS = new Set(['enviado', 'sem-ponte']);
 
   function render() {
     if (!corpoEl) return;
@@ -348,11 +352,11 @@
       render();
       return;
     }
-    const atual = { id: pedido.id, estado: 'recebido', timer: null };
+    const atual = { id: pedido.id, estado: 'enviado', timer: null };
     envio = atual;
     // Sem resposta nenhuma da ponte em ESPERA_PONTE_MS: userscript não instalado ou desligado nesta aba.
     atual.timer = setTimeout(() => {
-      if (envio === atual && atual.estado === 'recebido') { atual.estado = 'sem-ponte'; render(); }
+      if (envio === atual && atual.estado === 'enviado') { atual.estado = 'sem-ponte'; render(); }
     }, CONFIG.ESPERA_PONTE_MS);
     render();
     try {
@@ -370,7 +374,7 @@
       dados = typeof evento.detail === 'string' ? JSON.parse(evento.detail) : evento.detail;
     } catch (_) { return; }
     if (!envio || !dados || dados.schema !== CONFIG.SCHEMA || dados.id !== envio.id) return; // resposta de outro pedido: ignora
-    if (typeof dados.status !== 'string' || !Object.prototype.hasOwnProperty.call(FRASES, dados.status)) return;
+    if (typeof dados.status !== 'string' || !Object.prototype.hasOwnProperty.call(FRASES, dados.status) || SO_LOCAIS.has(dados.status)) return;
     // Os sucessos só valem com ok === true: o "ok" é da ponte, e sem ele não afirmo nada.
     if (SUCESSOS.has(dados.status) && dados.ok !== true) return;
     if (FINAIS.has(envio.estado)) return; // final é final: resposta atrasada não reabre

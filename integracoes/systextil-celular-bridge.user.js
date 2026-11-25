@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.0
+// @version      0.1.1
 // @description  Leva, por clique explícito no CRM, o celular do responsável para o campo Celular da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
@@ -62,6 +62,8 @@
   const pagina = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   const ID_ABA = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 12);
   const esperar = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
+  // Log CENSURADO, para saber onde um pedido parou: só palavras de estado e sim/não. Nunca CNPJ, número, nome nem valor de campo.
+  const registrar = (texto) => { try { console.info('[SmartTable ponte celular] ' + texto); } catch (_) { /* sem console */ } };
 
   /* ---------------------------------------------------------------------
    * PEDIDO (validação rígida: nada de pedido pela metade)
@@ -83,6 +85,7 @@
 
   function publicar(id, status, ok) {
     if (!idValido(id)) return;
+    registrar('systextil: status=' + status);
     GM_setValue(KEY_RESULTADO, { schema: SCHEMA, id, status, ok: ok === true, em: Date.now() });
   }
 
@@ -104,6 +107,7 @@
     let atual = null; // { id, recebeuResposta, final, timers }
 
     const encaminhar = (id, status, ok) => {
+      registrar('crm: resultado=' + status);
       const evento = new pagina.CustomEvent(EVENTO_RESULTADO, { detail: JSON.stringify({ schema: SCHEMA, id, status, ok: ok === true }) });
       pagina.document.dispatchEvent(evento);
     };
@@ -115,9 +119,11 @@
 
     document.addEventListener(EVENTO_ENVIAR, (evento) => {
       let pedido = null;
-      try { pedido = typeof evento.detail === 'string' ? JSON.parse(evento.detail) : null; } catch (_) { return; }
+      try { pedido = typeof evento.detail === 'string' ? JSON.parse(evento.detail) : null; } catch (_) { registrar('crm: evento ignorado (detail não é JSON)'); return; }
+      registrar('crm: evento do SmartTable recebido');
       const validade = validarPedido(pedido, Date.now());
       if (!validade.ok) {
+        registrar('crm: pedido recusado (motivo=' + validade.motivo + ')');
         if (idValido(pedido && pedido.id)) encaminhar(pedido.id, validade.motivo === 'expirado' ? 'expirado' : 'pedido-invalido', false);
         return;
       }
@@ -166,6 +172,12 @@
       celular: campo('celular_cliente.'),
     };
     return Object.values(tela).every(Boolean) ? tela : null;
+  }
+
+  /** Quais dos cinco campos existem nesta aba (sim/não), para o log: mostra o que falta se a tela não for reconhecida. */
+  function descreverCampos() {
+    const nomes = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['codigo', 'codigo_cliente.'], ['celular', 'celular_cliente.']];
+    return nomes.map(([rotulo, nome]) => rotulo + '=' + (campo(nome) ? 'sim' : 'não')).join(', ');
   }
 
   const cnpjDaTela = (tela) => (tela.raiz.value + tela.ordem.value + tela.digitos.value).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
@@ -258,6 +270,7 @@
 
   function iniciarLadoSystextil() {
     let processando = false;
+    let ultimaDescricao = '';
 
     async function tentar() {
       if (processando) return;
@@ -271,10 +284,17 @@
         return;
       }
       const tela = lerTela();
-      if (!tela) return; // esta aba não está no Cadastro de Clientes: outra aba (ou a próxima tela) cuida
+      if (!tela) { // esta aba não está no Cadastro de Clientes: outra aba (ou a próxima tela) cuida
+        const descricao = descreverCampos();
+        if (descricao !== ultimaDescricao) { ultimaDescricao = descricao; registrar('systextil: há pedido pendente, mas a tela Cadastro de Clientes não foi reconhecida nesta aba (' + descricao + ')'); }
+        return;
+      }
+      ultimaDescricao = '';
       processando = true;
       try {
+        registrar('systextil: tela reconhecida, há pedido pendente');
         if (await reservar(pedido.id)) await executar(pedido, tela);
+        else registrar('systextil: outra aba já reservou o pedido');
       } catch (_) {
         publicar(pedido.id, 'campo-ausente', false);
         apagarPedido(pedido.id);
@@ -293,6 +313,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.1 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 
