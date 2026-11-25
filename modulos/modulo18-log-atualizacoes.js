@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.137.0', data: '25/11/2026',
+      mudancas: [
+        'Celular no Systêxtil: na tela do cliente, quando o "Celular" do cadastro é diferente do "Celular Responsável" (e o do responsável é um celular completo: DDD e 9 dígitos), aparece o botão "Celular no Systêxtil" ao lado do Plano. O modal mostra os dois números com máscara e, ao confirmar, a ponte preenche o campo Celular da tela Cadastro de Clientes do Systêxtil (só o número, sem o DDD). Quem salva é você, com F9: nada é gravado sozinho.',
+        'Para usar, instale no Tampermonkey o userscript "SmartTable — Ponte Celular CRM / Systêxtil". Sem ele o modal avisa que a ponte não respondeu; o resto do SmartTable segue igual. Responsável sem celular completo, ou números iguais: o botão não aparece.'
+      ],
+    },
+    {
       versao: '1.136.0', data: '24/11/2026',
       mudancas: [
         'Aviso de suspensão: cliente de cartório (SCPC "n" na lista) só entra no grupo com 28 dias de atraso ou mais; quem é SCPC "S" ou "s" continua entrando só pelo "!" do CRM. O grupo do dia gravado hoje com a regra antiga é refeito na próxima vez que você abrir a lista de clientes completa (o total muda uma vez); as marcas "Verificado" ficam.',

@@ -711,6 +711,7 @@
     'Plano do Cliente',
     'Verificar no Banco',
     'Aviso de Suspensão',
+    'Celular no Systêxtil',
   ]);
 
   const modulosCarregadosRegistrados = new Set();

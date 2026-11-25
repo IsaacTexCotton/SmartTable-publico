@@ -817,6 +817,9 @@
       // O formulário "Verificação no banco" (Módulo 44) também é modal: nenhum atalho Alt+letra age atrás dele (Alt+S registraria e enviaria a cobrança).
       if (e.altKey && window.__verificarBanco?.estaAberto?.()) return;
 
+      // O modal "Celular no Systêxtil" (Módulo 46) é modal: nenhum atalho Alt+letra age atrás dele (Alt+S registraria e enviaria a cobrança).
+      if (e.altKey && window.__celularSystextil?.estaAberto?.()) return;
+
       // O guia de implementações é modal: evita que outro atalho execute atrás dele.
       if (e.altKey && !(e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === CONFIG_ATALHOS.TECLA_IMPLEMENTACOES) && window.__painelImplementacoes?.estaAberto?.()) return;
 
