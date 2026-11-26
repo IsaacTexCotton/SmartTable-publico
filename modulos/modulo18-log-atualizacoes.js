@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.137.2', data: '26/11/2026',
+      mudancas: [
+        'Desempenho na tela do cliente: o SmartTable passou a fazer bem menos trabalho quando a página muda sozinha (o CRM atualizando algo, avisos, painéis). Em teste, 300 mudanças seguidas gastavam cerca de 230 ms de processamento, 600 leituras de layout e 300 varreduras da lista de títulos; agora gastam cerca de 22 ms, nenhuma leitura de layout e nenhuma varredura. Nada muda no que aparece na tela.',
+        'Isto mira o relato de lentidão que aparece "do nada" e some ao recarregar a página, mas a causa ainda NÃO foi confirmada na máquina de quem teve o problema. Se a lentidão voltar, anote se o F5 resolve e o que o Gerenciador de Tarefas do Chrome (Shift+Esc) mostra para a aba do CRM (CPU alta e constante, memória grande, ou CPU parada).'
+      ],
+    },
+    {
       versao: '1.137.1', data: '25/11/2026',
       mudancas: [
         'Celular no Systêxtil: ao clicar em "Enviar ao Systêxtil", o modal agora diz "Pedido enviado. Aguardando a ponte confirmar o recebimento…"; só depois que a ponte responde ele diz "entregue à ponte" (antes dizia "entregue" no instante do clique, sem a ponte ter confirmado nada).',

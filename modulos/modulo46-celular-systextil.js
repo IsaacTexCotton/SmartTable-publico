@@ -247,10 +247,10 @@
   // Estados que só este módulo cria: a ponte não pode mandá-los.
   const SO_LOCAIS = new Set(['enviado', 'sem-ponte']);
 
-  function render() {
+  function render(avaliacaoPronta) {
     if (!corpoEl) return;
     corpoEl.replaceChildren();
-    const avaliacao = avaliar();
+    const avaliacao = avaliacaoPronta || avaliar();
     assinaturaRenderizada = assinatura(avaliacao);
     if (envio) {
       const [tipo, texto] = FRASES[envio.estado] || FRASES.recebido;
@@ -272,7 +272,8 @@
 
   function abrirPainel() {
     if (painelEl) return;
-    if (avaliar().estado !== 'diverge') return; // o botão nem existe sem divergência; o atalho de API também não abre
+    const avaliacaoDeAbertura = avaliar();
+    if (avaliacaoDeAbertura.estado !== 'diverge') return; // o botão nem existe sem divergência; o atalho de API também não abre
     window.__smartTableUtil?.fecharOutrosPaineis?.('celularSystextil');
     focoAnterior = document.activeElement;
     const tituloEl = no('h3', CLASSES.titulo, 'Celular no Systêxtil');
@@ -307,7 +308,7 @@
     botaoEl?.setAttribute('aria-expanded', 'true');
     painelEl.tabIndex = -1;
     painelEl.focus();
-    render();
+    render(avaliacaoDeAbertura);
   }
 
   function fecharPainel() {
@@ -420,14 +421,15 @@
   /** Mostra o botão só com divergência; some quando os números passam a bater (ex.: o operador corrigiu o responsável). */
   function atualizarBotao() {
     if (!cnpjDaPagina()) return;
-    const diverge = avaliar().estado === 'diverge';
+    const avaliacao = avaliar(); // uma avaliação por ciclo (antes: até três)
+    const diverge = avaliacao.estado === 'diverge';
     const existente = document.getElementById(CONFIG.ID_BOTAO);
     if (diverge && !existente) botaoEl = criarBotao();
     else if (!diverge && existente) {
       if (painelEl && !(envio && !FINAIS.has(envio.estado))) fecharPainel();
       existente.remove();
       botaoEl = null;
-    } else if (painelEl && assinaturaRenderizada !== assinatura(avaliar())) render(); // só repinta se o que o modal mostra mudou
+    } else if (painelEl && assinaturaRenderizada !== assinatura(avaliacao)) render(avaliacao); // só repinta se o que o modal mostra mudou
   }
 
   let timerReavaliar = null;
@@ -440,9 +442,17 @@
   function aoCarregar() {
     if (!cnpjDaPagina()) return; // só faz sentido na página do cliente
     atualizarBotao();
-    // O CRM repinta o responsável ao salvar e o Módulo 34 reescreve a grade: reavalia em vez de confiar só na carga.
+    // O CRM repinta o responsável ao salvar e o Módulo 34 reescreve a grade: reavalia em vez de confiar só na carga. Só a GRADE de contato importa
+    // (é onde mudam o Celular e o Celular Responsável): vigiar o body inteiro reavaliava a cada mudança de qualquer lugar da página (revisão de
+    // 26/11/2026). Sem a grade na carga, cai no body (nunca pior que antes).
     const observador = new window.MutationObserver(agendarReavaliacao);
-    observador.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observador.observe(gradeDeContato() || document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  /** O contêiner da grade nativa de contato (o ancestral de #resp-celular-valor que agrupa os campos), ou null. */
+  function gradeDeContato() {
+    const resp = document.getElementById('resp-celular-valor');
+    return (resp && (resp.closest('.grid') || (resp.parentElement && resp.parentElement.parentElement))) || null;
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', aoCarregar);

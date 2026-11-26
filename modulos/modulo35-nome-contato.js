@@ -63,8 +63,22 @@
     return responsavel?.parentElement?.parentElement || null;
   }
 
+  // A razão social só muda quando a lista de títulos (ou a raiz) muda, mas era recalculada a cada mudança do DOM: regex pesada por título, Map e sort
+  // (revisão de 26/11/2026). Guarda o último resultado por identidade da lista + tamanho + raiz. Limite conhecido: trocar um item da MESMA lista sem
+  // mudar o tamanho não é visto (a lista do CRM é montada uma vez por página).
+  const SEM_TITULOS = [];
+  let memoRazao = { lista: null, tamanho: -1, raiz: null, valor: '' };
+
   function obterRazao(raiz) {
-    const titulos = Array.isArray(window.__TITULOS_ABERTOS__) ? window.__TITULOS_ABERTOS__ : [];
+    const bruta = window.__TITULOS_ABERTOS__; // uma leitura só
+    const titulos = Array.isArray(bruta) ? bruta : SEM_TITULOS;
+    if (memoRazao.lista === titulos && memoRazao.tamanho === titulos.length && memoRazao.raiz === raiz) return memoRazao.valor;
+    const valor = calcularRazao(titulos, raiz);
+    memoRazao = { lista: titulos, tamanho: titulos.length, raiz: raiz, valor: valor };
+    return valor;
+  }
+
+  function calcularRazao(titulos, raiz) {
     const razoes = new Map();
     titulos.forEach(function (titulo) {
       const razao = limparCnpjDaRazao(titulo && titulo.razaoSocial);
@@ -183,6 +197,16 @@
     }
   }
 
+  // O observer só AGENDA (um quadro): várias mudanças do DOM no mesmo quadro viram uma conferência só (igual ao Módulo 34).
+  let instalacaoAgendada = false;
+  function agendarInstalacao() {
+    if (instalacaoAgendada) return;
+    instalacaoAgendada = true;
+    const executar = function () { instalacaoAgendada = false; instalarCampo(); };
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(executar);
+    else window.setTimeout(executar, 16);
+  }
+
   function instalar() {
     if (!document.body) {
       window.setTimeout(instalar, 100);
@@ -190,7 +214,7 @@
     }
     instalarCampo();
     if (observador) return;
-    observador = new MutationObserver(instalarCampo);
+    observador = new MutationObserver(agendarInstalacao);
     observador.observe(document.body, { childList: true, subtree: true });
   }
 

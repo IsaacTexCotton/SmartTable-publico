@@ -168,6 +168,48 @@
     return true;
   }
 
+  // Ler layout (getBoundingClientRect, getComputedStyle) força um recálculo SÍNCRONO da página, e localizarAreaPrincipal faz isso em cada ancestral.
+  // Antes, o cálculo rodava a cada mudança qualquer do DOM (revisão de 26/11/2026: 300 mudanças alheias = 600 leituras de layout e 300 layouts forçados).
+  // Agora só roda quando o cartão é novo ou quando o TAMANHO muda: ResizeObserver no pai do cartão, resize da janela e clique de menu.
+  const ESPERA_ANIMACAO_MENU_MS = 400;
+  let cartaoComLarguraCalculada = null;
+  let vigiaDeTamanho = null;
+
+  function agendarQuadro(funcao) {
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(funcao);
+    else window.setTimeout(funcao, 16);
+  }
+
+  function ajustarLarguraSeNecessario(cartao, forcar) {
+    if (!forcar && cartao === cartaoComLarguraCalculada) return;
+    cartaoComLarguraCalculada = cartao;
+    ajustarLarguraCartao(cartao);
+    vigiarTamanhoDoCartao(cartao);
+  }
+
+  function reajustarLarguraDoCartao() {
+    const cartao = document.querySelector('[data-smt-retorno-cartao="true"]');
+    if (cartao) ajustarLarguraSeNecessario(cartao, true);
+  }
+
+  function vigiarTamanhoDoCartao(cartao) {
+    const pai = cartao.parentElement;
+    if (!pai || typeof window.ResizeObserver !== 'function') return;
+    if (vigiaDeTamanho && vigiaDeTamanho.pai === pai) return; // já vigia este pai
+    if (vigiaDeTamanho) vigiaDeTamanho.observador.disconnect();
+    // Só a LARGURA do pai entra no cálculo: crescer em altura (conteúdo carregando, tabela redesenhada) não pede novo cálculo.
+    let ultimaLargura = null;
+    const observador = new window.ResizeObserver(function (entradas) {
+      const entrada = entradas && entradas[entradas.length - 1];
+      const largura = entrada && entrada.contentRect ? entrada.contentRect.width : null;
+      if (largura !== null && largura === ultimaLargura) return;
+      ultimaLargura = largura;
+      reajustarLarguraDoCartao();
+    });
+    observador.observe(pai);
+    vigiaDeTamanho = { pai: pai, observador: observador };
+  }
+
   function instalarEstilos() {
     if (document.getElementById(ID_ESTILOS) || !document.head) return;
     const estilo = elemento('style');
@@ -1132,7 +1174,7 @@
       const resumoCliente = cartaoInfo.previousElementSibling;
       if (cartaoCliente && resumoCliente) {
         cartaoCliente.dataset.smtRetornoCartao = 'true';
-        ajustarLarguraCartao(cartaoCliente);
+        ajustarLarguraSeNecessario(cartaoCliente, false);
         resumoCliente.dataset.smtRetornoResumo = 'true';
         const identificacao = resumoCliente.querySelector(':scope > div:first-child');
         const indicadores = resumoCliente.querySelector(':scope > div:nth-child(2)');
@@ -1208,15 +1250,18 @@
     }
     criarBotaoRetorno();
     if (observador) return;
-    window.addEventListener('resize', criarBotaoRetorno, { passive: true });
+    window.addEventListener('resize', reajustarLarguraDoCartao, { passive: true });
     // O listener delegado detecta abertura/fechamento de navegação sem observar
     // cada atributo de cada campo da página, o que criaria reentrância no CRM.
     document.addEventListener('click', function (evento) {
       const alvo = evento.target?.nodeType === 1 ? evento.target : evento.target?.parentElement;
       if (!alvo?.closest?.('aside, nav, [role="navigation"], [class*="sidebar"], [id*="sidebar"], [aria-controls], [aria-expanded], [data-sidebar]')) return;
-      window.setTimeout(criarBotaoRetorno, 0);
+      window.setTimeout(function () { criarBotaoRetorno(); reajustarLarguraDoCartao(); }, 0);
+      window.setTimeout(reajustarLarguraDoCartao, ESPERA_ANIMACAO_MENU_MS); // depois da animação do menu
     }, true);
+    let reacaoAgendada = false;
     observador = new MutationObserver(function (mutacoes) {
+      if (reacaoAgendada) return; // já há uma reação a caminho neste quadro: mais mutações não somam trabalho
       const seletorSmartTable = [
         '#' + ID_DIALOGO,
         '#' + ID_LAYOUT_PERFIL,
@@ -1236,9 +1281,15 @@
       };
       // Não reagir às próprias mutações de layout/painel; observar as alterações
       // estruturais do CRM evita que a preparação de campos gere um ciclo.
-      if (mutacoes.some(function (mutacao) {
+      if (!mutacoes.some(function (mutacao) {
         return mutacao.type === 'childList' && !mutacaoDoModulo(mutacao);
-      })) criarBotaoRetorno();
+      })) return;
+      reacaoAgendada = true;
+      // Um quadro só (como o Módulo 5): o navegador junta tudo o que mudou antes de a estrutura ser conferida.
+      agendarQuadro(function () {
+        reacaoAgendada = false;
+        criarBotaoRetorno();
+      });
     });
     observador.observe(document.body, { childList: true, subtree: true });
   }
