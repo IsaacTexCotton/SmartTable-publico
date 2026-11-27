@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.3
+// @version      0.1.4
 // @description  Leva, por clique explícito no CRM, o celular do responsável para o campo Celular da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
@@ -30,9 +30,10 @@
  *  Privacidade: o número só existe no pedido (valor do Tampermonkey, apagado ao terminar ou expirar, validade de 5
  *  minutos) e no campo da tela. Nada vai para log, console nem para o resultado devolvido ao CRM.
  *
- *  Os nomes dos campos (`cgc_r.`, `cgc_o.`, `cgc_2.`, `codigo_cliente.`, `celular_cliente.`) vêm de diagnóstico censurado
- *  do usuário na tela pedi_f010 (25/11/2026). O preenchimento por eventos e o F7 simulado NÃO foram validados no
- *  Systêxtil real (o agente não o alcança): se o F7 não valer, a ponte avisa e espera o operador apertar F7.
+ *  Os nomes dos campos (`cgc_r.`, `cgc_o.`, `cgc_2.`, `nome_cliente.`, `celular_cliente.`) vêm de diagnóstico censurado
+ *  do usuário na tela pedi_f010 (25/11 e 27/11/2026). No teste real de 27/11/2026 o Systêxtil consultou o cliente com o F7
+ *  simulado; o que falhava era o sinal de "cliente carregado" (ver `clienteCarregado`). Se o F7 não valer, a ponte avisa e
+ *  espera o operador apertar F7. O agente não alcança o Systêxtil.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -168,13 +169,13 @@
       raiz: campo('cgc_r.'),
       ordem: campo('cgc_o.'),
       digitos: campo('cgc_2.'),
-      codigo: campo('codigo_cliente.'),
+      nome: campo('nome_cliente.'),
       celular: campo('celular_cliente.'),
     };
     return Object.values(tela).every(Boolean) ? tela : null;
   }
 
-  const NOMES_CAMPOS = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['codigo', 'codigo_cliente.'], ['celular', 'celular_cliente.']];
+  const NOMES_CAMPOS = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['nome', 'nome_cliente.'], ['celular', 'celular_cliente.']];
   const simNao = (sim) => (sim ? 'sim' : 'não');
 
   /** Quais dos cinco campos existem nesta aba (sim/não), para o log: mostra o que falta se a tela não for reconhecida. */
@@ -183,7 +184,9 @@
   }
 
   const cnpjDaTela = (tela) => (tela.raiz.value + tela.ordem.value + tela.digitos.value).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
-  const clienteCarregado = (tela) => tela.codigo.value.trim() !== '';
+  // Cliente carregado = a razão social apareceu. O `codigo_cliente.` NÃO serve: fica vazio mesmo com o cliente na tela
+  // (diagnóstico censurado do usuário, 27/11/2026); na tela sem cliente só `superCountLabel.`, `dynamictext1.` e `mascara.` têm valor.
+  const clienteCarregado = (tela) => tela.nome.value.trim() !== '';
 
   /** Linha CENSURADA (só sim/não e contagens) para quando o F7 parece não ter carregado o cliente: diz se a tela trocou os
    * campos por novos (os lidos antes do F7 saíram da página) ou se há mais de um campo com o mesmo nome. */
@@ -191,11 +194,11 @@
     const nova = lerTela();
     const originaisNaPagina = Object.values(original).every((el) => el.isConnected);
     const mesmoElemento = Boolean(nova) && Object.keys(original).every((chave) => nova[chave] === original[chave]);
-    const codigoPreenchido = Boolean(nova) && clienteCarregado(nova);
+    const clienteNaTela = Boolean(nova) && clienteCarregado(nova);
     const cnpjConfere = Boolean(nova) && cnpjDaTela(nova) === pedido.cnpj;
     const contagens = NOMES_CAMPOS.map(([rotulo, nome]) => rotulo + '=' + document.querySelectorAll('input[name="' + nome + '"]').length).join(', ');
     return 'systextil: diagnóstico pós-F7 (campos-originais-na-página=' + simNao(originaisNaPagina) + ', mesmo-elemento=' + simNao(mesmoElemento)
-      + ', código-preenchido(nova leitura)=' + simNao(codigoPreenchido) + ', cnpj-confere(nova leitura)=' + simNao(cnpjConfere)
+      + ', cliente-carregado(nova leitura)=' + simNao(clienteNaTela) + ', cnpj-confere(nova leitura)=' + simNao(cnpjConfere)
       + ', inputs-por-nome ' + contagens + ')';
   }
 
@@ -288,7 +291,7 @@
     }
 
     // O cliente só vale depois de ficar IGUAL em duas leituras seguidas (a tela pode repintar os campos logo após o F7).
-    const ler = () => { const t = telaComCliente(); return t ? cnpjDaTela(t) + '|' + t.codigo.value : null; };
+    const ler = () => { const t = telaComCliente(); return t ? cnpjDaTela(t) + '|' + t.nome.value : null; };
     const antes = ler();
     await esperar(TEMPOS.estabilizar);
     if (antes === null || ler() !== antes) await esperar(TEMPOS.estabilizar);
@@ -349,7 +352,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.3 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.4 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 
