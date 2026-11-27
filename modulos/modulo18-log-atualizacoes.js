@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.142.2', data: '27/11/2026',
+      mudancas: [
+        'Na espera entre uma emissão e outra, a linha do título mostra quanto falta (por exemplo, "Aguardando intervalo (faltam 1 min 35 s)").',
+        'Se a aba do Systextil estiver em segundo plano, o painel avisa para deixá-la visível, de preferência em uma janela própria: o navegador pode atrasar ou pausar o relógio de abas escondidas e o lote parar de andar. Se o Systextil ficar mais de 90 segundos sem dar sinal no meio do lote, o painel avisa para conferir a aba antes de enviar de novo.',
+        'Os motivos dos títulos que não saíram agora aparecem inteiros, com o diagnóstico do ERP. Exige o userscript do Systextil na versão 1.1.2 ou superior.',
+      ],
+    },
+    {
       versao: '1.142.1', data: '27/11/2026',
       mudancas: [
         'Na 2ª via, quando um título não sai (por exemplo, o segundo do lote), o painel agora mostra o que o Systextil informou sobre ele, em vez de só "Não emitido". Assim dá para ver por que o título não foi emitido.',

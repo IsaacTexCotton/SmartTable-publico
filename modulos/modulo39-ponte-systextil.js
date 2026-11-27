@@ -33,6 +33,9 @@
     TTL_PEDIDO_MS: 5 * 60 * 1000,
     TTL_ACOMPANHAMENTO_MS: 10 * 60 * 1000,
     ESPERA_PONTE_MS: 8000,
+    // Sem nenhum sinal do Systextil por tanto tempo, no meio do lote, o painel avisa (ele manda sinais a cada ~10 s na espera).
+    SEM_SINAL_MS: 90 * 1000,
+    LIMITE_MOTIVO: 800,
     LIMITE_TITULO: 40,
     LIMITE_PARCELA: 20,
     Z_INDEX_POPUP: window.__smartTableUtil?.Z_INDEX_POPUP,
@@ -131,6 +134,7 @@
   const lotes = new Map(); // id do pedido -> acompanhamento
   const estadoDoTitulo = new Map(); // chave do título -> estado nesta sessão (ver TEXTO_DO_ESTADO)
   const motivoDoTitulo = new Map(); // chave do título -> por que o Systextil não o emitiu (texto fixo do userscript)
+  const restanteDoTitulo = new Map(); // chave do título -> segundos que faltam do intervalo entre emissões
   const ESTADOS_COM_MOTIVO = new Set(['nao-emitido', 'indeterminado', 'erro']);
   const estado = {
     linhas: [],
@@ -457,9 +461,13 @@
       const chave = lote.chaves[item.indice];
       estadoDoTitulo.set(chave, item.estado);
       // O motivo é um texto fixo do userscript (sem dado do cliente); só vale para os estados em que algo não saiu como esperado.
-      if (ESTADOS_COM_MOTIVO.has(item.estado) && typeof item.motivo === 'string' && item.motivo.trim()) motivoDoTitulo.set(chave, item.motivo.trim().slice(0, 200));
+      if (ESTADOS_COM_MOTIVO.has(item.estado) && typeof item.motivo === 'string' && item.motivo.trim()) motivoDoTitulo.set(chave, item.motivo.trim().slice(0, CONFIG.LIMITE_MOTIVO));
       else motivoDoTitulo.delete(chave);
+      if (item.estado === 'aguardando-intervalo' && Number.isInteger(item.restanteSegundos) && item.restanteSegundos >= 0) restanteDoTitulo.set(chave, item.restanteSegundos);
+      else restanteDoTitulo.delete(chave);
     });
+    // Aba do Systextil em segundo plano: o navegador atrasa (ou congela) os temporizadores dela e o lote pode parar de andar.
+    lote.segundoPlano = itens.some((item) => item && item.segundoPlano === true);
   }
 
   const ETAPAS = Object.freeze({
@@ -469,6 +477,17 @@
     'emissao-solicitada': { tipo: 'andamento', texto: 'Boletos emitidos. O Systextil vai a Processos agendados baixar os PDFs.' },
     baixando: { tipo: 'andamento', texto: 'Baixando os PDFs para a pasta Downloads.' },
   });
+
+  /** Depois de cada sinal de andamento, espera outro; se ele não vier em SEM_SINAL_MS, o painel avisa (sem mexer em nada do lote). */
+  function armarSinal(lote) {
+    if (lote.timerSinal) window.clearTimeout(lote.timerSinal);
+    lote.timerSinal = window.setTimeout(() => {
+      lote.timerSinal = null;
+      if (lotes.get(lote.id) !== lote || lote.erro) return;
+      lote.semSinal = true;
+      renderTudo();
+    }, CONFIG.SEM_SINAL_MS);
+  }
 
   function marcarParaConferir(lote) {
     lote.chaves.forEach((chave) => {
@@ -495,6 +514,11 @@
       window.clearTimeout(lote.timer);
       lote.timer = null;
     }
+    if (lote.timerSinal) {
+      window.clearTimeout(lote.timerSinal);
+      lote.timerSinal = null;
+    }
+    lote.semSinal = false;
     aplicarItens(lote, resultado.itens);
 
     if (resultado.status === 'erro') {
@@ -556,6 +580,7 @@
         definirMensagem('O SmartTable não recebeu a confirmação final do Systextil. Confira Processos agendados e a pasta Downloads antes de qualquer nova emissão.', 'erro');
         renderTudo();
       });
+      if (['processando', 'emissao-solicitada', 'baixando'].includes(resultado.status)) armarSinal(lote);
       renderTudo();
       return;
     }
@@ -677,8 +702,13 @@
     return no('span', CLASSES.badge + ' ' + CLASSES.badgeInfo, faltam <= 0 ? 'Vence hoje' : 'A vencer em ' + faltam + (faltam === 1 ? ' dia' : ' dias'));
   }
 
+  function textoDeTempo(segundos) {
+    return segundos >= 60 ? Math.floor(segundos / 60) + ' min ' + (segundos % 60) + ' s' : segundos + ' s';
+  }
+
   function textoDaEmissao(linha) {
-    return TEXTO_DO_ESTADO[estadoDoTitulo.get(linha.chave)] || '';
+    const base = TEXTO_DO_ESTADO[estadoDoTitulo.get(linha.chave)] || '';
+    return restanteDoTitulo.has(linha.chave) ? base + ' (faltam ' + textoDeTempo(restanteDoTitulo.get(linha.chave)) + ')' : base;
   }
 
   function linhaDaTabela(linha) {
@@ -769,6 +799,17 @@
       corpoEl.appendChild(no('div', CLASSES.aviso, 'Há título(s) para conferir no Systextil (Processos agendados e Downloads). Depois de conferir, recarregue o CRM para liberar novas emissões.'));
     }
     estado.avisos.forEach((texto) => corpoEl.appendChild(no('div', CLASSES.aviso, texto)));
+    const lotesAndando = Array.from(lotes.values()).filter((lote) => !lote.erro);
+    if (lotesAndando.some((lote) => lote.segundoPlano)) {
+      const aviso = no('div', CLASSES.aviso, 'A aba do Systextil está em segundo plano. O navegador pode atrasar ou pausar o relógio dela: deixe a aba do Systextil visível, de preferência em uma janela própria, até o lote terminar.');
+      aviso.dataset.papel = 'segundo-plano';
+      corpoEl.appendChild(aviso);
+    }
+    if (lotesAndando.some((lote) => lote.semSinal)) {
+      const aviso = no('div', CLASSES.aviso, 'O Systextil não dá sinal há mais de ' + Math.round(CONFIG.SEM_SINAL_MS / 1000) + ' segundos. Confira a aba dele: ela pode estar em segundo plano (o navegador pausa abas escondidas) ou ter uma janela de confirmação aberta. Não envie de novo antes de conferir: o lote pode estar só parado.');
+      aviso.dataset.papel = 'sem-sinal';
+      corpoEl.appendChild(aviso);
+    }
     const comMotivo = estado.linhas.filter((linha) => ESTADOS_COM_MOTIVO.has(estadoDoTitulo.get(linha.chave)) && motivoDoTitulo.has(linha.chave));
     if (comMotivo.length > 0) {
       const motivos = no('div', CLASSES.aviso, null, [
