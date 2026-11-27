@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.2
+// @version      0.1.3
 // @description  Leva, por clique explícito no CRM, o celular do responsável para o campo Celular da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
@@ -240,6 +240,14 @@
 
   async function executar(pedido, tela) {
     const vivo = () => Date.now() < pedido.expiraEm;
+    // Cada clique no CRM cria um pedido NOVO e troca o guardado. Se este deixou de ser o vigente, o CRM já seguiu para outro:
+    // continuar esperando o F7 do antigo travaria o novo por até 5 minutos.
+    const vigente = () => { const guardado = GM_getValue(KEY_PEDIDO, null); return Boolean(guardado && guardado.id === pedido.id); };
+    const abandonar = () => {
+      registrar('systextil: o pedido deixou de ser o vigente (substituído ou cancelado); abandonado sem escrever nada');
+      const reserva = GM_getValue(KEY_RESERVA, null);
+      if (reserva && reserva.id === pedido.id && reserva.aba === ID_ABA) GM_deleteValue(KEY_RESERVA);
+    };
     const finalizar = (status, ok) => {
       publicar(pedido.id, status, ok);
       apagarPedido(pedido.id);
@@ -266,7 +274,7 @@
       const limiteAutomatico = Date.now() + TEMPOS.f7Automatico;
       let avisouManual = false;
       // Relê a tela a cada volta: os campos lidos antes do F7 podem ter saído da página (e continuariam vazios para sempre).
-      while (vivo() && !telaComCliente()) {
+      while (vivo() && vigente() && !telaComCliente()) {
         if (!avisouManual && Date.now() >= limiteAutomatico) {
           publicar(pedido.id, 'f7-manual', false);
           registrar(diagnosticoPosF7(tela, pedido));
@@ -275,6 +283,7 @@
         manterReserva();
         await esperar(TEMPOS.carregamento);
       }
+      if (!vigente()) { abandonar(); return; }
       if (!telaComCliente()) { registrar(diagnosticoPosF7(tela, pedido)); finalizar('expirado', false); return; }
     }
 
@@ -283,6 +292,7 @@
     const antes = ler();
     await esperar(TEMPOS.estabilizar);
     if (antes === null || ler() !== antes) await esperar(TEMPOS.estabilizar);
+    if (!vigente()) { abandonar(); return; } // chegou outro pedido durante a leitura estável: nada é escrito para este
     const atual = telaComCliente(); // a leitura mais recente: confere e preenche nela, nunca nos campos de antes do F7
     if (!atual) { finalizar('cliente-nao-carregou', false); return; }
     if (cnpjDaTela(atual) !== pedido.cnpj) { finalizar('cnpj-diferente', false); return; }
@@ -339,7 +349,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.2 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.3 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 
