@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.140.0', data: '27/11/2026',
+      mudancas: [
+        'Gravador de desempenho (sem tela, sem botão): a cada página, o SmartTable guarda sozinho, só neste navegador, alguns números do carregamento (quanto cada pedido do CRM esperou na fila do navegador, primeira pintura, travamentos e tamanho do armazenamento). Serve para descobrir a causa da lentidão que aparece "do nada" em alguns computadores. Nada é enviado para fora, e nenhum nome, CNPJ ou valor é guardado.',
+        'Quando a lentidão aparecer, abra o console do CRM (F12) e rode copy(JSON.stringify(__desempenho.ler(), null, 1)); o resultado vai para a área de transferência e pode ser colado numa conversa. Nada muda no uso do dia a dia.',
+      ],
+    },
+    {
       versao: '1.139.0', data: '27/11/2026',
       mudancas: [
         'Celular no Systêxtil: a ponte agora abre sozinha a tela Cadastro de Clientes. Com o Systêxtil aberto em outra tela, ela digita pedi_f010 em "Buscar programas" e aperta Enter, como você faz. Atenção: a tela atual é trocada na mesma aba, então qualquer coisa não salva nela pode se perder (decisão sua). A ponte nunca clica em nada nem responde a caixas de confirmação do Systêxtil.',

@@ -712,6 +712,7 @@
     'Verificar no Banco',
     'Aviso de Suspensão',
     'Celular no Systêxtil',
+    'Desempenho',
   ]);
 
   const modulosCarregadosRegistrados = new Set();
