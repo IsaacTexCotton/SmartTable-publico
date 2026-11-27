@@ -24,6 +24,13 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.142.1', data: '27/11/2026',
+      mudancas: [
+        'Na 2ª via, quando um título não sai (por exemplo, o segundo do lote), o painel agora mostra o que o Systextil informou sobre ele, em vez de só "Não emitido". Assim dá para ver por que o título não foi emitido.',
+        'Exige o userscript do Systextil na versão 1.1.1 ou superior, que dá Enter no campo do título (o que faz o ERP assumir o número) e na busca de programas, e mostra esse mesmo motivo no console da aba do Systextil.',
+      ],
+    },
+    {
       versao: '1.142.0', data: '27/11/2026',
       mudancas: [
         'Preparar 2ª via virou uma lista de títulos no padrão do CRM: mostra os títulos em aberto da empresa e das outras razões do grupo, vencidos e a vencer. Marque até 6 (há "Selecionar todos" e "Só vencidos"), confirme no rodapé e o Systextil consulta e emite os boletos, um a cada 3 minutos, e depois baixa os PDFs na pasta Downloads.',

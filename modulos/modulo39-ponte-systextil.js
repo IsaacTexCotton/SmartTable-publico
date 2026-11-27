@@ -65,6 +65,7 @@
     sucesso: 'bg-green-100 text-green-800 rounded-lg px-3 py-2 text-sm',
     andamento: 'bg-blue-100 text-blue-800 rounded-lg px-3 py-2 text-sm',
     aviso: 'bg-yellow-100 text-yellow-800 rounded-lg px-3 py-2 text-sm',
+    negrito: 'font-semibold',
     linha: 'flex items-center gap-2 flex-wrap',
     checkbox: 'rounded border-gray-300 text-gray-700 focus:ring-yellow-400',
     // Tabela dos títulos (st-*), dentro de .pbi-scope, como o CRM desenha.
@@ -129,6 +130,8 @@
 
   const lotes = new Map(); // id do pedido -> acompanhamento
   const estadoDoTitulo = new Map(); // chave do título -> estado nesta sessão (ver TEXTO_DO_ESTADO)
+  const motivoDoTitulo = new Map(); // chave do título -> por que o Systextil não o emitiu (texto fixo do userscript)
+  const ESTADOS_COM_MOTIVO = new Set(['nao-emitido', 'indeterminado', 'erro']);
   const estado = {
     linhas: [],
     avisos: [],
@@ -451,7 +454,11 @@
     itens.forEach((item) => {
       if (!Number.isInteger(item?.indice) || item.indice < 0 || item.indice >= lote.chaves.length) return;
       if (!ESTADOS_ITEM.has(item.estado)) return;
-      estadoDoTitulo.set(lote.chaves[item.indice], item.estado);
+      const chave = lote.chaves[item.indice];
+      estadoDoTitulo.set(chave, item.estado);
+      // O motivo é um texto fixo do userscript (sem dado do cliente); só vale para os estados em que algo não saiu como esperado.
+      if (ESTADOS_COM_MOTIVO.has(item.estado) && typeof item.motivo === 'string' && item.motivo.trim()) motivoDoTitulo.set(chave, item.motivo.trim().slice(0, 200));
+      else motivoDoTitulo.delete(chave);
     });
   }
 
@@ -596,7 +603,7 @@
       expiraEm: pedido.createdAt + CONFIG.TTL_PEDIDO_MS,
     };
     lotes.set(lote.id, lote);
-    lote.chaves.forEach((chave) => estadoDoTitulo.set(chave, 'enviado'));
+    lote.chaves.forEach((chave) => { estadoDoTitulo.set(chave, 'enviado'); motivoDoTitulo.delete(chave); });
     registrarHistorico(lote, 'enviado', true, null);
     estado.confirmando = false;
     estado.selecionadas = new Set();
@@ -762,6 +769,15 @@
       corpoEl.appendChild(no('div', CLASSES.aviso, 'Há título(s) para conferir no Systextil (Processos agendados e Downloads). Depois de conferir, recarregue o CRM para liberar novas emissões.'));
     }
     estado.avisos.forEach((texto) => corpoEl.appendChild(no('div', CLASSES.aviso, texto)));
+    const comMotivo = estado.linhas.filter((linha) => ESTADOS_COM_MOTIVO.has(estadoDoTitulo.get(linha.chave)) && motivoDoTitulo.has(linha.chave));
+    if (comMotivo.length > 0) {
+      const motivos = no('div', CLASSES.aviso, null, [
+        no('div', CLASSES.negrito, 'O que o Systextil informou sobre os títulos que não saíram:'),
+        ...comMotivo.map((linha) => no('div', null, linha.titulo + ' / ' + linha.parcela + ' (' + TEXTO_DO_ESTADO[estadoDoTitulo.get(linha.chave)] + '): ' + motivoDoTitulo.get(linha.chave))),
+      ]);
+      motivos.dataset.papel = 'motivos';
+      corpoEl.appendChild(motivos);
+    }
 
     if (estado.carregando) {
       corpoEl.appendChild(no('p', CLASSES.apagado, 'Lendo os títulos do CRM…'));
