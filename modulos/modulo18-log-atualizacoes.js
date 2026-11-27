@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.141.0', data: '27/11/2026',
+      mudancas: [
+        'Preparar 2ª via agora pede confirmação antes de emitir: o botão da linha virou "Emitir 2ª via" e abre, na própria linha, o aviso "O Systextil vai consultar este título, solicitar a emissão e salvar o PDF em Downloads" com Confirmar emissão e Cancelar. Nada é enviado antes de Confirmar.',
+        'Os textos do modal passaram a descrever o fluxo automático (o Systextil consulta, emite e baixa o PDF; deixe uma aba dele aberta). Com um título em andamento, as outras linhas ficam travadas, porque o Systextil só aceita um por vez.',
+        'Corrige a linha que mostrava erro e "Tentar novamente" enquanto o pedido ainda andava no Systextil: um erro não encerra mais o acompanhamento, e o andamento ou a conclusão do mesmo pedido voltam a aparecer. Quando o Systextil recusa porque já há um pedido ou um bloqueio a conferir, a linha pede conferência em vez de oferecer nova tentativa.',
+        'Para diagnosticar um travamento: no console do CRM, copy(JSON.stringify(__smartTableSystextilDebug.historico())). O resultado traz só estados e tempos, sem título, CNPJ nem nome.',
+      ],
+    },
+    {
       versao: '1.140.0', data: '27/11/2026',
       mudancas: [
         'Gravador de desempenho (sem tela, sem botão): a cada página, o SmartTable guarda sozinho, só neste navegador, alguns números do carregamento (quanto cada pedido do CRM esperou na fila do navegador, primeira pintura, travamentos e tamanho do armazenamento). Serve para descobrir a causa da lentidão que aparece "do nada" em alguns computadores. Nada é enviado para fora, e nenhum nome, CNPJ ou valor é guardado.',

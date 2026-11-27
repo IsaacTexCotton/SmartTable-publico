@@ -1,11 +1,13 @@
 /* =========================================================================
  * MÓDULO 39: TRANSFERÊNCIA DE TÍTULO CRM → SYSTEXTIL
  * -------------------------------------------------------------------------
- * Lê a lista elegível pelo classificador do Módulo 1 e transfere um título
- * escolhido pelo operador para o painel de segunda via do Systextil.
+ * Lê a lista elegível pelo classificador do Módulo 1 e envia ao Systextil o
+ * título que o operador escolher e CONFIRMAR na própria linha. Depois do
+ * pedido, o userscript do Systextil (systextil-segunda-via.user.js, repositório
+ * Systextil-envio-mensagem) consulta, emite e baixa o PDF sozinho.
  *
- * O transporte é feito por evento DOM consumido pelo userscript separado
- * "SmartTable → Systextil". Este módulo não acessa GM_* nem altera o ERP.
+ * O transporte é feito por evento DOM consumido por esse userscript. Este
+ * módulo não acessa GM_* nem altera o ERP.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -24,10 +26,44 @@
   const LIMITE_TITULO = 40;
   const LIMITE_PARCELA = 20;
   const pendentes = new Map();
+  // Estados que o userscript do Systêxtil publica. Qualquer outro (por exemplo
+  // `preenchido`, da ponte antiga já aposentada) é ignorado sem mexer na tela.
+  const ESTADOS_CONHECIDOS = new Set([
+    'aguardando', 'abrindo-tela', 'abrir-tela-manual', 'processando',
+    'emissao-solicitada', 'baixando', 'concluido', 'indeterminado', 'erro',
+  ]);
+  // Erros em que repetir o pedido não adianta: o Systêxtil recusaria de novo.
+  const CODIGOS_SEM_NOVA_TENTATIVA = new Set(['pedido-pendente', 'bloqueio-persistido']);
+  const CODIGOS_CONHECIDOS = new Set(['pedido-pendente', 'bloqueio-persistido', 'expirado', 'tela-ausente']);
+  // Histórico só em memória e censurado por construção: estados e códigos de
+  // listas fechadas, booleano e milissegundos. Nunca título, CNPJ, nome ou mensagem.
+  const LIMITE_HISTORICO = 40;
+  const historicoEventos = [];
+  let contadorPedidos = 0;
   let observerInstalacao = null;
   let modalAtual = null;
   let timerDisponibilidade = null;
   let sondagemInicial = null;
+
+  function codigoSeguro(valor) {
+    if (typeof valor !== 'string' || !valor) return null;
+    return CODIGOS_CONHECIDOS.has(valor) ? valor : 'outro';
+  }
+
+  function registrarHistorico(pendente, estado, ok, codigo) {
+    historicoEventos.push(Object.freeze({
+      n: pendente?.n ?? 0,
+      estado,
+      ok: ok === true,
+      codigo: codigo || null,
+      msDesdeEnvio: pendente?.enviadoEm ? Math.max(0, Date.now() - pendente.enviadoEm) : null,
+    }));
+    if (historicoEventos.length > LIMITE_HISTORICO) historicoEventos.shift();
+  }
+
+  function historico() {
+    return historicoEventos.map((evento) => ({ ...evento }));
+  }
 
   function cnpjAtual() {
     let valor = '';
@@ -202,6 +238,38 @@
     status.style.color = erro ? '#B42318' : '#176B4D';
   }
 
+  function existeEmAndamento() {
+    for (const pendente of pendentes.values()) {
+      if (!pendente.erro) return true;
+    }
+    return false;
+  }
+
+  // O Systêxtil só aceita um título por vez: enquanto há um em andamento, os
+  // botões livres das outras linhas ficam desabilitados.
+  function sincronizarBotoes() {
+    if (!modalAtual) return;
+    const ocupado = existeEmAndamento();
+    modalAtual.querySelectorAll('button[data-papel="emitir"]').forEach((botao) => {
+      if (botao.dataset.livre !== '1') return;
+      botao.disabled = ocupado;
+      botao.title = ocupado ? 'Aguarde o título em andamento terminar.' : '';
+    });
+  }
+
+  function liberarBotao(botao, texto) {
+    botao.dataset.livre = '1';
+    botao.textContent = texto;
+    botao.disabled = false;
+  }
+
+  function travarBotao(botao, texto, titulo) {
+    botao.dataset.livre = '0';
+    botao.textContent = texto;
+    botao.disabled = true;
+    if (titulo) botao.title = titulo;
+  }
+
   function receberResultado(evento) {
     let resultado;
     try {
@@ -214,40 +282,89 @@
     if (!resultado || typeof resultado.id !== 'string') return;
     const pendente = pendentes.get(resultado.id);
     if (!pendente) return;
-    if (pendente?.timer) {
+    if (!ESTADOS_CONHECIDOS.has(resultado.status)) return;
+    const botao = pendente.botao;
+    const codigo = resultado.status === 'erro' ? codigoSeguro(resultado.codigo) : null;
+    registrarHistorico(pendente, resultado.status, resultado.ok, codigo);
+    if (pendente.timer) {
       window.clearTimeout(pendente.timer);
       pendente.timer = null;
     }
+
+    if (resultado.status === 'erro') {
+      const mensagem = resultado.mensagem || 'O Systextil não conseguiu iniciar a segunda via.';
+      if (CODIGOS_SEM_NOVA_TENTATIVA.has(codigo)) {
+        // Repetir seria recusado de novo: a linha pede conferência em vez de "Tentar novamente".
+        pendentes.delete(resultado.id);
+        if (botao?.isConnected) {
+          travarBotao(
+            botao,
+            codigo === 'bloqueio-persistido' ? 'Conferência necessária' : 'Aguarde o pedido anterior',
+            mensagem
+          );
+        }
+      } else {
+        // O pedido segue guardado no Tampermonkey e pode ser atendido depois (por exemplo,
+        // quando o operador abre a tela). O erro não encerra o acompanhamento: se chegar
+        // andamento do mesmo pedido até a validade, a linha volta a mostrá-lo.
+        pendente.erro = true;
+        if (codigo === 'expirado') {
+          pendentes.delete(resultado.id);
+        } else {
+          pendente.timer = window.setTimeout(() => {
+            if (pendentes.get(resultado.id) !== pendente) return;
+            pendentes.delete(resultado.id);
+            sincronizarBotoes();
+          }, Math.max(0, Number(pendente.expiraEm) - Date.now()) + 250);
+        }
+        if (botao?.isConnected) liberarBotao(botao, 'Tentar novamente');
+      }
+      mostrarStatus(mensagem, true);
+      sincronizarBotoes();
+      return;
+    }
+
+    // Qualquer estado que não seja erro retoma o acompanhamento do pedido.
+    pendente.erro = false;
+    if (botao?.isConnected) {
+      botao.disabled = true;
+      botao.dataset.livre = '0';
+    }
+
     if (resultado.status === 'aguardando') {
       const restante = Math.max(0, Number(pendente.expiraEm) - Date.now());
       if (restante === 0) {
         pendentes.delete(resultado.id);
         mostrarStatus('A solicitação expirou antes de ser recebida pelo Systextil. Confira a aba de destino e envie novamente.', true);
-        if (pendente.botao?.isConnected) {
-          pendente.botao.disabled = false;
-          pendente.botao.textContent = 'Tentar novamente';
-        }
+        if (botao?.isConnected) liberarBotao(botao, 'Tentar novamente');
+        sincronizarBotoes();
         return;
       }
 
-      if (pendente.botao?.isConnected) {
-        pendente.botao.textContent = 'Aguardando Systextil...';
-      }
+      if (botao?.isConnected) botao.textContent = 'Aguardando Systextil...';
       mostrarStatus(
-        'Solicitação guardada. No Systextil, abra o painel de segunda via (Ctrl+Alt+B). Os campos serão preparados quando o painel aparecer.'
+        resultado.mensagem ||
+        'Título recebido. A automação começa quando uma aba do Systextil estiver na Consulta de títulos.'
       );
       pendente.timer = window.setTimeout(() => {
         if (pendentes.get(resultado.id) !== pendente) return;
         pendentes.delete(resultado.id);
-        mostrarStatus('A solicitação expirou ou o Systextil não confirmou o preenchimento. Confira a aba de destino antes de reenviar.', true);
-        if (pendente.botao?.isConnected) {
-          pendente.botao.disabled = false;
-          pendente.botao.textContent = 'Tentar novamente';
-        }
+        mostrarStatus('A solicitação expirou sem o Systextil iniciar a consulta. Confira a aba de destino antes de reenviar.', true);
+        if (botao?.isConnected) liberarBotao(botao, 'Tentar novamente');
+        sincronizarBotoes();
       }, restante + 250);
+      sincronizarBotoes();
       return;
     }
     const etapasEmAndamento = {
+      'abrindo-tela': {
+        botao: 'Abrindo a tela...',
+        mensagem: 'Abrindo a Consulta de títulos (crec_f090) no Systextil…',
+      },
+      'abrir-tela-manual': {
+        botao: 'Abra a Consulta de títulos',
+        mensagem: 'O Systextil não abriu a Consulta de títulos sozinho. Abra essa tela; a automação continua quando ela aparecer.',
+      },
       processando: {
         botao: 'Processando no Systextil...',
         mensagem: 'O Systextil iniciou o preenchimento e a consulta do título.',
@@ -263,20 +380,20 @@
     };
     const etapa = etapasEmAndamento[resultado.status];
     if (etapa) {
-      if (pendente.botao?.isConnected) {
-        pendente.botao.textContent = etapa.botao;
-      }
+      if (botao?.isConnected) botao.textContent = etapa.botao;
       mostrarStatus(resultado.mensagem || etapa.mensagem);
       pendente.timer = window.setTimeout(() => {
         if (pendentes.get(resultado.id) !== pendente) return;
         pendentes.delete(resultado.id);
         const mensagem = 'O SmartTable não recebeu a confirmação final do Systextil. Confira Processos agendados e a pasta Downloads antes de qualquer nova tentativa.';
-        if (pendente.botao?.isConnected) {
-          pendente.botao.textContent = 'Conferência necessária';
-          pendente.botao.title = mensagem;
+        if (botao?.isConnected) {
+          botao.textContent = 'Conferência necessária';
+          botao.title = mensagem;
         }
         mostrarStatus(mensagem, true);
+        sincronizarBotoes();
       }, TTL_ACOMPANHAMENTO_MS);
+      sincronizarBotoes();
       return;
     }
     if (resultado.status === 'concluido') {
@@ -285,42 +402,20 @@
       const mensagem = sucessoConfirmado
         ? (resultado.mensagem || 'Segunda via concluída no Systextil. PDF salvo na pasta Downloads.')
         : 'O Systextil informou conclusão sem confirmar o sucesso. Confira Processos agendados e Downloads antes de tentar novamente.';
-      if (pendente.botao?.isConnected) {
-        pendente.botao.disabled = true;
-        pendente.botao.textContent = sucessoConfirmado ? '2ª via concluída' : 'Conferência necessária';
-        pendente.botao.title = mensagem;
+      if (botao?.isConnected) {
+        travarBotao(botao, sucessoConfirmado ? '2ª via concluída' : 'Conferência necessária', mensagem);
       }
       mostrarStatus(mensagem, !sucessoConfirmado);
+      sincronizarBotoes();
       return;
     }
-    if (resultado.status === 'indeterminado') {
-      pendentes.delete(resultado.id);
-      const mensagem = resultado.mensagem ||
-        'O Systextil não confirmou o resultado da emissão. Confira Processos agendados e Downloads manualmente antes de tentar novamente.';
-      if (pendente.botao?.isConnected) {
-        pendente.botao.disabled = true;
-        pendente.botao.textContent = 'Conferência necessária';
-        pendente.botao.title = mensagem;
-      }
-      mostrarStatus(mensagem, true);
-      return;
-    }
-    if (resultado.status === 'preenchido') {
-      pendentes.delete(resultado.id);
-      if (pendente.botao?.isConnected) {
-        pendente.botao.textContent = 'Transferido — confira no Systextil';
-      }
-      mostrarStatus('Número do título e parcela inseridos no painel do Systextil. Confira a razão social e os dados antes de preencher no ERP.');
-      return;
-    }
-    if (resultado.status === 'erro') {
-      pendentes.delete(resultado.id);
-      if (pendente?.botao?.isConnected) {
-        pendente.botao.disabled = false;
-        pendente.botao.textContent = 'Tentar novamente';
-      }
-      mostrarStatus(resultado.mensagem || 'A ponte não conseguiu preparar os campos no Systextil.', true);
-    }
+    // Resta `indeterminado`.
+    pendentes.delete(resultado.id);
+    const mensagem = resultado.mensagem ||
+      'O Systextil não confirmou o resultado da emissão. Confira Processos agendados e Downloads manualmente antes de tentar novamente.';
+    if (botao?.isConnected) travarBotao(botao, 'Conferência necessária', mensagem);
+    mostrarStatus(mensagem, true);
+    sincronizarBotoes();
   }
 
   document.addEventListener(EVENTO_RESULTADO, receberResultado);
@@ -335,31 +430,37 @@
       createdAt: Date.now(),
     };
     botao.disabled = true;
+    botao.dataset.livre = '0';
     botao.textContent = 'Enviando...';
-    pendentes.set(pedidoEnvio.id, {
+    contadorPedidos += 1;
+    const novoPendente = {
       timer: null,
       botao,
       expiraEm: pedidoEnvio.createdAt + TTL_PEDIDO_MS,
-    });
+      erro: false,
+      n: contadorPedidos,
+      enviadoEm: pedidoEnvio.createdAt,
+    };
+    pendentes.set(pedidoEnvio.id, novoPendente);
+    registrarHistorico(novoPendente, 'enviado', true, null);
+    sincronizarBotoes();
+    // O texto e o aviso de "ponte não respondeu" ficam prontos ANTES do dispatchEvent: ele é
+    // síncrono, e a ponte pode responder (por exemplo, recusando um pedido inválido) dentro dele.
+    // `receberResultado` desarma este timer e escreve a resposta; nada aqui pode vir depois.
+    mostrarStatus('Enviando a solicitação para o Tampermonkey...');
+    novoPendente.timer = window.setTimeout(() => {
+      if (pendentes.get(pedidoEnvio.id) !== novoPendente) return;
+      pendentes.delete(pedidoEnvio.id);
+      registrarHistorico(novoPendente, 'ponte-sem-resposta', false, null);
+      mostrarStatus('A ponte não respondeu. Confira se o userscript de integração está instalado e habilitado no CRM e no Systextil.', true);
+      if (botao.isConnected) liberarBotao(botao, 'Tentar novamente');
+      sincronizarBotoes();
+    }, 8000);
     const evento = new window.CustomEvent(EVENTO_ENVIAR, {
       detail: JSON.stringify(pedidoEnvio),
       bubbles: false,
     });
     document.dispatchEvent(evento);
-
-    const pendente = pendentes.get(pedidoEnvio.id);
-    if (pendente) {
-      pendente.timer = window.setTimeout(() => {
-        if (pendentes.get(pedidoEnvio.id) !== pendente) return;
-        pendentes.delete(pedidoEnvio.id);
-        mostrarStatus('A ponte não respondeu. Confira se o userscript de integração está instalado e habilitado no CRM e no Systextil.', true);
-        if (botao.isConnected) {
-          botao.disabled = false;
-          botao.textContent = 'Tentar novamente';
-        }
-      }, 8000);
-    }
-    mostrarStatus('Enviando a solicitação para o Tampermonkey...');
   }
 
   function criarLinha(item) {
@@ -399,7 +500,7 @@
     });
     detalhes.append(titulo, linhaCliente, info);
 
-    const botao = estilizar(elemento('button', 'Preparar no Systextil'), {
+    const botao = estilizar(elemento('button', 'Emitir 2ª via'), {
       border: '0',
       borderRadius: '6px',
       padding: '8px 11px',
@@ -410,9 +511,78 @@
       whiteSpace: 'nowrap',
     });
     botao.type = 'button';
-    botao.addEventListener('click', () => enviarPedido(pedido, botao));
+    botao.dataset.papel = 'emitir';
+    botao.dataset.livre = '1';
+    botao.addEventListener('click', () => abrirConfirmacao(linha, pedido, botao));
     linha.append(detalhes, botao);
     return linha;
+  }
+
+  // O userscript do Systêxtil consulta, emite e baixa sozinho depois do pedido:
+  // o envio só acontece depois deste segundo clique, na própria linha.
+  function abrirConfirmacao(linha, pedido, botao) {
+    if (botao.disabled || linha.querySelector('[data-papel="confirmacao"]')) return;
+    botao.disabled = true;
+    botao.dataset.livre = '0';
+    const painel = estilizar(elemento('div'), {
+      gridColumn: '1 / -1',
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'center',
+      gap: '8px',
+      padding: '8px 10px',
+      borderRadius: '6px',
+      background: '#FFF7E6',
+      border: '1px solid #F5C77E',
+    });
+    painel.dataset.papel = 'confirmacao';
+    painel.setAttribute('role', 'group');
+    painel.setAttribute('aria-label', 'Confirmar a emissão da 2ª via');
+    const aviso = estilizar(elemento('span', 'O Systextil vai consultar este título, solicitar a emissão e salvar o PDF em Downloads.'), {
+      flex: '1 1 240px',
+      fontSize: '12px',
+      lineHeight: '1.4',
+      color: '#7A4A00',
+    });
+    const confirmar = estilizar(elemento('button', 'Confirmar emissão'), {
+      border: '0',
+      borderRadius: '6px',
+      padding: '7px 11px',
+      background: '#0F766E',
+      color: '#FFFFFF',
+      fontWeight: '600',
+      cursor: 'pointer',
+    });
+    confirmar.type = 'button';
+    confirmar.dataset.papel = 'confirmar';
+    const cancelar = estilizar(elemento('button', 'Cancelar'), {
+      border: '1px solid #D0D5DD',
+      borderRadius: '6px',
+      padding: '6px 10px',
+      background: '#FFFFFF',
+      cursor: 'pointer',
+    });
+    cancelar.type = 'button';
+    cancelar.dataset.papel = 'cancelar';
+    cancelar.addEventListener('click', () => {
+      painel.remove();
+      botao.dataset.livre = '1';
+      sincronizarBotoes();
+    });
+    confirmar.addEventListener('click', () => {
+      painel.remove();
+      if (existeEmAndamento()) {
+        mostrarStatus('Aguarde o título em andamento terminar antes de emitir outro.', true);
+        botao.dataset.livre = '1';
+        sincronizarBotoes();
+        return;
+      }
+      botao.disabled = false;
+      enviarPedido(pedido, botao);
+    });
+    painel.append(aviso, confirmar, cancelar);
+    linha.appendChild(painel);
+    cancelar.focus();
   }
 
   async function abrirModal() {
@@ -465,7 +635,7 @@
     fechar.addEventListener('click', fecharModal);
     cabecalho.append(titulo, fechar);
 
-    const descricao = estilizar(elemento('p', 'Selecione um título vencido elegível. O SmartTable prepara somente o número e a parcela no painel do Systextil; a conferência e a emissão continuam manuais.'), {
+    const descricao = estilizar(elemento('p', 'Selecione um título vencido elegível. Depois da sua confirmação, o Systextil consulta o título, solicita a emissão e salva o PDF na pasta Downloads. Deixe uma aba do Systextil aberta neste navegador.'), {
       margin: '0 0 12px',
       color: '#475467',
       fontSize: '13px',
@@ -479,7 +649,7 @@
     });
     status.dataset.papel = 'status';
     const lista = elemento('div');
-    const rodape = estilizar(elemento('p', 'A razão social e o CNPJ são enviados apenas como referência de conferência. Eles não substituem a validação do título no Systextil.'), {
+    const rodape = estilizar(elemento('p', 'Razão social e CNPJ servem para conferência: o Systextil só emite se número, parcela e cliente conferirem lá.'), {
       margin: '10px 0 0',
       color: '#667085',
       fontSize: '11px',
@@ -494,11 +664,12 @@
       const itens = await coletarTitulos();
       lista.replaceChildren();
       if (itens.length === 0) {
-        status.textContent = 'Não há títulos elegíveis para transferência nesta empresa ou grupo.';
+        status.textContent = 'Não há títulos elegíveis para emitir a 2ª via nesta empresa ou grupo.';
         return;
       }
       itens.forEach((item) => lista.appendChild(criarLinha(item)));
-      status.textContent = itens.length + ' título(s) elegível(is). Escolha um para transferir.';
+      sincronizarBotoes();
+      status.textContent = itens.length + ' título(s) elegível(is). Escolha um para emitir a 2ª via.';
     } catch (erro) {
       lista.replaceChildren();
       status.textContent = erro?.message || 'Não foi possível ler os títulos do CRM.';
@@ -553,7 +724,7 @@
         mensagem: 'Não há títulos vencidos elegíveis nesta empresa ou grupo econômico.',
       };
     }
-    return { estado: 'disponivel', disponivel: true, mensagem: 'Preparar número e parcela no Systextil.' };
+    return { estado: 'disponivel', disponivel: true, mensagem: 'Emitir a 2ª via de um título no Systextil.' };
   }
 
   function atualizarDisponibilidade() {
@@ -682,6 +853,7 @@
     avaliarDisponibilidade,
     atualizarDisponibilidade,
     receberResultado,
+    historico,
     ID_BOTAO,
     ID_MODAL,
     EVENTO_ENVIAR,
