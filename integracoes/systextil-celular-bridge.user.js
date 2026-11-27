@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.2.0
-// @description  Leva, por clique explícito no CRM, o DDD e o celular do responsável para os campos da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
+// @version      0.3.0
+// @description  Leva, por clique explícito no CRM, o DDD e o celular do responsável para os campos da tela Cadastro de Clientes (pedi_f010) do Systêxtil, abrindo a tela se preciso. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/integracoes/systextil-celular-bridge.user.js
@@ -23,6 +23,8 @@
  *  texto JSON), valida e entrega o pedido ao armazenamento compartilhado do Tampermonkey; devolve ao Módulo 46 o
  *  andamento (`smarttable:systextil:celular-resultado`).
  *
+ *  Systêxtil, aba em OUTRA tela: depois de 1,2 s sem a tela, abre o Cadastro de Clientes digitando pedi_f010 no "Buscar programas" do
+ *  cabeçalho e teclando Enter (uma tentativa por pedido; se não abrir, pede ao operador que aperte Enter).
  *  Systêxtil (tela Cadastro de Clientes, pedi_f010): preenche o CNPJ (3 campos), tecla F7 para pesquisar, CONFERE que o
  *  cliente carregado tem o CNPJ do pedido e só então preenche o DDD do celular ("00" + DDD) e o campo Celular. Nunca tecla F9, nunca clica em botão
  *  (nem em "Consultar cnpj"). Nunca mexe numa tela que já tem OUTRO cliente carregado.
@@ -42,6 +44,7 @@
   const KEY_PEDIDO = NS + '.pedido';
   const KEY_RESULTADO = NS + '.resultado';
   const KEY_RESERVA = NS + '.reserva';
+  const KEY_NAVEGACAO = NS + '.navegacao'; // { id, em, avisou }: a tentativa (uma só por pedido) de abrir a tela pelo "Buscar programas"
   const EVENTO_ENVIAR = 'smarttable:systextil:atualizar-celular';
   const EVENTO_RESULTADO = 'smarttable:systextil:celular-resultado';
   const HOST_CRM = 'texhub.texcotton.com.br';
@@ -58,6 +61,8 @@
     confirmarReserva: 80,
     renovarReserva: 10000,
     reservaMorta: 30000,
+    esperaOutraAba: 1200, // dá tempo de uma aba que JÁ está no Cadastro de Clientes pegar o pedido antes de qualquer aba abrir a tela
+    abrirTela: 6000, // depois disso sem a tela abrir, pede ao operador para apertar Enter no "Buscar programas"
   }, (typeof window !== 'undefined' && window.ST_TEST_MODE && window.ST_TEST_TIMING) || {});
 
   const pagina = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
@@ -94,12 +99,14 @@
   function apagarPedido(id) {
     const atual = GM_getValue(KEY_PEDIDO, null);
     if (!atual || atual.id === id) GM_deleteValue(KEY_PEDIDO);
+    const navegacao = GM_getValue(KEY_NAVEGACAO, null);
+    if (navegacao && navegacao.id === id) GM_deleteValue(KEY_NAVEGACAO);
   }
 
   /** Pedido vencido guardado de uma sessão anterior: apaga (o número não fica no disco do Tampermonkey). */
   function limparPedidoVencido() {
     const guardado = GM_getValue(KEY_PEDIDO, null);
-    if (guardado && !(Number.isFinite(guardado.expiraEm) && guardado.expiraEm > Date.now())) GM_deleteValue(KEY_PEDIDO);
+    if (guardado && !(Number.isFinite(guardado.expiraEm) && guardado.expiraEm > Date.now())) { GM_deleteValue(KEY_PEDIDO); GM_deleteValue(KEY_NAVEGACAO); }
   }
 
   /* ---------------------------------------------------------------------
@@ -217,8 +224,9 @@
     const descritor = Object.getOwnPropertyDescriptor(prototipo, 'value') || Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
     input.focus();
     descritor.set.call(input, valor);
-    input.dispatchEvent(new window.Event('input', { bubbles: true }));
-    input.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const janela = (input.ownerDocument && input.ownerDocument.defaultView) || window;
+    input.dispatchEvent(new janela.Event('input', { bubbles: true }));
+    input.dispatchEvent(new janela.Event('change', { bubbles: true }));
     return input.value === valor;
   }
 
@@ -232,6 +240,29 @@
       }
       alvo.dispatchEvent(evento);
     });
+  }
+
+  /** Enter no "Buscar programas". Só no campo de busca do cabeçalho: nenhuma outra tecla além do F7 e deste Enter. */
+  function teclarEnter(alvo) {
+    const janela = (alvo.ownerDocument && alvo.ownerDocument.defaultView) || window;
+    ['keydown', 'keypress', 'keyup'].forEach((tipo) => {
+      const evento = new janela.KeyboardEvent(tipo, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+      if (evento.keyCode !== 13) {
+        Object.defineProperty(evento, 'keyCode', { get: () => 13 });
+        Object.defineProperty(evento, 'which', { get: () => 13 });
+      }
+      alvo.dispatchEvent(evento);
+    });
+  }
+
+  /** O campo "Buscar programas" do cabeçalho do Systêxtil (um <object id="nxj_header"> do mesmo domínio), ou null. */
+  function buscaDeProgramas() {
+    try {
+      const cabecalho = document.getElementById('nxj_header');
+      const doc = cabecalho && cabecalho.contentDocument;
+      const campo = doc && doc.getElementById('search');
+      return campo && campo.type === 'search' ? campo : null;
+    } catch (_) { return null; }
   }
 
   async function reservar(id) {
@@ -315,6 +346,41 @@
     finalizar('preenchido', true); // preenchido, NÃO gravado: o F9 é do operador
   }
 
+  /**
+   * Esta aba não está no Cadastro de Clientes: abre a tela como o operador abre (digita pedi_f010 em "Buscar programas" e Enter).
+   * Decisão do usuário (27/11/2026): troca a tela da aba sempre, mesmo que haja algo não salvo na tela atual. UMA tentativa por pedido
+   * (a marca fica no armazenamento e sobrevive a recarregar a página); se a tela não abrir, avisa uma vez e espera o operador.
+   * Nunca responde a caixa de confirmação do Systêxtil e nunca clica.
+   */
+  async function abrirTelaDeClientes(pedido) {
+    if (Date.now() - pedido.criadoEm < TEMPOS.esperaOutraAba) return; // uma aba que já está na tela pega o pedido primeiro
+    const campoBusca = buscaDeProgramas();
+    if (!campoBusca) return; // sem o cabeçalho conhecido: só espera a tela, como antes
+    const navegacao = GM_getValue(KEY_NAVEGACAO, null);
+    if (navegacao && navegacao.id === pedido.id) {
+      if (!navegacao.avisou && Date.now() - navegacao.em >= TEMPOS.abrirTela) {
+        GM_setValue(KEY_NAVEGACAO, { id: pedido.id, em: navegacao.em, avisou: true });
+        registrar('systextil: a tela não abriu sozinha');
+        publicar(pedido.id, 'abrir-tela-manual', false);
+      }
+      return;
+    }
+    if (!(await reservar(pedido.id))) return; // outra aba já cuida deste pedido
+    GM_setValue(KEY_NAVEGACAO, { id: pedido.id, em: Date.now(), avisou: false });
+    registrar('systextil: abrindo a tela pelo Buscar programas');
+    publicar(pedido.id, 'abrindo-tela', false);
+    const escreveu = definirValor(campoBusca, 'pedi_f010');
+    if (escreveu) teclarEnter(campoBusca);
+    else {
+      GM_setValue(KEY_NAVEGACAO, { id: pedido.id, em: Date.now(), avisou: true });
+      registrar('systextil: a tela não abriu sozinha');
+      publicar(pedido.id, 'abrir-tela-manual', false);
+    }
+    // Solta a reserva: se a página recarregar, a aba nova precisa poder reservar o pedido já.
+    const reserva = GM_getValue(KEY_RESERVA, null);
+    if (reserva && reserva.id === pedido.id && reserva.aba === ID_ABA) GM_deleteValue(KEY_RESERVA);
+  }
+
   function iniciarLadoSystextil() {
     let processando = false;
     let ultimaDescricao = '';
@@ -334,6 +400,8 @@
       if (!tela) { // esta aba não está no Cadastro de Clientes: outra aba (ou a próxima tela) cuida
         const descricao = descreverCampos();
         if (descricao !== ultimaDescricao) { ultimaDescricao = descricao; registrar('systextil: há pedido pendente, mas a tela Cadastro de Clientes não foi reconhecida nesta aba (' + descricao + ')'); }
+        processando = true;
+        try { await abrirTelaDeClientes(pedido); } catch (_) { /* não abriu: a sonda tenta de novo, sem repetir a tecla (a marca vale) */ } finally { processando = false; }
         return;
       }
       ultimaDescricao = '';
@@ -360,7 +428,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.2.0 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.3.0 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 

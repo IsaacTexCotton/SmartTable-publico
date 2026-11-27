@@ -239,8 +239,10 @@
   const FRASES = Object.freeze({
     // Só deste lado: o pedido saiu, mas a ponte ainda não confirmou nada (não afirmo "entregue" antes disso).
     enviado: ['andamento', 'Pedido enviado. Aguardando a ponte confirmar o recebimento…'],
-    recebido: ['andamento', 'Pedido entregue à ponte. Abra a tela Cadastro de Clientes (pedi_f010) do Systêxtil, se ainda não estiver aberta.'],
-    'aguardando-systextil': ['andamento', 'Aguardando a tela Cadastro de Clientes (pedi_f010) do Systêxtil. Abra-a numa aba deste navegador.'],
+    recebido: ['andamento', 'Pedido entregue à ponte. Procurando a tela Cadastro de Clientes (pedi_f010) no Systêxtil…'],
+    'abrindo-tela': ['andamento', 'Abrindo a tela Cadastro de Clientes (pedi_f010) no Systêxtil…'],
+    'abrir-tela-manual': ['andamento', 'Digitei pedi_f010 em "Buscar programas" no Systêxtil, mas a tela não abriu sozinha. Aperte Enter nesse campo.'],
+    'aguardando-systextil': ['andamento', 'Aguardando a tela Cadastro de Clientes (pedi_f010) do Systêxtil. Se ainda não houver uma aba do Systêxtil aberta neste navegador, abra uma.'],
     'cnpj-preenchido': ['andamento', 'CNPJ preenchido no Systêxtil. Pesquisando (F7)…'],
     'f7-manual': ['andamento', 'O CNPJ foi preenchido, mas o F7 não carregou o cliente sozinho. Aperte F7 na tela do Systêxtil.'],
     'cliente-conferido': ['andamento', 'Cliente carregado e conferido pelo CNPJ. Preenchendo o DDD e o celular…'],

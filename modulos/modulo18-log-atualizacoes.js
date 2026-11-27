@@ -24,6 +24,14 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.139.0', data: '27/11/2026',
+      mudancas: [
+        'Celular no Systêxtil: a ponte agora abre sozinha a tela Cadastro de Clientes. Com o Systêxtil aberto em outra tela, ela digita pedi_f010 em "Buscar programas" e aperta Enter, como você faz. Atenção: a tela atual é trocada na mesma aba, então qualquer coisa não salva nela pode se perder (decisão sua). A ponte nunca clica em nada nem responde a caixas de confirmação do Systêxtil.',
+        'Se o Enter automático não valer, o modal avisa ("a tela não abriu sozinha. Aperte Enter nesse campo") uma única vez e a ponte continua sozinha quando a tela abrir. Sem o Systêxtil aberto no navegador, continua valendo abrir uma aba dele.',
+        'Atualize também a ponte do Systêxtil (versão 0.3.0). Quem salva continua sendo você, com F9.',
+      ],
+    },
+    {
       versao: '1.138.0', data: '27/11/2026',
       mudancas: [
         'Celular no Systêxtil: quando o Celular Responsável está no formato antigo (DDD + 8 dígitos, sem o 9), o botão agora aparece. O SmartTable completa o número com o 9 na frente e o modal avisa, mostrando o número já completado (só o DDD e os 4 últimos dígitos). Fixo (começa com 2 a 5) continua sem botão.',
