@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.142.0', data: '27/11/2026',
+      mudancas: [
+        'Preparar 2ª via virou uma lista de títulos no padrão do CRM: mostra os títulos em aberto da empresa e das outras razões do grupo, vencidos e a vencer. Marque até 6 (há "Selecionar todos" e "Só vencidos"), confirme no rodapé e o Systextil consulta e emite os boletos, um a cada 3 minutos, e depois baixa os PDFs na pasta Downloads.',
+        'Títulos "Não cobrar", "Carteira", em acordo ou fora do relatório aparecem com o motivo e sem caixa de seleção. Um título já enviado nesta sessão não pode ser marcado de novo. Cada linha mostra o andamento (Na fila, Consultando, Emitido, PDF salvo…). Se algum título ficar incerto, o painel pede para conferir no Systextil e só libera novas emissões depois de recarregar o CRM.',
+        'Exige o userscript do Systextil na versão 1.1.0 ou superior, que também passa a abrir sozinho a Consulta de títulos. Com a versão antiga o painel avisa para atualizar.',
+        'Os atalhos Alt não agem mais atrás do painel da 2ª via.',
+      ],
+    },
+    {
       versao: '1.141.0', data: '27/11/2026',
       mudancas: [
         'Preparar 2ª via agora pede confirmação antes de emitir: o botão da linha virou "Emitir 2ª via" e abre, na própria linha, o aviso "O Systextil vai consultar este título, solicitar a emissão e salvar o PDF em Downloads" com Confirmar emissão e Cancelar. Nada é enviado antes de Confirmar.',

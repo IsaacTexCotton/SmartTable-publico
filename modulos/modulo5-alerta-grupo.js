@@ -566,6 +566,14 @@
    * @returns {Promise<{cnpj: string, razaoSocial: string, vencido: string, url: string}[]>}
    */
   async function buscarOutrasEmpresasComVencido(cnpj, grupoId = null) {
+    return buscarEmpresasDoGrupo(cnpj, grupoId, true);
+  }
+
+  /**
+   * As outras razões que o CRM lista no grupo. `somenteComVencido` (o padrão de quem detecta cobrança) deixa só as com
+   * saldo vencido; sem ele a lista vem inteira (a 2ª via aceita também título a vencer).
+   */
+  async function buscarEmpresasDoGrupo(cnpj, grupoId = null, somenteComVencido = true) {
     const controle = typeof window.AbortController === 'function' ? new window.AbortController() : null;
     const limite = setTimeout(() => controle?.abort(), TIMEOUT_API_GRUPO_MS);
     try {
@@ -579,11 +587,11 @@
       if (!json || json.success !== true || !Array.isArray(json.data)) throw new Error('resposta do grupo fora do formato esperado');
       const util = window.__smartTableUtil;
       return json.data
-        .filter((e) => e && typeof e.cnpj === 'string' && e.cnpj && Number(e.dividaVencida) > 0)
+        .filter((e) => e && typeof e.cnpj === 'string' && e.cnpj && (!somenteComVencido || Number(e.dividaVencida) > 0))
         .map((e) => ({
           cnpj: e.cnpj,
           razaoSocial: typeof e.razaoSocial === 'string' ? e.razaoSocial : '',
-          vencido: util?.formatarMoeda ? util.formatarMoeda(Number(e.dividaVencida)) : String(e.dividaVencida),
+          vencido: util?.formatarMoeda ? util.formatarMoeda(Number(e.dividaVencida) || 0) : String(e.dividaVencida ?? 0),
           url: grupoId && util?.montarUrlCliente ? util.montarUrlCliente(grupoId, e.cnpj) : '',
         }));
     } finally {
@@ -629,8 +637,11 @@
     return null;
   }
 
-  async function buscarDadosDaEmpresaParaRelatorio(empresa, cnpj, url, hoje, prazoFinal) {
-    if (Date.now() >= prazoFinal) throw new Error('O tempo máximo de leitura do grupo foi atingido.');
+  /**
+   * Baixa a página de UMA razão do grupo e lê o que a classificação precisa: a lista de títulos abertos, o SCPC e os acordos.
+   * Qualquer falha lança. `exigirScpc` (relatório) bloqueia quando o fluxo SCPC/Cartório não pode ser confirmado.
+   */
+  async function lerPaginaDaEmpresa(url, prazoFinal, exigirScpc = true) {
     const controle = typeof window.AbortController === 'function' ? new window.AbortController() : null;
     const restante = Math.max(1, Math.min(TIMEOUT_PAGINA_GRUPO_MS, prazoFinal - Date.now()));
     const limite = setTimeout(() => controle?.abort(), restante);
@@ -655,7 +666,7 @@
     }
 
     const scpc = lerScpcDaPagina(doc);
-    if (scpc !== 's' && scpc !== 'n') {
+    if (exigirScpc && scpc !== 's' && scpc !== 'n') {
       throw new Error('Não foi possível confirmar o fluxo SCPC/Cartório de uma razão do grupo.');
     }
 
@@ -667,6 +678,12 @@
         (acordos.negociacoesDesconhecidas || []).length) {
       throw new Error('Não foi possível validar todos os acordos de uma razão do grupo.');
     }
+    return { titulos, scpc, acordos };
+  }
+
+  async function buscarDadosDaEmpresaParaRelatorio(empresa, cnpj, url, hoje, prazoFinal) {
+    if (Date.now() >= prazoFinal) throw new Error('O tempo máximo de leitura do grupo foi atingido.');
+    const { titulos, scpc, acordos } = await lerPaginaDaEmpresa(url, prazoFinal, true);
 
     if (typeof window.__avisoCobranca?.simularTitulos !== 'function') {
       throw new Error('O classificador de títulos não está disponível.');
@@ -747,7 +764,68 @@
     return resultado;
   }
 
-  window.__grupoEconomico = { buscarOutrasEmpresasComVencido, buscarDadosParaRelatorio };
+  /**
+   * Títulos ABERTOS (a vencer e vencidos) das outras razões que o CRM lista no grupo, para a emissão de 2ª via (Módulo 39).
+   * Diferente de `buscarDadosParaRelatorio`, uma razão sem saldo vencido também entra. HIPÓTESE NÃO CONFIRMADA: o endpoint
+   * do grupo lista razões que só têm título a vencer; se não listar, elas não aparecem aqui.
+   * Cada título volta com `emAcordo` e `foraDoRelatorio`, respondidos pelas mesmas fontes que o Módulo 1 usa (Módulos 16 e 12).
+   * Sequencial, com timeout por página e teto total. Qualquer falha lança: quem chama mostra o aviso, nunca uma lista que
+   * finge estar completa.
+   *
+   * @returns {Promise<{cnpj: string, razaoSocial: string, suprimida: boolean, titulos: object[]}[]>}
+   */
+  async function buscarTitulosAbertosDoGrupo() {
+    const cnpjDaUrl = new URL(window.location.href).searchParams.get('cnpj') || '';
+    const cnpjAtual = completarCnpj(cnpjDaUrl);
+    if (cnpjAtual.length !== 14) throw new Error('Não foi possível identificar o CNPJ da empresa aberta.');
+
+    const empresas = await buscarEmpresasDoGrupo(cnpjDaUrl, extrairGrupoIdDaUrl(), false);
+    const unicas = new Map();
+    for (const empresa of empresas) {
+      const cnpj = digitosCnpj(empresa?.cnpj);
+      const cnpjPadrao = completarCnpj(cnpj);
+      if (cnpjPadrao.length !== 14) throw new Error('A lista de empresas do grupo contém um CNPJ inválido.');
+      if (cnpjPadrao === cnpjAtual) continue;
+      const razaoSocial = typeof empresa.razaoSocial === 'string' ? empresa.razaoSocial.trim() : '';
+      if (!razaoSocial) throw new Error('Uma empresa do grupo está sem razão social identificável.');
+      const anterior = unicas.get(cnpjPadrao);
+      if (anterior && anterior.razaoSocial !== razaoSocial) {
+        throw new Error('A mesma empresa apareceu com razões sociais divergentes na leitura do grupo.');
+      }
+      if (!anterior) unicas.set(cnpjPadrao, { ...empresa, cnpj, razaoSocial });
+    }
+
+    const prazoFinal = Date.now() + TIMEOUT_TOTAL_RELATORIO_GRUPO_MS;
+    const resultado = [];
+    for (const empresa of unicas.values()) {
+      let suprimida = false;
+      try {
+        suprimida = window.__alertaCliente?.estaSuprimidoDaPrioridade?.(empresa.cnpj) === true;
+      } catch (erro) {
+        throw new Error('Não foi possível verificar a regra "Não cobrar" de uma razão do grupo.');
+      }
+      const url = validarUrlDaEmpresa(empresa, empresa.cnpj);
+      if (Date.now() >= prazoFinal) throw new Error('O tempo máximo de leitura do grupo foi atingido.');
+      const { titulos, acordos } = await lerPaginaDaEmpresa(url, prazoFinal, false);
+      const foraDoRelatorio = window.__alertaCliente?.predicadoForaDoRelatorio?.(empresa.cnpj);
+      resultado.push({
+        cnpj: completarCnpj(empresa.cnpj),
+        razaoSocial: empresa.razaoSocial,
+        suprimida,
+        titulos: titulos.map((titulo) => {
+          const completo = String(titulo?.numeroTitulo ?? '').trim() + '/' + String(titulo?.sequencia ?? '').trim();
+          return {
+            ...titulo,
+            emAcordo: acordos.tituloEmAcordo?.(completo) === true,
+            foraDoRelatorio: typeof foraDoRelatorio === 'function' ? foraDoRelatorio(completo) === true : false,
+          };
+        }),
+      });
+    }
+    return resultado;
+  }
+
+  window.__grupoEconomico = { buscarOutrasEmpresasComVencido, buscarDadosParaRelatorio, buscarTitulosAbertosDoGrupo };
 
   function obterNomeAbaAtiva() {
     // O botão INATIVO tem o padrão confirmado ("text-gray-500" +
