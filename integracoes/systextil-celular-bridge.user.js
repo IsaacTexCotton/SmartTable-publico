@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.1
+// @version      0.1.2
 // @description  Leva, por clique explícito no CRM, o celular do responsável para o campo Celular da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
@@ -174,14 +174,36 @@
     return Object.values(tela).every(Boolean) ? tela : null;
   }
 
+  const NOMES_CAMPOS = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['codigo', 'codigo_cliente.'], ['celular', 'celular_cliente.']];
+  const simNao = (sim) => (sim ? 'sim' : 'não');
+
   /** Quais dos cinco campos existem nesta aba (sim/não), para o log: mostra o que falta se a tela não for reconhecida. */
   function descreverCampos() {
-    const nomes = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['codigo', 'codigo_cliente.'], ['celular', 'celular_cliente.']];
-    return nomes.map(([rotulo, nome]) => rotulo + '=' + (campo(nome) ? 'sim' : 'não')).join(', ');
+    return NOMES_CAMPOS.map(([rotulo, nome]) => rotulo + '=' + simNao(campo(nome))).join(', ');
   }
 
   const cnpjDaTela = (tela) => (tela.raiz.value + tela.ordem.value + tela.digitos.value).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
   const clienteCarregado = (tela) => tela.codigo.value.trim() !== '';
+
+  /** Linha CENSURADA (só sim/não e contagens) para quando o F7 parece não ter carregado o cliente: diz se a tela trocou os
+   * campos por novos (os lidos antes do F7 saíram da página) ou se há mais de um campo com o mesmo nome. */
+  function diagnosticoPosF7(original, pedido) {
+    const nova = lerTela();
+    const originaisNaPagina = Object.values(original).every((el) => el.isConnected);
+    const mesmoElemento = Boolean(nova) && Object.keys(original).every((chave) => nova[chave] === original[chave]);
+    const codigoPreenchido = Boolean(nova) && clienteCarregado(nova);
+    const cnpjConfere = Boolean(nova) && cnpjDaTela(nova) === pedido.cnpj;
+    const contagens = NOMES_CAMPOS.map(([rotulo, nome]) => rotulo + '=' + document.querySelectorAll('input[name="' + nome + '"]').length).join(', ');
+    return 'systextil: diagnóstico pós-F7 (campos-originais-na-página=' + simNao(originaisNaPagina) + ', mesmo-elemento=' + simNao(mesmoElemento)
+      + ', código-preenchido(nova leitura)=' + simNao(codigoPreenchido) + ', cnpj-confere(nova leitura)=' + simNao(cnpjConfere)
+      + ', inputs-por-nome ' + contagens + ')';
+  }
+
+  /** A tela relida AGORA, só se já tem cliente carregado. O Systêxtil pode trocar os campos por novos ao pesquisar (F7). */
+  function telaComCliente() {
+    const tela = lerTela();
+    return tela && clienteCarregado(tela) ? tela : null;
+  }
 
   /** Escreve como o usuário escreveria (setter nativo + input/change) e confere que o valor ficou. */
   function definirValor(input, valor) {
@@ -243,28 +265,32 @@
       teclarF7(tela.digitos);
       const limiteAutomatico = Date.now() + TEMPOS.f7Automatico;
       let avisouManual = false;
-      while (vivo() && !clienteCarregado(tela)) {
-        if (!avisouManual && Date.now() >= limiteAutomatico) { publicar(pedido.id, 'f7-manual', false); avisouManual = true; }
+      // Relê a tela a cada volta: os campos lidos antes do F7 podem ter saído da página (e continuariam vazios para sempre).
+      while (vivo() && !telaComCliente()) {
+        if (!avisouManual && Date.now() >= limiteAutomatico) {
+          publicar(pedido.id, 'f7-manual', false);
+          registrar(diagnosticoPosF7(tela, pedido));
+          avisouManual = true;
+        }
         manterReserva();
         await esperar(TEMPOS.carregamento);
       }
-      if (!clienteCarregado(tela)) { finalizar('expirado', false); return; }
+      if (!telaComCliente()) { registrar(diagnosticoPosF7(tela, pedido)); finalizar('expirado', false); return; }
     }
 
     // O cliente só vale depois de ficar IGUAL em duas leituras seguidas (a tela pode repintar os campos logo após o F7).
-    const antes = { cnpj: cnpjDaTela(tela), codigo: tela.codigo.value };
+    const ler = () => { const t = telaComCliente(); return t ? cnpjDaTela(t) + '|' + t.codigo.value : null; };
+    const antes = ler();
     await esperar(TEMPOS.estabilizar);
-    const depois = { cnpj: cnpjDaTela(tela), codigo: tela.codigo.value };
-    if (antes.cnpj !== depois.cnpj || antes.codigo !== depois.codigo || !clienteCarregado(tela)) {
-      await esperar(TEMPOS.estabilizar);
-      if (!clienteCarregado(tela)) { finalizar('cliente-nao-carregou', false); return; }
-    }
-    if (cnpjDaTela(tela) !== pedido.cnpj) { finalizar('cnpj-diferente', false); return; }
+    if (antes === null || ler() !== antes) await esperar(TEMPOS.estabilizar);
+    const atual = telaComCliente(); // a leitura mais recente: confere e preenche nela, nunca nos campos de antes do F7
+    if (!atual) { finalizar('cliente-nao-carregou', false); return; }
+    if (cnpjDaTela(atual) !== pedido.cnpj) { finalizar('cnpj-diferente', false); return; }
     if (!vivo()) { finalizar('expirado', false); return; }
     publicar(pedido.id, 'cliente-conferido', false);
 
-    if (tela.celular.value.replace(/\D/g, '') === pedido.celular) { finalizar('ja-igual', true); return; }
-    if (!definirValor(tela.celular, pedido.celular)) { finalizar('valor-nao-ficou', false); return; } // trava (readOnly/disabled) ou valor que não ficou
+    if (atual.celular.value.replace(/\D/g, '') === pedido.celular) { finalizar('ja-igual', true); return; }
+    if (!definirValor(atual.celular, pedido.celular)) { finalizar('valor-nao-ficou', false); return; } // trava (readOnly/disabled) ou valor que não ficou
     finalizar('preenchido', true); // preenchido, NÃO gravado: o F9 é do operador
   }
 
@@ -313,7 +339,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.1 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.2 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 
