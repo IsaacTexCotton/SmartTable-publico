@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.3.0
+// @version      0.3.1
 // @description  Leva, por clique explícito no CRM, o DDD e o celular do responsável para os campos da tela Cadastro de Clientes (pedi_f010) do Systêxtil, abrindo a tela se preciso. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
@@ -24,7 +24,8 @@
  *  andamento (`smarttable:systextil:celular-resultado`).
  *
  *  Systêxtil, aba em OUTRA tela: depois de 1,2 s sem a tela, abre o Cadastro de Clientes digitando pedi_f010 no "Buscar programas" do
- *  cabeçalho e teclando Enter (uma tentativa por pedido; se não abrir, pede ao operador que aperte Enter).
+ *  cabeçalho e teclando Enter; se a tela não abrir, envia o formulário dessa busca (o que o Enter de verdade faz). Uma tentativa por pedido;
+ *  se ainda assim não abrir, pede ao operador que aperte Enter.
  *  Systêxtil (tela Cadastro de Clientes, pedi_f010): preenche o CNPJ (3 campos), tecla F7 para pesquisar, CONFERE que o
  *  cliente carregado tem o CNPJ do pedido e só então preenche o DDD do celular ("00" + DDD) e o campo Celular. Nunca tecla F9, nunca clica em botão
  *  (nem em "Consultar cnpj"). Nunca mexe numa tela que já tem OUTRO cliente carregado.
@@ -56,6 +57,9 @@
     aguardando: 3000, // sem ninguém no Systêxtil: o CRM mostra "aguardando a tela"
     sonda: 1500, // enquanto há pedido pendente, vê se a tela já está aberta
     f7Automatico: 6000, // espera o F7 simulado carregar o cliente antes de pedir o F7 ao operador
+    antesDoF7: 600, // deixa o Systêxtil aceitar o CNPJ escrito antes de pesquisar (no teste real de 27/11 o F7 imediato não carregou; o do operador, segundos depois, sim)
+    segundoF7: 3000, // sem o cliente até aqui, um SEGUNDO F7 (decisão do usuário, 27/11/2026); nunca um terceiro
+    enviarBusca: 1500, // o Enter simulado não abriu a tela: envia o formulário do "Buscar programas", como o Enter de verdade faz
     carregamento: 250,
     estabilizar: 400, // o cliente carregado precisa ficar igual duas leituras seguidas
     confirmarReserva: 80,
@@ -306,11 +310,22 @@
         && definirValor(tela.digitos, pedido.cnpj.slice(12, 14));
       if (!preencheu) { finalizar('campo-ausente', false); return; }
       publicar(pedido.id, 'cnpj-preenchido', false);
-      teclarF7(tela.digitos);
+      await esperar(TEMPOS.antesDoF7);
+      if (!vigente()) { abandonar(); return; }
+      const campoDoF7 = () => { const t = lerTela(); return (t && t.digitos) || tela.digitos; };
+      const pesquisar = () => { const alvo = campoDoF7(); alvo.focus(); teclarF7(alvo); };
+      pesquisar();
       const limiteAutomatico = Date.now() + TEMPOS.f7Automatico;
+      const limiteSegundoF7 = Date.now() + TEMPOS.segundoF7;
+      let segundoF7 = false;
       let avisouManual = false;
       // Relê a tela a cada volta: os campos lidos antes do F7 podem ter saído da página (e continuariam vazios para sempre).
       while (vivo() && vigente() && !telaComCliente()) {
+        if (!segundoF7 && Date.now() >= limiteSegundoF7) {
+          segundoF7 = true;
+          registrar('systextil: o cliente não carregou; segundo F7');
+          pesquisar();
+        }
         if (!avisouManual && Date.now() >= limiteAutomatico) {
           publicar(pedido.id, 'f7-manual', false);
           registrar(diagnosticoPosF7(tela, pedido));
@@ -370,8 +385,20 @@
     registrar('systextil: abrindo a tela pelo Buscar programas');
     publicar(pedido.id, 'abrindo-tela', false);
     const escreveu = definirValor(campoBusca, 'pedi_f010');
-    if (escreveu) teclarEnter(campoBusca);
-    else {
+    if (escreveu) {
+      teclarEnter(campoBusca);
+      // No Systêxtil real o Enter simulado NÃO abre a tela (diagnóstico de 27/11/2026: o formulário de busca tem um tratador de envio, que só o
+      // Enter de verdade dispara). Se a tela não abriu, envia SÓ este formulário, como o Enter faria (autorização do usuário, 27/11/2026).
+      setTimeout(() => {
+        if (lerTela()) return;
+        const marca = GM_getValue(KEY_NAVEGACAO, null);
+        if (!marca || marca.id !== pedido.id) return;
+        const formBusca = campoBusca.isConnected ? campoBusca.form : null;
+        if (!formBusca || typeof formBusca.requestSubmit !== 'function' || campoBusca.value !== 'pedi_f010') return;
+        registrar('systextil: o Enter não abriu a tela; enviando a busca de programas');
+        formBusca.requestSubmit();
+      }, TEMPOS.enviarBusca);
+    } else {
       GM_setValue(KEY_NAVEGACAO, { id: pedido.id, em: Date.now(), avisou: true });
       registrar('systextil: a tela não abriu sozinha');
       publicar(pedido.id, 'abrir-tela-manual', false);
@@ -428,7 +455,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.3.0 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.3.1 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 
