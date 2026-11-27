@@ -2,15 +2,18 @@
  * MÓDULO 46: CELULAR DO RESPONSÁVEL NO SYSTÊXTIL
  * -------------------------------------------------------------------------
  * Na página do cliente, compara o "Celular" do CADASTRO com o "Celular Responsável". Só quando os dois
- * DIVERGEM (e o do responsável é um celular completo: DDD + 9 dígitos, o 1º é 9) aparece o botão
+ * DIVERGEM (e o do responsável é um celular: DDD + 9 dígitos com o 1º em 9, ou o formato antigo DDD + 8 dígitos
+ * começando com 6 a 9, que ganha o 9 na frente) aparece o botão
  * "Celular no Systêxtil", ao lado do Plano. O modal mostra os dois números MASCARADOS e, no clique em
  * "Enviar ao Systêxtil", entrega o pedido por evento DOM ao userscript "SmartTable → Systêxtil (celular)"
  * (integracoes/systextil-celular-bridge.user.js), que preenche o campo Celular na tela Cadastro de Clientes
  * (pedi_f010). QUEM GRAVA É O OPERADOR, com F9: este módulo e a ponte nunca salvam nada no ERP.
  *
  * Decisões do usuário (25/11/2026): vale o Celular Responsável; um cliente por vez; responsável vazio
- * (ou que não é celular completo) = o botão não aparece; DDD divergente: não fazer nada (só o número
- * de 9 dígitos vai); o botão só aparece quando os números divergem.
+ * (ou que não é celular) = o botão não aparece; o botão só aparece quando os números divergem.
+ * Decisões de 27/11/2026 (substituem a regra do DDD de 25/11, "só o número vai"): o formato antigo
+ * (DDD + 8 dígitos, 6 a 9 na frente) é COMPLETADO com o 9 e o modal avisa; a ponte preenche TAMBÉM o DDD
+ * do celular (campo de 4 dígitos, "00" + DDD).
  *
  * Só lê a página. Nada é gravado no CRM. O número nunca vai para log, console nem armazenamento daqui:
  * só no evento do clique. Carga: depois dos Módulos 0, 28 (chaveDoCelular) e 43 (âncora do botão).
@@ -31,7 +34,7 @@
     SELETOR_ANCORA: 'button[onclick="abrirModalResponsavel()"]',
     EVENTO_ENVIAR: 'smarttable:systextil:atualizar-celular',
     EVENTO_RESULTADO: 'smarttable:systextil:celular-resultado',
-    SCHEMA: 1,
+    SCHEMA: 2, // 2 = o pedido leva o DDD (ponte 0.2.0 em diante); uma ponte antiga recusa e o modal diz "sem resposta da ponte"
     TTL_PEDIDO_MS: 5 * 60 * 1000,
     ESPERA_PONTE_MS: 8000,
     TOPO_BOTAO_FLUTUANTE: '172px',
@@ -86,14 +89,24 @@
   const digitos = (valor) => String(valor ?? '').replace(/\D/g, '');
 
   /**
-   * O celular do responsável é completo para o Systêxtil? DDD + 9 dígitos, o 1º é 9 (11 dígitos, com ou sem 55 na frente).
-   * Devolve só os 9 dígitos do número (sem DDD, que o Systêxtil guarda à parte) ou '' se não for completo.
+   * O celular do responsável serve ao Systêxtil? Aceita (com ou sem 55 na frente):
+   *  - DDD + 9 dígitos com o 1º em 9 (11 dígitos): como está;
+   *  - DDD + 8 dígitos começando com 6 a 9 (10 dígitos, formato antigo): ganha o 9 na frente (`completado: true`).
+   * Fixo (começa com 2 a 5) e DDD inválido (primeiro ou segundo dígito 0) não servem. Devolve { ddd, numero, completado } ou null.
+   * O `numero` são os 9 dígitos que vão ao campo Celular; o `ddd`, os 2 dígitos que a ponte grava como "00" + DDD.
    */
-  function numeroLocalCompleto(valor) {
+  function celularCompleto(valor) {
     let d = digitos(valor);
     if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
-    return d.length === 11 && d[2] === '9' ? d.slice(2) : '';
+    if (d.length !== 10 && d.length !== 11) return null;
+    const ddd = d.slice(0, 2);
+    if (!/^[1-9][1-9]$/.test(ddd)) return null;
+    if (d.length === 11) return d[2] === '9' ? { ddd, numero: d.slice(2), completado: false } : null;
+    return /[6-9]/.test(d[2]) ? { ddd, numero: '9' + d.slice(2), completado: true } : null;
   }
+
+  /** Só os 9 dígitos do número já completado ('' se o celular não serve). */
+  const numeroLocalCompleto = (valor) => celularCompleto(valor)?.numero ?? '';
 
   /** Texto do telefone dentro de um elemento do CRM (ignora o selo WHATS, que fica em outro span). */
   function textoDoTelefone(elemento) {
@@ -138,7 +151,7 @@
 
   /**
    * Decide se o botão aparece. Estados: 'sem-leitura' (não consegui ler algum dos dois ou falta o Módulo 28),
-   * 'sem-responsavel' (vazio ou não é celular completo), 'igual' (mesmo número) e 'diverge'.
+   * 'sem-responsavel' (vazio ou não é celular), 'igual' (mesmo DDD e número) e 'diverge'.
    * Só 'diverge' mostra o botão. Cadastro vazio com responsável completo conta como divergência.
    */
   function avaliar() {
@@ -147,16 +160,18 @@
     const cadastro = lerCelularCadastro();
     const responsavel = lerCelularResponsavel();
     if (cadastro === null || responsavel === null) return { estado: 'sem-leitura' };
-    const numero = numeroLocalCompleto(responsavel);
-    if (!numero) return { estado: 'sem-responsavel' };
+    const celular = celularCompleto(responsavel);
+    if (!celular) return { estado: 'sem-responsavel' };
     const chaveResp = chave(responsavel);
     const chaveCad = chave(cadastro);
     if (chaveResp !== null && chaveResp === chaveCad) return { estado: 'igual' };
     return {
       estado: 'diverge',
-      numeroLocal: numero,
+      ddd: celular.ddd,
+      numeroLocal: celular.numero,
+      completado: celular.completado,
       mascaraCadastro: mascarar(cadastro),
-      mascaraResponsavel: mascarar(responsavel),
+      mascaraResponsavel: mascarar(celular.ddd + celular.numero), // o número que de fato vai (já com o 9, se foi completado)
     };
   }
 
@@ -169,11 +184,11 @@
   function montarPedido(avaliacao) {
     const cnpj = cnpjDaPagina();
     if (!cnpj) throw new Error('Não identifiquei o CNPJ completo do cliente nesta página.');
-    if (!avaliacao || avaliacao.estado !== 'diverge' || !/^9\d{8}$/.test(avaliacao.numeroLocal || '')) {
+    if (!avaliacao || avaliacao.estado !== 'diverge' || !/^9\d{8}$/.test(avaliacao.numeroLocal || '') || !/^[1-9][1-9]$/.test(avaliacao.ddd || '')) {
       throw new Error('Os números não divergem ou o celular do responsável não está completo.');
     }
     const agora = Date.now();
-    return { schema: CONFIG.SCHEMA, id: criarId(), cnpj, celular: avaliacao.numeroLocal, criadoEm: agora, expiraEm: agora + CONFIG.TTL_PEDIDO_MS };
+    return { schema: CONFIG.SCHEMA, id: criarId(), cnpj, ddd: avaliacao.ddd, celular: avaliacao.numeroLocal, criadoEm: agora, expiraEm: agora + CONFIG.TTL_PEDIDO_MS };
   }
 
   /* ---------------------------------------------------------------------
@@ -213,7 +228,7 @@
   let corpoEl = null;
   let enviarEl = null;
   let assinaturaRenderizada = '';
-  const assinatura = (a) => [a.estado, a.mascaraCadastro, a.mascaraResponsavel].join('|');
+  const assinatura = (a) => [a.estado, a.mascaraCadastro, a.mascaraResponsavel, a.completado ? 'antigo' : ''].join('|');
   let focoAnterior = null;
   let envio = null; // { id, pedido, estado, timer } do pedido em andamento neste modal
 
@@ -228,19 +243,19 @@
     'aguardando-systextil': ['andamento', 'Aguardando a tela Cadastro de Clientes (pedi_f010) do Systêxtil. Abra-a numa aba deste navegador.'],
     'cnpj-preenchido': ['andamento', 'CNPJ preenchido no Systêxtil. Pesquisando (F7)…'],
     'f7-manual': ['andamento', 'O CNPJ foi preenchido, mas o F7 não carregou o cliente sozinho. Aperte F7 na tela do Systêxtil.'],
-    'cliente-conferido': ['andamento', 'Cliente carregado e conferido pelo CNPJ. Preenchendo o celular…'],
-    preenchido: ['sucesso', 'Celular preenchido no Systêxtil. Confira na tela e aperte F9 para salvar. Nada foi gravado ainda.'],
+    'cliente-conferido': ['andamento', 'Cliente carregado e conferido pelo CNPJ. Preenchendo o DDD e o celular…'],
+    preenchido: ['sucesso', 'DDD e celular preenchidos no Systêxtil. Confira na tela e aperte F9 para salvar. Nada foi gravado ainda.'],
     'tela-nao-encontrada': ['erro', 'A tela Cadastro de Clientes (pedi_f010) não foi encontrada no Systêxtil. Nada foi preenchido.'],
     'cnpj-diferente': ['erro', 'O cliente carregado no Systêxtil não tem o CNPJ deste cliente. Nada foi preenchido no celular.'],
     'cliente-nao-carregou': ['erro', 'O cliente não carregou no Systêxtil. Nada foi preenchido no celular.'],
-    'campo-ausente': ['erro', 'O campo Celular não foi encontrado na tela do Systêxtil. Nada foi preenchido.'],
+    'campo-ausente': ['erro', 'O campo Celular ou o DDD do celular não foi encontrado na tela do Systêxtil. Nada foi preenchido.'],
     expirado: ['erro', 'O pedido expirou (5 minutos). Nada foi preenchido. Envie de novo.'],
     'sem-ponte': ['erro', 'Nenhuma resposta da ponte. Confira se o userscript "SmartTable → Systêxtil (celular)" está instalado e ativo nesta aba do CRM.'],
     // Falha deste lado (os números mudaram entre abrir o modal e clicar): nada saiu daqui.
     'pedido-invalido': ['erro', 'Os números mudaram ou não foi possível montar o pedido. Nada foi enviado.'],
     'tela-ocupada': ['erro', 'A tela do Systêxtil já tem outro cliente carregado. Volte a uma consulta em branco e envie de novo. Nada foi alterado.'],
-    'valor-nao-ficou': ['erro', 'O Systêxtil não aceitou o valor no campo Celular. Nada foi preenchido.'],
-    'ja-igual': ['sucesso', 'O Systêxtil já tem este número no campo Celular. Não há o que salvar.'],
+    'valor-nao-ficou': ['erro', 'O Systêxtil não aceitou o valor no DDD ou no Celular. Nada foi gravado.'],
+    'ja-igual': ['sucesso', 'O Systêxtil já tem este DDD e este número no celular. Não há o que salvar.'],
   });
   const FINAIS = new Set(['preenchido', 'ja-igual', 'tela-nao-encontrada', 'tela-ocupada', 'cnpj-diferente', 'cliente-nao-carregou', 'campo-ausente', 'valor-nao-ficou', 'expirado', 'sem-ponte', 'pedido-invalido']);
   const SUCESSOS = new Set(['preenchido', 'ja-igual']);
@@ -262,10 +277,14 @@
         no('div', CLASSES.indicador, null, [no('span', CLASSES.indicadorRotulo, 'Celular (cadastro)'), no('span', CLASSES.indicadorValor, avaliacao.mascaraCadastro)]),
         no('div', CLASSES.indicador, null, [no('span', CLASSES.indicadorRotulo, 'Celular Responsável'), no('span', CLASSES.indicadorValor, avaliacao.mascaraResponsavel)]),
       ]));
+      if (avaliacao.completado) {
+        corpoEl.appendChild(no('div', CLASSES.nota, null, [no('span', CLASSES.notaTexto, 'O Celular Responsável está no formato antigo (sem o 9). Vai ao Systêxtil com o 9 na frente: confira o número antes de enviar.')]));
+      }
+      corpoEl.appendChild(no('div', CLASSES.nota, null, [no('span', CLASSES.notaTexto, 'O DDD do celular também será preenchido no Systêxtil.')]));
     } else if (!envio) {
       corpoEl.appendChild(no('p', CLASSES.texto, 'Os números não divergem mais. Não há o que enviar.'));
     }
-    corpoEl.appendChild(no('div', CLASSES.nota, null, [no('span', CLASSES.notaTexto, 'O SmartTable só preenche o campo Celular na tela Cadastro de Clientes do Systêxtil (só o número, sem o DDD). Quem salva é você, com F9.')]));
+    corpoEl.appendChild(no('div', CLASSES.nota, null, [no('span', CLASSES.notaTexto, 'O SmartTable só preenche a tela Cadastro de Clientes do Systêxtil. Quem salva é você, com F9.')]));
     const emAndamento = envio && !FINAIS.has(envio.estado);
     if (enviarEl) enviarEl.disabled = !(avaliacao.estado === 'diverge') || Boolean(emAndamento);
   }
@@ -469,6 +488,7 @@
     montarPedido,
     mascarar,
     numeroLocalCompleto,
+    celularCompleto,
     lerCelularCadastro,
     lerCelularResponsavel,
     cnpjDaPagina,

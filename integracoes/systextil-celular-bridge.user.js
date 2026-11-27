@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SmartTable — Ponte Celular CRM / Systêxtil
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      0.1.4
-// @description  Leva, por clique explícito no CRM, o celular do responsável para o campo Celular da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
+// @version      0.2.0
+// @description  Leva, por clique explícito no CRM, o DDD e o celular do responsável para os campos da tela Cadastro de Clientes (pedi_f010) do Systêxtil. SÓ PREENCHE: quem salva (F9) é o operador.
 // @match        https://texhub.texcotton.com.br/crm/*
 // @match        *://*/systextil/*
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable-publico/main/integracoes/systextil-celular-bridge.user.js
@@ -24,7 +24,7 @@
  *  andamento (`smarttable:systextil:celular-resultado`).
  *
  *  Systêxtil (tela Cadastro de Clientes, pedi_f010): preenche o CNPJ (3 campos), tecla F7 para pesquisar, CONFERE que o
- *  cliente carregado tem o CNPJ do pedido e só então preenche o campo Celular. Nunca tecla F9, nunca clica em botão
+ *  cliente carregado tem o CNPJ do pedido e só então preenche o DDD do celular ("00" + DDD) e o campo Celular. Nunca tecla F9, nunca clica em botão
  *  (nem em "Consultar cnpj"). Nunca mexe numa tela que já tem OUTRO cliente carregado.
  *
  *  Privacidade: o número só existe no pedido (valor do Tampermonkey, apagado ao terminar ou expirar, validade de 5
@@ -45,7 +45,7 @@
   const EVENTO_ENVIAR = 'smarttable:systextil:atualizar-celular';
   const EVENTO_RESULTADO = 'smarttable:systextil:celular-resultado';
   const HOST_CRM = 'texhub.texcotton.com.br';
-  const SCHEMA = 1;
+  const SCHEMA = 2; // 2 = o pedido leva o DDD (ponte 0.2.0); o schema 1 (ponte antiga do CRM) é recusado
   const TTL_MAX_MS = 5 * 60 * 1000;
   const TOLERANCIA_RELOGIO_MS = 60 * 1000;
   const FINAIS = new Set(['preenchido', 'ja-igual', 'tela-ocupada', 'cnpj-diferente', 'cliente-nao-carregou', 'campo-ausente', 'valor-nao-ficou', 'expirado', 'pedido-invalido']);
@@ -74,6 +74,7 @@
     if (pedido.schema !== SCHEMA) return { ok: false, motivo: 'schema' };
     if (typeof pedido.id !== 'string' || !/^[A-Za-z0-9._-]{8,80}$/.test(pedido.id)) return { ok: false, motivo: 'id' };
     if (typeof pedido.cnpj !== 'string' || !/^[0-9A-Z]{12}[0-9]{2}$/.test(pedido.cnpj)) return { ok: false, motivo: 'cnpj' };
+    if (typeof pedido.ddd !== 'string' || !/^[1-9][1-9]$/.test(pedido.ddd)) return { ok: false, motivo: 'ddd' };
     if (typeof pedido.celular !== 'string' || !/^9[0-9]{8}$/.test(pedido.celular)) return { ok: false, motivo: 'celular' };
     if (!Number.isFinite(pedido.criadoEm) || !Number.isFinite(pedido.expiraEm)) return { ok: false, motivo: 'datas' };
     if (pedido.expiraEm - pedido.criadoEm > TTL_MAX_MS + 1000 || pedido.expiraEm <= pedido.criadoEm) return { ok: false, motivo: 'validade' };
@@ -171,11 +172,12 @@
       digitos: campo('cgc_2.'),
       nome: campo('nome_cliente.'),
       celular: campo('celular_cliente.'),
+      dddCelular: campo('ddd_cidade_celular.'),
     };
     return Object.values(tela).every(Boolean) ? tela : null;
   }
 
-  const NOMES_CAMPOS = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['nome', 'nome_cliente.'], ['celular', 'celular_cliente.']];
+  const NOMES_CAMPOS = [['cgc_r', 'cgc_r.'], ['cgc_o', 'cgc_o.'], ['cgc_2', 'cgc_2.'], ['nome', 'nome_cliente.'], ['celular', 'celular_cliente.'], ['dddCelular', 'ddd_cidade_celular.']];
   const simNao = (sim) => (sim ? 'sim' : 'não');
 
   /** Quais dos cinco campos existem nesta aba (sim/não), para o log: mostra o que falta se a tela não for reconhecida. */
@@ -302,8 +304,14 @@
     if (!vivo()) { finalizar('expirado', false); return; }
     publicar(pedido.id, 'cliente-conferido', false);
 
-    if (atual.celular.value.replace(/\D/g, '') === pedido.celular) { finalizar('ja-igual', true); return; }
-    if (!definirValor(atual.celular, pedido.celular)) { finalizar('valor-nao-ficou', false); return; } // trava (readOnly/disabled) ou valor que não ficou
+    // O DDD do celular no Systêxtil tem 4 dígitos: "00" + DDD (diagnóstico do usuário, 27/11/2026).
+    const dddDaTela = '00' + pedido.ddd;
+    const dddJaIgual = atual.dddCelular.value.trim() === dddDaTela;
+    const celularJaIgual = atual.celular.value.replace(/\D/g, '') === pedido.celular;
+    if (dddJaIgual && celularJaIgual) { finalizar('ja-igual', true); return; }
+    // Os dois campos têm de aceitar escrita ANTES de eu mexer em qualquer um: sem DDD pela metade.
+    if ([atual.dddCelular, atual.celular].some((el) => el.readOnly || el.disabled)) { finalizar('valor-nao-ficou', false); return; }
+    if (!definirValor(atual.dddCelular, dddDaTela) || !definirValor(atual.celular, pedido.celular)) { finalizar('valor-nao-ficou', false); return; }
     finalizar('preenchido', true); // preenchido, NÃO gravado: o F9 é do operador
   }
 
@@ -352,7 +360,7 @@
    * PARTIDA
    * --------------------------------------------------------------------- */
   limparPedidoVencido();
-  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.1.4 carregada');
+  registrar('lado=' + (window.location.hostname === HOST_CRM ? 'crm' : 'systextil') + ', ponte 0.2.0 carregada');
   if (window.location.hostname === HOST_CRM) iniciarLadoCrm();
   else iniciarLadoSystextil();
 

@@ -24,6 +24,15 @@
 
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.138.0', data: '27/11/2026',
+      mudancas: [
+        'Celular no Systêxtil: quando o Celular Responsável está no formato antigo (DDD + 8 dígitos, sem o 9), o botão agora aparece. O SmartTable completa o número com o 9 na frente e o modal avisa, mostrando o número já completado (só o DDD e os 4 últimos dígitos). Fixo (começa com 2 a 5) continua sem botão.',
+        'Celular no Systêxtil: agora o DDD também vai. Além do campo Celular, o Systêxtil recebe o DDD do celular (o campo de 4 dígitos, "00" + DDD). Antes só o número ia, e o DDD ficava como estava. O botão também aparece quando só o DDD difere. Quem salva continua sendo você, com F9.',
+        'Atualize também a ponte do Systêxtil (versão 0.2.0): a ponte antiga não entende o novo pedido, e o modal avisará que não houve resposta da ponte.',
+        'Junto, a ponte passou a reconhecer o cliente carregado pela razão social (o código do cliente não vem preenchido nessa tela). Isso corrigiu o "aperte F7" que aparecia com o cliente já na tela e fez a proteção contra "outro cliente já aberto" valer de verdade.',
+      ],
+    },
+    {
       versao: '1.137.2', data: '26/11/2026',
       mudancas: [
         'Desempenho na tela do cliente: o SmartTable passou a fazer bem menos trabalho quando a página muda sozinha (o CRM atualizando algo, avisos, painéis). Em teste, 300 mudanças seguidas gastavam cerca de 230 ms de processamento, 600 leituras de layout e 300 varreduras da lista de títulos; agora gastam cerca de 22 ms, nenhuma leitura de layout e nenhuma varredura. Nada muda no que aparece na tela.',
